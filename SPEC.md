@@ -150,7 +150,7 @@ graph TD
 ### Phase 1: 原型与样板间验证 (Dogfooding Stage) - [当前阶段]
 - [x] 在 SecondBrain 沉淀架构论证报告与生态真空分析（[[01_AI_Logs/2026-09-28-agent-memory-architecture-evaluation-and-litedb-decision|研发日志]]）
 - [x] 在 SecondBrain 验证通用规约（[[AGENTS.md]] Mermaid 卸载准则）
-- [x] 在 SecondBrain 跑通单文件原型脚本（[`30_Resources/scripts/agent_loadout.py`](file:///Users/k0maru3/Documents/SecondBrain/30_Resources/scripts/agent_loadout.py)）
+- [x] 在 SecondBrain 跑通单文件原型脚本（`30_Resources/scripts/agent_loadout.py`）
 
 ### Phase 2: 独立工程立项与核心包构建 (`k0maru-core` & `k0maru-cli`)
 - [ ] 创建独立的 Git 仓库 `K0maru-Agent-Memory`，采用模块化 Python (或 Rust) 架构；
@@ -209,7 +209,7 @@ graph TD
 - **主索引 (MOC)**：[[Index]]
 - **全局规约**：[[AGENTS.md]]
 - **技术调研与决策日志**：[[01_AI_Logs/2026-09-28-agent-memory-architecture-evaluation-and-litedb-decision|2026-09-28 Agent 记忆中枢技术全景研判与决策复盘]]
-- **样板间测试脚本**：[`30_Resources/scripts/agent_loadout.py`](file:///Users/k0maru3/Documents/SecondBrain/30_Resources/scripts/agent_loadout.py)
+- **样板间测试脚本**：`30_Resources/scripts/agent_loadout.py`
 - **底层架构卡片**：
   - [[20_Cards/AI编码中的上下文卫生与Smart-Zone法则|🧠 AI编码中的上下文卫生与Smart-Zone法则]]
   - [[20_Cards/主从Agent编排与工单派发架构|🧠 主从Agent编排与工单派发架构]]
