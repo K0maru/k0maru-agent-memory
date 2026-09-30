@@ -1,7 +1,7 @@
 # 14 — EmbeddingEngine Trait & Deterministic Mock Provider
 
 **Type:** task  
-**Status:** ready-for-agent  
+**Status:** resolved  
 **Blocked by:** None  
 
 ## Context
@@ -27,6 +27,6 @@ To decouple vector search from specific deep learning runtimes and maintain fast
    - Verifies batch consistency.
 
 ## Acceptance Criteria
-- [ ] `EmbeddingEngine` trait is cleanly designed and object-safe (`Arc<dyn EmbeddingEngine>`).
-- [ ] `MockEmbeddingEngine` provides repeatable unit vectors without external dependencies.
-- [ ] 100% test coverage for trait and mock provider.
+- [x] `EmbeddingEngine` trait is cleanly designed and object-safe (`Arc<dyn EmbeddingEngine>`).
+- [x] `MockEmbeddingEngine` provides repeatable unit vectors without external dependencies.
+- [x] 100% test coverage for trait and mock provider.

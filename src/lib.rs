@@ -12,6 +12,7 @@ pub mod offload;
 pub mod parser;
 pub mod scanner;
 pub mod storage;
+pub mod vector;
 
 pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
 pub use loadout::{
@@ -22,6 +23,7 @@ pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
 pub use scanner::IncrementalScanner;
 pub use storage::SqliteStorage;
+pub use vector::{EmbeddingEngine, MockEmbeddingEngine, VectorError};
 
 #[cfg(test)]
 mod tests {
