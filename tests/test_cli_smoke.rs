@@ -7,7 +7,10 @@ fn test_cli_version_smoke() {
     cmd.arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("k0maru 0.1.0"));
+        .stdout(predicate::str::contains(format!(
+            "k0maru {}",
+            k0maru::VERSION
+        )));
 }
 
 #[test]

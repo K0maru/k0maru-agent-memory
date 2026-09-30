@@ -33,7 +33,7 @@ fn test_mcp_initialize() {
     assert_eq!(resp["id"], 1);
     assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
     assert_eq!(resp["result"]["serverInfo"]["name"], "k0maru");
-    assert_eq!(resp["result"]["serverInfo"]["version"], "0.1.0");
+    assert_eq!(resp["result"]["serverInfo"]["version"], k0maru::VERSION);
     assert!(resp["result"]["capabilities"]["tools"].is_object());
 }
 
