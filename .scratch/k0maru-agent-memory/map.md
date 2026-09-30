@@ -23,4 +23,7 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [06-incremental-scanner-and-sync-engine.md](issues/06-incremental-scanner-and-sync-engine.md) (Blocked by: 04, 05)
 - [x] [07-loadout-builder-and-cli-command.md](issues/07-loadout-builder-and-cli-command.md) (Blocked by: 06)
 - [x] [08-symbolic-log-offloader-and-inspect-cli.md](issues/08-symbolic-log-offloader-and-inspect-cli.md) (Blocked by: 01)
-- [x] [09-fastmcp-stdio-server-integration.md](issues/09-fastmcp-stdio-server-integration.md) (Blocked by: 07, 08) ✅ **COMPLETED**
+- [x] [09-fastmcp-stdio-server-integration.md](issues/09-fastmcp-stdio-server-integration.md) (Blocked by: 07, 08) ✅ **COMPLETED (v0.1.0)**
+- [ ] [10-benchmark-fixtures-and-token-evaluator.md](issues/10-benchmark-fixtures-and-token-evaluator.md) (Blocked by: None) 👈 **ACTIVE FRONTIER**
+- [ ] [11-benchmark-systems-and-latency-runner.md](issues/11-benchmark-systems-and-latency-runner.md) (Blocked by: 10)
+- [ ] [12-benchmark-chart-generator-and-ci-pipeline.md](issues/12-benchmark-chart-generator-and-ci-pipeline.md) (Blocked by: 10, 11)
