@@ -14,7 +14,7 @@
 
 ## 💡 为什么需要 K0maru-Agent-Memory？
 
-成千上万的开发者与极客拥有精心维护的 **Obsidian Vault（如 SecondBrain）** 或 **Karpathy 风格的平铺 LLM-Wiki**。这些是人类与 AI 协作最宝贵的事实资产。
+成千上万的开发者与极客拥有精心维护的 **Obsidian Vault** 或 **Karpathy 风格的平铺 LLM-Wiki**。这些是人类与 AI 协作最宝贵的事实资产。
 
 然而，现存的记忆中枢工具（如 TencentDB-Agent-Memory、Letta、rohitg00/agentmemory）存在巨大的痛点：
 * ❌ **强行推行封闭数据库**：逼迫用户安装 Docker、PostgreSQL、Redis，把知识录入进私有黑盒数据库，割裂了本地已有笔记；
@@ -35,7 +35,7 @@
 开新会话写代码时，AI 总是“失忆”？一键提取项目愿景、5 条 L3 常青规则卡片核心概念与最近 3 条研发日志，严格控制在 **< 300 Token**：
 ```bash
 # 提取项目背包并自动注入系统剪贴板 (macOS / Linux / Windows)
-k0maru loadout OKX --vault ~/Documents/SecondBrain --copy
+k0maru loadout my-project --vault ~/wiki --copy
 ```
 在新会话直接 `Cmd + V` 粘贴，AI 瞬间满血读档！
 
@@ -52,7 +52,37 @@ k0maru inspect node_54697ed3
 
 ### 3. 零配置的 FastMCP 原生集成（`k0maru mcp`）
 无需后台常驻常开微服务，通过标准 `stdio` 暴露 Model Context Protocol：
-- 在 Claude Code / Cursor / Windsurf 挂载后，AI 凭**自然语言**（*“查一下 OKX 项目背景”*、*“帮我翻翻关于资金费率的卡片”*）自主触发工具调用，随 IDE 启动唤醒，关闭即退出。
+- 在 Claude Code / Cursor / Windsurf 挂载后，AI 凭**自然语言**（*“查一下项目背景”*、*“帮我翻翻关于系统架构的卡片”*）自主触发工具调用，随 IDE 启动唤醒，关闭即退出。
+-
+----
+
+## 🔄 记忆全生命周期：LLM-Wiki 的闭环写回与持续结晶
+
+记忆不是单向消费，而是**「读取 ➔ 执行 ➔ 沉淀 ➔ 结晶」的双向共生闭环**。通过结合工程协作规约（如 `AGENTS.md`）或自动化调度，保证 LLM-Wiki 知识库随时保持最新：
+
+```mermaid
+flowchart LR
+    L0["1. 会话读档 (Loadout)<br/>&lt;300 Token 背包注入"] --> L1["2. 执行与过滤 (Offload)<br/>长日志管道化转存 Mermaid"]
+    L1 --> L2["3. 交付自动沉淀 (Work-log)<br/>生成 logs/YYYY-MM-DD-*.md"]
+    L2 --> L3["4. 知识蒸馏结晶 (Consolidation)<br/>定期提炼 concepts/ 原则卡片"]
+    L3 -.->|"持续赋能新会话"| L0
+```
+
+### 1. 唤醒与读档（Loadout）
+每次开启新会话时，Agent 自动提取当前项目的核心目标、关联设计原则（`[[concepts/...]]`）与最近的改动日志，严格压缩至 **< 300 Token** 注入上下文，在保障处于 Smart-Zone 的前提下防止“跨会话失忆”。
+
+### 2. 执行与日志卸载（Offload）
+运行构建、单测或调试等长耗时命令时，通过 Unix 管道（`cmd | k0maru offload`）将冗长输出自动保存为独立引用日志，仅在上下文保留极简的 Mermaid 状态转移图，保持 Prompt 上下文卫生。
+
+### 3. 会话交付自动落盘（Session Flush）
+在 Agent 工作流契约（如 Master-Worker 模式）中，任务或工单标记为完成的硬性条件之一是**交付复盘沉淀**：
+- Agent 主动在 `wiki/logs/` 下创建当日研发日志，记录关键决策（ADR）、修改文件与踩坑记录；
+- 同步更新对应的 `wiki/projects/` 项目主档，保证下一次跨会话读档能立即感知最新进度。
+
+### 4. 知识提炼与定期结晶（Memory Consolidation）
+散落在各个日期的研发日志不是最终形态。通过定期的代码审查或后台自动化定时任务（如 cron 调度）：
+- **日志提炼**：扫描近期的研发日志，识别高频出现的模式或规约；
+- **结晶为常青卡片**：将抽象出的普适工程经验提炼为 `wiki/concepts/` 下的原子知识卡片，实现人类工程师与 AI 共享的自演进知识库。
 
 ---
 
@@ -61,7 +91,7 @@ k0maru inspect node_54697ed3
 ```mermaid
 graph TD
     subgraph L1 ["1. 存储与 Wiki 适配层 (k0maru::adapters)"]
-        Obsidian["ObsidianAdapter (SecondBrain 目录语义映射 · WikiLinks)"]
+        Obsidian["ObsidianAdapter (标准目录语义映射 · Frontmatter · WikiLinks)"]
         Generic["GenericWikiAdapter (Karpathy 平铺 LLM-Wiki 适配)"]
         Parser["pulldown-cmark AST 解析器 (代码块隔离 · 裸/别名双链 · 1000篇~6.7ms)"]
     end
@@ -128,7 +158,7 @@ k0maru --version
   "mcpServers": {
     "k0maru-memory": {
       "command": "k0maru",
-      "args": ["mcp", "--vault", "/Users/yourname/Documents/SecondBrain"]
+      "args": ["mcp", "--vault", "/path/to/your/wiki"]
     }
   }
 }

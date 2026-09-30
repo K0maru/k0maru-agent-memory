@@ -28,13 +28,13 @@ k0maru --version
 
 ### 1. 查看知识库里当前有哪些项目：
 ```bash
-k0maru loadout -l --vault ~/Documents/SecondBrain
+k0maru loadout -l --vault ~/wiki
 ```
-> 输出你的活跃项目清单（如 `OKX资金费率套利`、`AI-Agent-Skills`、`DexHand` 等）。
+> 输出你的活跃项目清单（如 `my-project`、`auth-service` 等）。
 
 ### 2. 提取项目记忆并直接注入系统剪贴板：
 ```bash
-k0maru loadout OKX --vault ~/Documents/SecondBrain --copy
+k0maru loadout my-project --vault ~/wiki --copy
 ```
 > 终端显示：`📋 Copied loadout (<300 tokens) to clipboard!`
 
@@ -88,7 +88,7 @@ k0maru inspect node_54697ed3
   "mcpServers": {
     "k0maru-memory": {
       "command": "k0maru",
-      "args": ["mcp", "--vault", "/Users/yourname/Documents/SecondBrain"]
+      "args": ["mcp", "--vault", "/path/to/your/wiki"]
     }
   }
 }
@@ -100,7 +100,7 @@ k0maru inspect node_54697ed3
   "mcpServers": {
     "k0maru-memory": {
       "command": "k0maru",
-      "args": ["mcp", "--vault", "/Users/yourname/Documents/SecondBrain"]
+      "args": ["mcp", "--vault", "/path/to/your/wiki"]
     }
   }
 }
@@ -108,9 +108,9 @@ k0maru inspect node_54697ed3
 
 ### 3. 配置完成后的自然语言体验：
 在聊天窗口中直接用大白话提问，AI 会自动命中 MCP 工具：
-- *“我想了解一下 OKX 项目的背景与架构核心，请帮我查阅相关笔记”*  
-  👉 AI 自动调用 `k0maru-memory/recall_memory` 翻阅你的第二大脑；
-- *“准备开始开发 OKX 项目，帮我读档”*  
+- *“我想了解一下当前项目的背景与架构核心，请帮我查阅相关笔记”*  
+  👉 AI 自动调用 `k0maru-memory/recall_memory` 翻阅你的知识库；
+- *“准备开始开发 my-project，帮我读档”*  
   👉 AI 自动调用 `k0maru-memory/get_project_loadout`，自主装配紧凑背包。
 
 ---
