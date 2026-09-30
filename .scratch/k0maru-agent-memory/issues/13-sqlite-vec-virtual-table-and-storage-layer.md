@@ -1,7 +1,7 @@
 # 13 — sqlite-vec Virtual Table & Vector Storage Seam
 
 **Type:** task  
-**Status:** ready-for-agent  
+**Status:** resolved  
 **Blocked by:** None  
 
 ## Context
@@ -33,7 +33,19 @@ Phase 4 introduces dense vector storage into the transient `cache.sqlite` databa
    - Delete vectors and verify clean removal.
 
 ## Acceptance Criteria
-- [ ] Schema initializes with `document_vectors` and `vector_metadata` without SQLite errors.
-- [ ] Inserting, querying, and deleting vectors succeeds with proper cosine distance calculations.
-- [ ] Rebuilding `cache.sqlite` clears and recreates vector tables safely.
-- [ ] All new tests pass with `cargo test`.
+- [x] Schema initializes with `document_vectors` and `vector_metadata` without SQLite errors.
+- [x] Inserting, querying, and deleting vectors succeeds with proper cosine distance calculations.
+- [x] Rebuilding `cache.sqlite` clears and recreates vector tables safely.
+- [x] All new tests pass with `cargo test`.
+
+## Comments
+
+### Implementation Summary
+- Integrated `sqlite-vec = "0.1"` into `Cargo.toml`.
+- Implemented process-wide automatic extension registration `ensure_sqlite_vec_registered()` via `rusqlite::ffi::sqlite3_auto_extension` and `sqlite_vec::sqlite3_vec_init`.
+- Added `document_vectors` virtual table (`vec0`, 384 dimensions, cosine distance metric) and `vector_metadata` table to `SCHEMA_SQL`.
+- Implemented `insert_vector`, `delete_vector`, `search_vectors`, and `get_vector_content_hash` on `SqliteStorage`.
+- Updated `wipe_and_rebuild` to drop vector tables and recreate schema cleanly.
+- Exported `SqliteStorage`, `ensure_sqlite_vec_registered`, and `VECTOR_DIMENSIONS` from `crate::storage`.
+- Added comprehensive integration tests in `tests/test_sqlite_vec_storage.rs` covering schema initialization, vector upsert, cosine distance ranking, deletion, wipe-and-rebuild, and disk persistence.
+- Verified 100% test pass rate, `cargo clippy --all-targets -- -D warnings` zero warnings, and `cargo fmt --check` clean.

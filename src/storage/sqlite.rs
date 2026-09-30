@@ -4,11 +4,27 @@
 //! [`CacheStorage`], with BM25-ranked full-text search and link graph index.
 
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
 use rusqlite::params;
 
 use crate::core::models::{CachedDocMeta, Document, HierarchyLevel, WikiLink};
 use crate::core::traits::CacheStorage;
+
+static INIT_SQLITE_VEC: Once = Once::new();
+
+/// Registers sqlite-vec as an auto-extension for all new SQLite connections in the current process.
+pub fn ensure_sqlite_vec_registered() {
+    INIT_SQLITE_VEC.call_once(|| unsafe {
+        #[allow(clippy::missing_transmute_annotations)]
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+}
+
+/// Default embedding dimensions for document vectors.
+pub const VECTOR_DIMENSIONS: usize = 384;
 
 /// Ephemeral SQLite-backed storage implementing [`CacheStorage`].
 pub struct SqliteStorage {
@@ -16,10 +32,14 @@ pub struct SqliteStorage {
 }
 
 impl SqliteStorage {
+    /// Default embedding dimensions for document vectors.
+    pub const VECTOR_DIMENSIONS: usize = VECTOR_DIMENSIONS;
+
     /// Opens or creates a SQLite cache database at the specified file path.
     ///
     /// Automatically ensures parent directories exist and runs schema initialization.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        ensure_sqlite_vec_registered();
         let path_ref = path.as_ref();
         if let Some(parent) = path_ref.parent() {
             if !parent.as_os_str().is_empty() {
@@ -39,6 +59,7 @@ impl SqliteStorage {
 
     /// Creates an in-memory SQLite cache database (ideal for tests and ephemeral runs).
     pub fn in_memory() -> Result<Self, Box<dyn std::error::Error>> {
+        ensure_sqlite_vec_registered();
         let conn = rusqlite::Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
@@ -56,6 +77,122 @@ impl SqliteStorage {
     pub fn connection_mut(&mut self) -> &mut rusqlite::Connection {
         &mut self.conn
     }
+
+    /// Inserts or replaces a document vector and its corresponding metadata content hash.
+    pub fn insert_vector(
+        &self,
+        doc_id: &str,
+        embedding: &[f32],
+        hash: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if embedding.len() != Self::VECTOR_DIMENSIONS {
+            return Err(format!(
+                "Embedding dimensions mismatch: expected {}, got {}",
+                Self::VECTOR_DIMENSIONS,
+                embedding.len()
+            )
+            .into());
+        }
+
+        // Delete existing vector if present to support upsert behavior
+        let _ = self.conn.execute(
+            "DELETE FROM document_vectors WHERE id = ?1",
+            params![doc_id],
+        );
+
+        let bytes = f32_slice_to_bytes(embedding);
+        self.conn.execute(
+            "INSERT INTO document_vectors (id, embedding) VALUES (?1, ?2)",
+            params![doc_id, bytes],
+        )?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO vector_metadata (document_id, content_hash, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(document_id) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                updated_at = excluded.updated_at
+            "#,
+            params![doc_id, hash as i64, now],
+        )?;
+
+        Ok(())
+    }
+
+    /// Deletes a document vector and its metadata by document ID.
+    pub fn delete_vector(&self, doc_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.conn.execute(
+            "DELETE FROM document_vectors WHERE id = ?1",
+            params![doc_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM vector_metadata WHERE document_id = ?1",
+            params![doc_id],
+        )?;
+        Ok(())
+    }
+
+    /// Searches for the nearest vector neighbors by cosine distance.
+    ///
+    /// Returns pairs of `(document_id, distance)` ordered by ascending distance.
+    pub fn search_vectors(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+        if limit == 0 || query_embedding.is_empty() {
+            return Ok(Vec::new());
+        }
+        if query_embedding.len() != Self::VECTOR_DIMENSIONS {
+            return Err(format!(
+                "Embedding dimensions mismatch: expected {}, got {}",
+                Self::VECTOR_DIMENSIONS,
+                query_embedding.len()
+            )
+            .into());
+        }
+
+        let bytes = f32_slice_to_bytes(query_embedding);
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, distance FROM document_vectors WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance",
+        )?;
+
+        let rows = stmt.query_map(params![bytes, limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let distance: f32 = row.get(1)?;
+            Ok((id, distance))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Retrieves the content hash associated with a document's vector, if present.
+    pub fn get_vector_content_hash(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT content_hash FROM vector_metadata WHERE document_id = ?1")?;
+        let mut rows = stmt.query(params![doc_id])?;
+        if let Some(row) = rows.next()? {
+            let hash: i64 = row.get(0)?;
+            Ok(Some(hash as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn query_raw_docs(
         &self,
         sql: &str,
@@ -117,6 +254,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
     tags,
     tokenize = 'unicode61'
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
+    id TEXT PRIMARY KEY,
+    embedding float[384] distance_metric=cosine
+);
+
+CREATE TABLE IF NOT EXISTS vector_metadata (
+    document_id TEXT PRIMARY KEY,
+    content_hash INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 "#;
 
 impl CacheStorage for SqliteStorage {
@@ -127,6 +275,8 @@ impl CacheStorage for SqliteStorage {
 
     fn wipe_and_rebuild(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let drop_sql = r#"
+        DROP TABLE IF EXISTS vector_metadata;
+        DROP TABLE IF EXISTS document_vectors;
         DROP TABLE IF EXISTS documents_fts;
         DROP TABLE IF EXISTS tags;
         DROP TABLE IF EXISTS links;
@@ -225,6 +375,14 @@ impl CacheStorage for SqliteStorage {
             "DELETE FROM documents_fts WHERE path = ?1",
             params![path_str],
         )?;
+        let _ = tx.execute(
+            "DELETE FROM document_vectors WHERE id = ?1",
+            params![path_str],
+        );
+        let _ = tx.execute(
+            "DELETE FROM vector_metadata WHERE document_id = ?1",
+            params![path_str],
+        );
 
         tx.commit()?;
         Ok(())
@@ -410,4 +568,12 @@ fn sanitize_fts5_query(query: &str) -> String {
         }
     }
     terms.join(" ")
+}
+
+fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(slice));
+    for &val in slice {
+        bytes.extend_from_slice(&val.to_le_bytes());
+    }
+    bytes
 }
