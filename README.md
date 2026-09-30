@@ -1,88 +1,87 @@
-# 🚀 K0maru-Agent-Memory
+# K0maru-Agent-Memory
 
-> **面向个人 LLM-Wiki 与第二大脑的独立轻量化 Agent 记忆引擎**  
+> **面向个人 Markdown 知识库与本地 LLM-Wiki 的轻量化 Agent 记忆中枢与上下文治理工具**  
 > *A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents.*
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 73 passed](https://img.shields.io/badge/Tests-73_passed-brightgreen.svg)]()
-[![Binary Size: 3.6MB](https://img.shields.io/badge/Binary_Size-3.6MB-success.svg)]()
-[![Cold Start: <5ms](https://img.shields.io/badge/Cold_Start-%3C5ms-purple.svg)]()
+[![Tests: 85 passed](https://img.shields.io/badge/Tests-85_passed-brightgreen.svg)]()
+[![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
+[![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
 ---
 
-## 💡 为什么需要 K0maru-Agent-Memory？
+## 📌 背景与设计动因 (Motivation & Design Goals)
 
-成千上万的开发者与极客拥有精心维护的 **Obsidian Vault** 或 **Karpathy 风格的平铺 LLM-Wiki**。这些是人类与 AI 协作最宝贵的事实资产。
+在现代软件工程中，AI 编码智能体（如 Claude Code、Cursor、Windsurf、Antigravity 等）已经深度融入开发工作流。然而在复杂系统与长周期项目中，智能体与上下文交互时普遍面临以下工程挑战：
 
-然而，现存的记忆中枢工具（如 TencentDB-Agent-Memory、Letta、rohitg00/agentmemory）存在巨大的痛点：
-* ❌ **强行推行封闭数据库**：逼迫用户安装 Docker、PostgreSQL、Redis，把知识录入进私有黑盒数据库，割裂了本地已有笔记；
-* ❌ **霸占网络端口与后台资源**：在后台开常驻守护进程，霸占 4 个网络端口，经常端口冲突或僵死；
-* ❌ **长日志撑爆 Agent 上下文**：终端跑测试跑出 500 行堆栈，全塞进 Prompt，直接引发注意力漂移、大模型降智和 Token 剧烈消耗。
+1. **跨会话上下文丢失（Cross-Session Amnesia）**：开辟新任务会话时，智能体无法自动获知项目的顶层架构约束（ADR）与近期开发进展，往往需要开发者反复复制粘贴背景，或因注入过多无关文档导致提示词冗余。
+2. **终端长日志挤占上下文窗口（Terminal Log Bloat）**：运行单测、构建工具或排障命令时，数十至上千行的堆栈输出容易迅速填满上下文窗口，诱发注意力漂移（Attention Drift）并大幅增加 Token 成本。
+3. **本地开发环境下的架构权衡**：许多现有的记忆或向量检索系统采用基于 Docker、PostgreSQL 或常驻后台守护进程的微服务架构。这类架构在团队多租户云端协作中具有优势，但在个人开发者的单机轻量化场景中，存在依赖链条长、内存占用高以及网络端口冲突等问题。
 
-### 🌟 我们的核心哲学
+### 🌟 核心设计原则
 
-1. **"Bring Your Own Wiki"（自备笔记库）**：用户的 Markdown 文件是**唯一的真理源泉（Single Source of Truth）**，零格式侵入，不改文件后缀，不强制移动目录；
-2. **"真理在文件，性能在缓存"（Disposable Cache）**：底层仅维护一个瞬态的单文件 `cache.sqlite`（FTS5 BM25 + 双链有向图），随时可物理删除，**2 毫秒内无损秒级自愈重建**；
-3. **"零守护进程（Zero-Daemon）与单文件 3.6MB 分发"**：纯 Rust 编写，静态编译，冷启动 **< 5 毫秒**，内存仅占用 **~5MB**，不占任何网络端口，支持标准 CLI 管道交互与标准 stdio MCP 协议。
+* **自备文档（Bring Your Own Markdown）**：以用户已有的本地 Markdown 笔记（如 Obsidian Vault、Karpathy 风格 LLM-Wiki）作为唯一的事实源泉（Single Source of Truth），不引入私有二进制文件格式，不强制更改文件后缀或现有目录层级。
+* **瞬态缓存（Disposable Cache）**：底层仅维护单文件 SQLite 数据库（`cache.sqlite`），用于 FTS5 BM25 全文检索与双链图拓扑加速。该数据库被视为随时可抛弃的瞬态缓存，删除后可在数十毫秒内完全自愈重建。
+* **零守护进程与极简开销（Zero-Daemon & Low Overhead）**：纯 Rust 编写并静态编译为单个 ~3.6MB 的二进制可执行文件，冷启动耗时 ~3.4ms，常驻内存仅 ~11MB，不占用任何常驻网络端口，通过标准 CLI 管道与 `stdio` MCP 协议即用即走。
 
 ---
 
-## ⚡ 三大杀手级核心场景
+## ⚡ 核心功能与工作流 (Core Capabilities)
 
-### 1. 秒级读档装配背包（`k0maru loadout`）
-开新会话写代码时，AI 总是“失忆”？一键提取项目愿景、5 条 L3 常青规则卡片核心概念与最近 3 条研发日志，严格控制在 **< 300 Token**：
+### 1. 项目级读档装配背包（`k0maru loadout`）
+开辟新开发任务时，根据项目标识提取该项目的核心目标、关联的常青架构原则（L3）以及最近的开发日志（L2），将高密度上下文严格控制在 **< 300 Token**（维持在模型的 Smart-Zone 推理黄金区）：
+
 ```bash
-# 提取项目背包并自动注入系统剪贴板 (macOS / Linux / Windows)
+# 提取指定项目的装配背包，并自动写入系统剪贴板 (macOS / Linux / Windows)
 k0maru loadout my-project --vault ~/wiki --copy
 ```
-在新会话直接 `Cmd + V` 粘贴，AI 瞬间满血读档！
 
-### 2. 终端日志符号化卸载防撑爆（`k0maru offload` & `inspect`）
-运行测试或长命令时，防止刷屏日志吃光上下文：
+在新会话中直接粘贴即可为智能体提供必要的项目背景，避免重复解释。
+
+### 2. 终端长日志符号化卸载（`k0maru offload` & `inspect`）
+在执行自动化测试或编译命令时，通过标准 Unix 管道对输出进行治理：
+- 小于等于 50 行的输出原样透传；
+- 超过 50 行的超长日志自动截断并持久化至外部引用目录（`.scratch/refs/`），在控制台仅输出带 `node_id` 的结构化 Mermaid 状态图；
+- 智能体如需深入排查某处失败，可凭 `node_id` 精准调取局部错误堆栈切片。
+
 ```bash
-# 日志 <= 50 行原样透传；> 50 行自动截断存入 .scratch/refs/ 并生成 Mermaid 状态图
+# 管道化执行过滤，防上下文撑爆
 cargo test | k0maru offload
-```
-遇到失败节点时，AI 凭提取码精准回溯局部堆栈：
-```bash
+
+# 按需定向检索特定故障切片
 k0maru inspect node_54697ed3
 ```
 
-### 3. 零配置的 FastMCP 原生集成（`k0maru mcp`）
-无需后台常驻常开微服务，通过标准 `stdio` 暴露 Model Context Protocol：
-- 在 Claude Code / Cursor / Windsurf 挂载后，AI 凭**自然语言**（*“查一下项目背景”*、*“帮我翻翻关于系统架构的卡片”*）自主触发工具调用，随 IDE 启动唤醒，关闭即退出。
--
-----
+### 3. FastMCP 协议原生集成（`k0maru mcp`）
+无需启动后台网络服务，通过标准 `stdio` 暴露 Model Context Protocol（JSON-RPC 2.0），随 IDE 唤醒与退出：
+- `get_project_loadout`：获取项目紧凑型读档提示词包；
+- `recall_memory`：基于 SQLite FTS5 的 BM25 词法全文检索；
+- `offload_context`：提供字符串级的长文本符号化卸载；
+- `inspect_log_node`：检索已卸载的局部日志切片。
 
-## 🔄 记忆全生命周期：LLM-Wiki 的闭环写回与持续结晶
+### 4. 增量感知与快速同步（`k0maru sync`）
+基于文件的最后修改时间（`mtime`）与 `xxh3` 校验和状态机，仅增量处理新增、修改或删除的文档，支持 `--json` 输出供外部工具与自动化脚本调用。
 
-记忆不是单向消费，而是**「读取 ➔ 执行 ➔ 沉淀 ➔ 结晶」的双向共生闭环**。通过结合工程协作规约（如 `AGENTS.md`）或自动化调度，保证 LLM-Wiki 知识库随时保持最新：
+---
+
+## 🔄 记忆生命周期：LLM-Wiki 的双向闭环与经验结晶
+
+知识库与智能体之间应当形成可持续复利的双向反馈回路。系统遵循**「仅在产生阶段交付或明确决策点时才沉淀」**的原则，防止琐碎会话毒化长期记忆：
 
 ```mermaid
 flowchart LR
-    L0["1. 会话读档 (Loadout)<br/>&lt;300 Token 背包注入"] --> L1["2. 执行与过滤 (Offload)<br/>长日志管道化转存 Mermaid"]
-    L1 --> L2["3. 交付自动沉淀 (Work-log)<br/>生成 logs/YYYY-MM-DD-*.md"]
-    L2 --> L3["4. 知识蒸馏结晶 (Consolidation)<br/>定期提炼 concepts/ 原则卡片"]
-    L3 -.->|"持续赋能新会话"| L0
+    L0["1. 会话读档 (Loadout)<br/>&lt;300 Token 紧凑背包"] --> L1["2. 运行过滤 (Offload)<br/>长日志管道化转存 Mermaid"]
+    L1 --> L2["3. 交付自动沉淀 (Session Flush)<br/>生成 logs/YYYY-MM-DD-*.md"]
+    L2 --> L3["4. 知识定期结晶 (Consolidation)<br/>提炼 concepts/ 原则卡片"]
+    L3 -.->|"持续更新知识图谱"| L0
 ```
 
-### 1. 唤醒与读档（Loadout）
-每次开启新会话时，Agent 自动提取当前项目的核心目标、关联设计原则（`[[concepts/...]]`）与最近的改动日志，严格压缩至 **< 300 Token** 注入上下文，在保障处于 Smart-Zone 的前提下防止“跨会话失忆”。
-
-### 2. 执行与日志卸载（Offload）
-运行构建、单测或调试等长耗时命令时，通过 Unix 管道（`cmd | k0maru offload`）将冗长输出自动保存为独立引用日志，仅在上下文保留极简的 Mermaid 状态转移图，保持 Prompt 上下文卫生。
-
-### 3. 会话交付自动落盘（Session Flush）
-在 Agent 工作流契约（如 Master-Worker 模式）中，任务或工单标记为完成的硬性条件之一是**交付复盘沉淀**：
-- Agent 主动在 `wiki/logs/` 下创建当日研发日志，记录关键决策（ADR）、修改文件与踩坑记录；
-- 同步更新对应的 `wiki/projects/` 项目主档，保证下一次跨会话读档能立即感知最新进度。
-
-### 4. 知识提炼与定期结晶（Memory Consolidation）
-散落在各个日期的研发日志不是最终形态。通过定期的代码审查或后台自动化定时任务（如 cron 调度）：
-- **日志提炼**：扫描近期的研发日志，识别高频出现的模式或规约；
-- **结晶为常青卡片**：将抽象出的普适工程经验提炼为 `wiki/concepts/` 下的原子知识卡片，实现人类工程师与 AI 共享的自演进知识库。
+1. **唤醒与读档（Loadout）**：每次开启新任务时，动态注入精简的项目愿景、关联设计原则与最新日志。
+2. **运行与过滤（Offload）**：长耗时命令通过管道过滤，将冗长堆栈转储为外部切片，主上下文仅维护拓扑图。
+3. **阶段交付自动沉淀（Session Flush）**：任务或工单达成时，智能体在 `logs/` 写入当日研发记录与技术决策（ADR），并同步更新项目状态。
+4. **知识提炼与定期结晶（Consolidation）**：周期性巡检日志中的高频经验与踩坑规约，升维提炼为 `concepts/` 或常青原子卡片，实现知识库自演进。
 
 ---
 
@@ -91,14 +90,14 @@ flowchart LR
 ```mermaid
 graph TD
     subgraph L1 ["1. 存储与 Wiki 适配层 (k0maru::adapters)"]
-        Obsidian["ObsidianAdapter (标准目录语义映射 · Frontmatter · WikiLinks)"]
+        Obsidian["ObsidianAdapter (目录语义映射 · Frontmatter · WikiLinks)"]
         Generic["GenericWikiAdapter (Karpathy 平铺 LLM-Wiki 适配)"]
-        Parser["pulldown-cmark AST 解析器 (代码块隔离 · 裸/别名双链 · 1000篇~6.7ms)"]
+        Parser["pulldown-cmark AST 解析器 (代码块过滤 · 裸/别名双链提取)"]
     end
 
     subgraph L2 ["2. 增量感知与瞬态缓存层 (k0maru::scanner & storage)"]
         Scanner["IncrementalScanner (mtime + xxh3 脏检查 · 零变动重扫 <5ms)"]
-        Storage[("SqliteStorage (cache.sqlite, documents, links, tags, <2ms 自愈)")]
+        Storage[("SqliteStorage (cache.sqlite, documents, links, tags, <100ms 自愈)")]
     end
 
     subgraph L3 ["3. 混合检索与图拓扑层 (k0maru::storage)"]
@@ -108,7 +107,7 @@ graph TD
 
     subgraph L4 ["4. Agent 交互与协议层 (k0maru::cli & mcp)"]
         Loadout["k0maru loadout (<300 Token 背包 · --copy)"]
-        Offload["k0maru offload & inspect (Mermaid 状态图 · 精准回溯)"]
+        Offload["k0maru offload & inspect (Mermaid 状态图 · 局部精细回溯)"]
         MCP["FastMCP Server (stdio 标准协议 · 零网络端口)"]
     end
 
@@ -122,25 +121,80 @@ graph TD
 
 ---
 
-## 🆚 与 TencentDB-Agent-Memory 对比矩阵
+## 📊 方案对比矩阵 (Architectural Comparison)
 
-| 评估维度 | TencentDB-Agent-Memory (2.7万星) | K0maru-Agent-Memory (本项目) |
-| :--- | :--- | :--- |
-| **存储载体** | PostgreSQL, pgvector, Redis (Docker 容器强制绑定) | **人类已有的 Markdown 笔记** (纯文件，零侵入) |
-| **部署与运行开销** | Docker Compose 微服务，常驻 4 个端口，占 ~2GB RAM | **单静态二进制 3.6MB**，0 端口，冷启动 <5ms，占 ~5MB RAM |
-| **缓存机制** | 强依赖外部集中式数据库 | **单文件瞬态 `cache.sqlite`**，随时物理删除，2ms 自动全量重建 |
-| **长日志治理** | Mermaid 符号化卸载算法 | **纯 Unix 管道化过滤器**（`cmd \| k0maru offload`） |
-| **跨会话读档** | 依赖 Web 管理后台 | **`<300 Token` 极简背包**（CLI 管道直达剪贴板） |
-| **IDE 协议** | HTTP / 自有 Web API | **标准 FastMCP (stdio)**，原生兼容 Claude Code、Cursor、Windsurf |
+不同应用场景在架构权衡上各有侧重：
+
+| 评估维度 | 全量手动粘贴 (Vanilla Context) | 容器化微服务方案 (如 Letta / TencentDB) | 专有后台守护工具 (如 agentmemory) | **K0maru-Agent-Memory (本项目)** |
+| :--- | :--- | :--- | :--- | :--- |
+| **存储媒介** | 散落文本或无持久化 | 外部数据库 (PostgreSQL, pgvector, Redis) | 专有格式或隐藏目录数据库 | **本地既有 Markdown 笔记 (纯文本)** |
+| **部署与运行模型** | 无依赖 | Docker Compose 多容器集群 | 需常驻后台守护进程 (`iii-engine` 等) | **单静态二进制，按需运行 (零守护进程)** |
+| **网络端口占用** | 0 | 1 ~ 4 个网络端口 | 1 ~ 4 个网络端口 | **0 端口** (纯 Unix 管道与 stdio 通信) |
+| **冷启动延迟** | 即时 | 2,500 ms ~ 3,500 ms (容器及环境启动) | 1,000 ms ~ 2,000 ms | **3.38 ms** (Rust 原生执行) |
+| **常驻内存开销** | 0 | ~850 MB - 2,000 MB | ~150 MB - 300 MB | **~11.7 MB** (任务完成后完全归还操作系统) |
+| **长日志治理** | 截断由人肉或大模型被动截取 | 需经由网络 API 传输处理 | 依赖内部处理逻辑 | **标准 Unix 管道过滤器 (`\| k0maru offload`)** |
+| **索引自愈机制** | 无 | 强依赖外部数据库快照与备份 | 依赖本地私有数据库完整性 | **单文件 `cache.sqlite` 随时可删，74ms 快速全量重建** |
 
 ---
 
-## 🚀 极速安装与开始
+## 📈 量化评测与性能基准 (Quantitative Benchmarks)
 
-详细指引见 [QUICKSTART.md](QUICKSTART.md)。
+项目内置了可完全独立复现的离线基准测试套件（见 [benchmarks/README.md](benchmarks/README.md)），在同一台标准开发机上对真实工业级日志与系统开销进行了量化测量：
+
+### 1. 长排障任务 Token 压缩效果 (Token Reduction Ratio)
+测试集涵盖 Rust 编译器报错（500行）、Python 测试失败回溯（800行）、TypeScript/Jest 异步异常（1,200行）及多线程崩溃转储（2,500行），采用 `tiktoken`（`cl100k_base` 与 `o200k_base`）测量：
+
+| 评估日志样本 | 原始行数 | 原始 Tokens (`cl100k`) | Offload 后 Tokens | **Token 压缩率 (TRR %)** |
+| :--- | :---: | :---: | :---: | :---: |
+| `cargo_build_error.log` | 500 行 | 5,455 | 148 | **97.29%** |
+| `pytest_failures.log` | 800 行 | 10,621 | 152 | **98.57%** |
+| `jest_test_failures.log` | 1,200 行 | 12,362 | 151 | **98.78%** |
+| `multithread_crash.log` | 2,500 行 | 78,943 | 151 | **99.81%** |
+| **总体加权综合** | **5,000 行** | **107,381** | **602** | **99.44%** |
+
+![Token Savings Bar](benchmarks/charts/token_savings_bar.png)
+
+在模拟的 10 轮排错交互中，未治理的智能体由于多轮日志累加在第 6 轮即突破 128k 上下文红线（累计达到 162.5k Token），而采用符号化卸载的智能体全程平稳维持在 1,505 Token（实现 99.1% 的累积 Token 缩减）：
+
+![Cumulative Token Curve](benchmarks/charts/cumulative_token_curve.png)
+
+### 2. 系统能效与轻量化指标 (Systems Footprint)
+对二进制执行 100 次冷启动采样，并针对 500 篇包含 YAML 元数据与双链的 Markdown 文档进行全量索引重建：
+
+![Systems Log Comparison](benchmarks/charts/systems_log_comparison.png)
+
+- **冷启动延迟**：Median (p50) **3.38 ms**，P95 为 4.30 ms，P99 为 5.54 ms；
+- **缓存瞬态重建吞吐量**：500 篇文档从零创建 SQLite FTS5 索引总耗时 **74.55 ms**（吞吐量达 **6,707 篇/秒**）；
+- **零变动增量扫描耗时**：**11.67 ms**；
+- **二进制大小**：**3.66 MB**。
+
+---
+
+## 🙏 致谢与开源参考 (Acknowledgments & Technical Ancestry)
+
+K0maru-Agent-Memory 的设计直接吸收了开源社区与前沿研究的优秀思想，在此向以下项目、作者与团队致以诚挚敬意：
+
+1. **Andrej Karpathy ([LLM-Wiki](https://gist.github.com/karpathy))**：
+   - **设计理念参考**：吸收了由平铺 Markdown 页面与语义双链图谱构成的知识复利模式，确立了“文件系统即唯一真理源泉”的核心原则。
+2. **腾讯云 ([TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory))**：
+   - **功能与思想参考**：吸收了其“Mermaid 符号化日志卸载（Symbolic Log Offloading）”算法以及“L0-L3 语义分层模型（Daily/Ephemeral ➔ Resource ➔ Log ➔ Evergreen）”的架构思想。本项目基于 Rust 进行了 100% 独立的净室重构（Clean-Room Implementation），将其解耦为纯 CLI 管道过滤器与本地瞬态缓存引擎。
+3. **Colby McHenry ([CodeGraph](https://github.com/colbymchenry/codegraph))**：
+   - **设计理念参考**：借鉴了其采用 100% 本地 Rust 预索引代码与双链拓扑图谱的高性能架构思想。
+4. **Nous Research ([Hermes Agent](https://github.com/nousresearch/hermes-agent))**：
+   - **机制参考**：借鉴了其从执行轨迹（Execution Traces）中自生长并沉淀标准化技能的动态经验循环概念。
+5. **Anthropic ([Model Context Protocol](https://modelcontextprotocol.io/))**：
+   - **协议标准参考**：遵循其标准化的 stdio 进程间 JSON-RPC 2.0 协议规范。
+6. **开源底层基础库**：
+   - 感谢 [`pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark)（高速 CommonMark AST 事件流解析）、[`rusqlite`](https://github.com/rusqlite/rusqlite)（嵌入式 SQLite 与 FTS5 全文索引）以及 [`clap`](https://github.com/clap-rs/clap) 等优质 Rust 生态库。
+
+---
+
+## 🚀 安装与快速上手 (Installation & Quickstart)
+
+详细步骤见 [QUICKSTART.md](QUICKSTART.md)。
 
 ```bash
-# 1. 编译生成单文件二进制 (已通过 73 项全量测试)
+# 1. 编译生成单静态二进制 (全量测试验证)
 cargo build --release
 
 # 2. 安装至系统环境
@@ -152,13 +206,13 @@ k0maru --version
 ```
 
 ### 挂载至 Claude Code / Cursor (FastMCP)
-在 `~/.claude.json` 或 Cursor MCP 配置中增加：
+在客户端 MCP 配置文件中添加：
 ```json
 {
   "mcpServers": {
     "k0maru-memory": {
       "command": "k0maru",
-      "args": ["mcp", "--vault", "/path/to/your/wiki"]
+      "args": ["mcp", "--vault", "/path/to/your/markdown-vault"]
     }
   }
 }
@@ -166,6 +220,6 @@ k0maru --version
 
 ---
 
-## ⚖️ 开源协议与知识产权 (MIT License)
+## ⚖️ 开源协议 (License)
 
-本项目采用 **MIT License** 开放源码。吸收了行业前沿的“Mermaid 日志符号化卸载”与“L0-L3 语义分层”架构思想，全程采用 Rust 进行了 **100% 独立的净室实现（Clean-Room Implementation）**，绝不包含任何侵权源码与商业品牌绑定。
+本项目采用 [MIT License](LICENSE) 授权开源。

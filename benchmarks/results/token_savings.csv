@@ -1,0 +1,5 @@
+fixture,raw_lines,raw_tokens_cl100k,offloaded_tokens_cl100k,token_reduction_ratio_pct,raw_tokens_o200k,offloaded_tokens_o200k,reduction_o200k_pct
+cargo_build_error.log,500,5455,148,97.29,5409,151,97.21
+jest_test_failures.log,1200,12362,151,98.78,12616,154,98.78
+multithread_crash.log,2500,78943,151,99.81,79523,154,99.81
+pytest_failures.log,800,10621,152,98.57,10686,155,98.55

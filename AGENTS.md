@@ -37,20 +37,39 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
 2. **从 Agent 职责 (Worker / Implementor Agent)**：
    - 在独立的上下文窗口中只负责单一工单；
    - 严格遵循测试驱动开发（TDD）：先写失败测试，再写最小实现代码，最后重构；
-   - 保证单测 100% 通过且 `ruff`、`mypy` 零报错后提交。
+   - 保证单测 100% 通过且 `cargo test`、`cargo clippy`、`cargo fmt` 零报错后提交。
 
 ---
 
 ## 📐 代码与工程质量基线
 
 1. **包管理与运行环境**：
-   - 统一使用 `uv` 管理依赖与虚拟环境；
-   - 目标 Python 版本：`>=3.11`（优先使用本地 CPython 3.12）。
+   - 统一使用 `cargo` 管理 Rust 依赖与二进制编译；
+   - 目标 Rust 版本：`2021 Edition` (MSRV: 1.75+)。
 2. **代码风格与静态检查**：
-   - Linter / Formatter：`ruff check --fix` 与 `ruff format`；
-   - 类型系统：全量类型注解，`mypy` 检查无错误；
-   - 领域模型：统一采用 `Pydantic v2`，关键领域对象配置 `model_config = ConfigDict(frozen=True)`。
+   - Formatter：`cargo fmt --check`；
+   - Linter / 静态检查：`cargo clippy --all-targets -- -D warnings`；
+   - 领域模型与不可变性：关键领域数据结构推导 `Debug, Clone, PartialEq, Eq, Serialize, Deserialize`，不提供不必要的 `pub mut`。
 3. **测试规范**：
-   - 框架：`pytest` 与 `pytest-asyncio`；
-   - 独立性：单元测试严禁依赖或读写用户的真实 Vault（如 `SecondBrain`），必须使用基于 `tmp_path` 的 Mock Vault 夹具；
-   - 深度接缝测试：优先在最高层接口接缝进行行为验证，减少内部脆弱的 Mock。
+   - 框架：Rust 原生 `cargo test` 配合 `tempfile::tempdir` 与 `assert_cmd`；
+   - 独立性：单元测试严禁依赖或读写用户的真实 Vault（如 `SecondBrain`），必须使用基于临时目录的 Mock Vault 夹具；
+   - 深度接缝测试：优先在最高层 CLI 与 MCP 接口接缝进行行为验证，减少内部脆弱的 Mock。
+
+---
+
+## 🌿 Git 分支管理与工单派发契约
+
+本项目采用**「双主干 + 工单穿透型短周期分支」**模式，严格对齐 Master-Worker 模型：
+
+1. **`main` 分支（稳定发布主干）**：
+   - 绝对稳定，对外开源发版；
+   - 严禁直接 push；仅接受来自 `dev` 的阶段性里程碑 PR 或紧急 hotfix；
+   - 语义化发布打 Tag（如 `v0.1.0`、`v0.2.0`），触发自动构建分发。
+2. **`dev` 分支（开发集成主干）**：
+   - 日常开发与工单集成主干；所有特性合并的目标；
+   - 必须随时保持全套测试全绿、编译无 warning。
+3. **工作分支命名与生命周期**：
+   - **特性工单**：`feat/<NN>-<slug>`（与 `.scratch/k0maru-agent-memory/issues/<NN>-<slug>.md` **1:1 强绑定**）；
+   - **评测实验**：`bench/<slug>`；
+   - **缺陷修复**：`fix/<slug>`；
+   - **工作流**：从最新 `dev` 拉出分支 ➔ 独立上下文中 Worker 完成 TDD ➔ 通过 Review ➔ Squash & Merge 回 `dev` ➔ 删除工作分支。

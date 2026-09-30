@@ -1,0 +1,500 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded tokio v1.38.0
+  Downloaded serde v1.0.203
+  Downloaded hyper v1.3.1
+  Downloaded rusqlite v0.31.0
+  Downloaded tracing v0.1.40
+   Compiling libc v0.2.155
+   Compiling cfg-if v1.0.0
+   Compiling proc-macro2 v1.0.86
+   Compiling unicode-ident v1.0.12
+   Compiling quote v1.0.36
+   Compiling syn v2.0.66
+   Compiling version_check v0.9.4
+   Compiling once_cell v1.19.0
+   Compiling memchr v2.7.4
+   Compiling parking_lot_core v0.9.10
+   Compiling lock_api v0.4.12
+   Compiling smallvec v1.13.2
+   Compiling scopeguard v1.2.0
+   Compiling signal-hook-registry v1.4.2
+   Compiling mio v0.8.11
+   Compiling socket2 v0.5.7
+   Compiling bytes v1.6.0
+   Compiling pin-project-lite v0.2.14
+   Compiling log v0.4.21
+   Compiling tracing-core v0.1.32
+   Compiling slab v0.4.9
+   Compiling futures-core v0.3.30
+   Compiling futures-sink v0.3.30
+   Compiling futures-channel v0.3.30
+   Compiling futures-task v0.3.30
+   Compiling futures-util v0.3.30
+   Compiling tokio-macros v2.3.0
+   Compiling serde_derive v1.0.203
+   Compiling serde v1.0.203
+   Compiling tokio v1.38.0
+   Compiling itoa v1.0.11
+   Compiling fnv v1.0.7
+   Compiling http v1.1.0
+   Compiling httparse v1.9.4
+   Compiling indexmap v2.2.6
+   Compiling bitflags v2.5.0
+   Compiling tracing v0.1.40
+   Compiling k0maru-cluster v0.1.0 (/workspace/k0maru-cluster)
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error[E0308]: mismatched types
+   --> src/storage/wal.rs:142:31
+    |
+140 |     pub async fn append_entry(&mut self, entry: LogEntry) -> Result<u64, WalError> {
+141 |         let serialized = bincode::serialize(&entry)?;
+142 |         self.writer.write_all(serialized).await?;
+    |                     --------- ^^^^^^^^^^ expected `&[u8]`, found `Vec<u8>`
+    |                     |
+    |                     arguments to this method are incorrect
+    |
+help: consider borrowing here
+    |
+142 |         self.writer.write_all(&serialized).await?;
+    |                               +
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  --> src/network/peer.rs:95:9
+   |
+91 |         let peer_info = self.get_peer_info(peer_id)?;
+   |                         ---------------------------- immutable borrow occurs here
+...
+95 |         self.reconnect_peer(peer_id).await?;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+96 |         info!("Reconnected peer: {}", peer_info.address);
+   |                                       ----------------- immutable borrow later used here
+
+error[E0382]: use of moved value: `tx_payload`
+   --> src/consensus/executor.rs:215:28
+    |
+209 |     let tx_payload = envelope.into_payload();
+    |         ---------- move occurs because `tx_payload` has type `TransactionPayload`, which does not implement the `Copy` trait
+210 |     self.verify_signature(&tx_payload)?;
+211 |     self.ledger.apply_transaction(tx_payload)?;
+    |                                   ---------- `tx_payload` moved here
+...
+215 |     self.metrics.record_tx(tx_payload.tx_id, tx_payload.size_bytes());
+    |                            ^^^^^^^^^^^^^^^^ value used here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+211 |     self.ledger.apply_transaction(tx_payload.clone())?;
+    |                                             ++++++++
+
+error[E0277]: `*const u8` cannot be shared between threads safely
+   --> src/server/dispatcher.rs:64:17
+    |
+64  |     tokio::spawn(async move {
+    |     ^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
+    |
+    = help: within `RequestContext`, the trait `Sync` is not implemented for `*const u8`
+    = note: required because it appears within the type `RequestContext`
+    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`
+note: required by a bound in `tokio::spawn`
+   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21
+    |
+166 |         T: Future + Send + 'static,
+    |                     ^^^^ required by this bound in `spawn`
+
+error[E0599]: no method named `into_segmented_buffer` found for struct `RingQueue<T>` in the current scope
+   --> src/buffer/pool.rs:182:35
+    |
+182 |         let segmented = self.queue.into_segmented_buffer();
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^ method not found in `RingQueue<T>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `BufferSegmentation` which provides `into_segmented_buffer` is implemented but not in scope; consider adding an import
+    |
+4   + use crate::buffer::traits::BufferSegmentation;
+    |
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error[E0308]: mismatched types
+   --> src/storage/wal.rs:142:31
+    |
+140 |     pub async fn append_entry(&mut self, entry: LogEntry) -> Result<u64, WalError> {
+141 |         let serialized = bincode::serialize(&entry)?;
+142 |         self.writer.write_all(serialized).await?;
+    |                     --------- ^^^^^^^^^^ expected `&[u8]`, found `Vec<u8>`
+    |                     |
+    |                     arguments to this method are incorrect
+    |
+help: consider borrowing here
+    |
+142 |         self.writer.write_all(&serialized).await?;
+    |                               +
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  --> src/network/peer.rs:95:9
+   |
+91 |         let peer_info = self.get_peer_info(peer_id)?;
+   |                         ---------------------------- immutable borrow occurs here
+...
+95 |         self.reconnect_peer(peer_id).await?;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+96 |         info!("Reconnected peer: {}", peer_info.address);
+   |                                       ----------------- immutable borrow later used here
+
+error[E0382]: use of moved value: `tx_payload`
+   --> src/consensus/executor.rs:215:28
+    |
+209 |     let tx_payload = envelope.into_payload();
+    |         ---------- move occurs because `tx_payload` has type `TransactionPayload`, which does not implement the `Copy` trait
+210 |     self.verify_signature(&tx_payload)?;
+211 |     self.ledger.apply_transaction(tx_payload)?;
+    |                                   ---------- `tx_payload` moved here
+...
+215 |     self.metrics.record_tx(tx_payload.tx_id, tx_payload.size_bytes());
+    |                            ^^^^^^^^^^^^^^^^ value used here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+211 |     self.ledger.apply_transaction(tx_payload.clone())?;
+    |                                             ++++++++
+
+error[E0277]: `*const u8` cannot be shared between threads safely
+   --> src/server/dispatcher.rs:64:17
+    |
+64  |     tokio::spawn(async move {
+    |     ^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
+    |
+    = help: within `RequestContext`, the trait `Sync` is not implemented for `*const u8`
+    = note: required because it appears within the type `RequestContext`
+    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`
+note: required by a bound in `tokio::spawn`
+   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21
+    |
+166 |         T: Future + Send + 'static,
+    |                     ^^^^ required by this bound in `spawn`
+
+error[E0599]: no method named `into_segmented_buffer` found for struct `RingQueue<T>` in the current scope
+   --> src/buffer/pool.rs:182:35
+    |
+182 |         let segmented = self.queue.into_segmented_buffer();
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^ method not found in `RingQueue<T>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `BufferSegmentation` which provides `into_segmented_buffer` is implemented but not in scope; consider adding an import
+    |
+4   + use crate::buffer::traits::BufferSegmentation;
+    |
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error[E0308]: mismatched types
+   --> src/storage/wal.rs:142:31
+    |
+140 |     pub async fn append_entry(&mut self, entry: LogEntry) -> Result<u64, WalError> {
+141 |         let serialized = bincode::serialize(&entry)?;
+142 |         self.writer.write_all(serialized).await?;
+    |                     --------- ^^^^^^^^^^ expected `&[u8]`, found `Vec<u8>`
+    |                     |
+    |                     arguments to this method are incorrect
+    |
+help: consider borrowing here
+    |
+142 |         self.writer.write_all(&serialized).await?;
+    |                               +
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  --> src/network/peer.rs:95:9
+   |
+91 |         let peer_info = self.get_peer_info(peer_id)?;
+   |                         ---------------------------- immutable borrow occurs here
+...
+95 |         self.reconnect_peer(peer_id).await?;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+96 |         info!("Reconnected peer: {}", peer_info.address);
+   |                                       ----------------- immutable borrow later used here
+
+error[E0382]: use of moved value: `tx_payload`
+   --> src/consensus/executor.rs:215:28
+    |
+209 |     let tx_payload = envelope.into_payload();
+    |         ---------- move occurs because `tx_payload` has type `TransactionPayload`, which does not implement the `Copy` trait
+210 |     self.verify_signature(&tx_payload)?;
+211 |     self.ledger.apply_transaction(tx_payload)?;
+    |                                   ---------- `tx_payload` moved here
+...
+215 |     self.metrics.record_tx(tx_payload.tx_id, tx_payload.size_bytes());
+    |                            ^^^^^^^^^^^^^^^^ value used here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+211 |     self.ledger.apply_transaction(tx_payload.clone())?;
+    |                                             ++++++++
+
+error[E0277]: `*const u8` cannot be shared between threads safely
+   --> src/server/dispatcher.rs:64:17
+    |
+64  |     tokio::spawn(async move {
+    |     ^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
+    |
+    = help: within `RequestContext`, the trait `Sync` is not implemented for `*const u8`
+    = note: required because it appears within the type `RequestContext`
+    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`
+note: required by a bound in `tokio::spawn`
+   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21
+    |
+166 |         T: Future + Send + 'static,
+    |                     ^^^^ required by this bound in `spawn`
+
+error[E0599]: no method named `into_segmented_buffer` found for struct `RingQueue<T>` in the current scope
+   --> src/buffer/pool.rs:182:35
+    |
+182 |         let segmented = self.queue.into_segmented_buffer();
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^ method not found in `RingQueue<T>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `BufferSegmentation` which provides `into_segmented_buffer` is implemented but not in scope; consider adding an import
+    |
+4   + use crate::buffer::traits::BufferSegmentation;
+    |
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error[E0308]: mismatched types
+   --> src/storage/wal.rs:142:31
+    |
+140 |     pub async fn append_entry(&mut self, entry: LogEntry) -> Result<u64, WalError> {
+141 |         let serialized = bincode::serialize(&entry)?;
+142 |         self.writer.write_all(serialized).await?;
+    |                     --------- ^^^^^^^^^^ expected `&[u8]`, found `Vec<u8>`
+    |                     |
+    |                     arguments to this method are incorrect
+    |
+help: consider borrowing here
+    |
+142 |         self.writer.write_all(&serialized).await?;
+    |                               +
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  --> src/network/peer.rs:95:9
+   |
+91 |         let peer_info = self.get_peer_info(peer_id)?;
+   |                         ---------------------------- immutable borrow occurs here
+...
+95 |         self.reconnect_peer(peer_id).await?;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+96 |         info!("Reconnected peer: {}", peer_info.address);
+   |                                       ----------------- immutable borrow later used here
+
+error[E0382]: use of moved value: `tx_payload`
+   --> src/consensus/executor.rs:215:28
+    |
+209 |     let tx_payload = envelope.into_payload();
+    |         ---------- move occurs because `tx_payload` has type `TransactionPayload`, which does not implement the `Copy` trait
+210 |     self.verify_signature(&tx_payload)?;
+211 |     self.ledger.apply_transaction(tx_payload)?;
+    |                                   ---------- `tx_payload` moved here
+...
+215 |     self.metrics.record_tx(tx_payload.tx_id, tx_payload.size_bytes());
+    |                            ^^^^^^^^^^^^^^^^ value used here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+211 |     self.ledger.apply_transaction(tx_payload.clone())?;
+    |                                             ++++++++
+
+error[E0277]: `*const u8` cannot be shared between threads safely
+   --> src/server/dispatcher.rs:64:17
+    |
+64  |     tokio::spawn(async move {
+    |     ^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
+    |
+    = help: within `RequestContext`, the trait `Sync` is not implemented for `*const u8`
+    = note: required because it appears within the type `RequestContext`
+    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`
+note: required by a bound in `tokio::spawn`
+   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21
+    |
+166 |         T: Future + Send + 'static,
+    |                     ^^^^ required by this bound in `spawn`
+
+error[E0599]: no method named `into_segmented_buffer` found for struct `RingQueue<T>` in the current scope
+   --> src/buffer/pool.rs:182:35
+    |
+182 |         let segmented = self.queue.into_segmented_buffer();
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^ method not found in `RingQueue<T>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `BufferSegmentation` which provides `into_segmented_buffer` is implemented but not in scope; consider adding an import
+    |
+4   + use crate::buffer::traits::BufferSegmentation;
+    |
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error[E0308]: mismatched types
+   --> src/storage/wal.rs:142:31
+    |
+140 |     pub async fn append_entry(&mut self, entry: LogEntry) -> Result<u64, WalError> {
+141 |         let serialized = bincode::serialize(&entry)?;
+142 |         self.writer.write_all(serialized).await?;
+    |                     --------- ^^^^^^^^^^ expected `&[u8]`, found `Vec<u8>`
+    |                     |
+    |                     arguments to this method are incorrect
+    |
+help: consider borrowing here
+    |
+142 |         self.writer.write_all(&serialized).await?;
+    |                               +
+
+error[E0502]: cannot borrow `*self` as mutable because it is also borrowed as immutable
+  --> src/network/peer.rs:95:9
+   |
+91 |         let peer_info = self.get_peer_info(peer_id)?;
+   |                         ---------------------------- immutable borrow occurs here
+...
+95 |         self.reconnect_peer(peer_id).await?;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+96 |         info!("Reconnected peer: {}", peer_info.address);
+   |                                       ----------------- immutable borrow later used here
+
+error[E0382]: use of moved value: `tx_payload`
+   --> src/consensus/executor.rs:215:28
+    |
+209 |     let tx_payload = envelope.into_payload();
+    |         ---------- move occurs because `tx_payload` has type `TransactionPayload`, which does not implement the `Copy` trait
+210 |     self.verify_signature(&tx_payload)?;
+211 |     self.ledger.apply_transaction(tx_payload)?;
+    |                                   ---------- `tx_payload` moved here
+...
+215 |     self.metrics.record_tx(tx_payload.tx_id, tx_payload.size_bytes());
+    |                            ^^^^^^^^^^^^^^^^ value used here after move
+    |
+help: consider cloning the value if the performance cost is acceptable
+    |
+211 |     self.ledger.apply_transaction(tx_payload.clone())?;
+    |                                             ++++++++
+
+error[E0277]: `*const u8` cannot be shared between threads safely
+   --> src/server/dispatcher.rs:64:17
+    |
+64  |     tokio::spawn(async move {
+    |     ^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
+    |
+    = help: within `RequestContext`, the trait `Sync` is not implemented for `*const u8`
+    = note: required because it appears within the type `RequestContext`
+    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`
+note: required by a bound in `tokio::spawn`
+   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21
+    |
+166 |         T: Future + Send + 'static,
+    |                     ^^^^ required by this bound in `spawn`
+
+error[E0599]: no method named `into_segmented_buffer` found for struct `RingQueue<T>` in the current scope
+   --> src/buffer/pool.rs:182:35
+    |
+182 |         let segmented = self.queue.into_segmented_buffer();
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^ method not found in `RingQueue<T>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `BufferSegmentation` which provides `into_segmented_buffer` is implemented but not in scope; consider adding an import
+    |
+4   + use crate::buffer::traits::BufferSegmentation;
+    |
+
+warning: unused import: `std::sync::atomic::AtomicBool`
+  --> src/consensus/raft.rs:14:24
+   |
+14 | use std::sync::atomic::{AtomicBool, AtomicU64};
+   |                         ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: variable `stale_term` is assigned to but never used
+  --> src/consensus/state.rs:88:17
+   |
+88 |         let mut stale_term = current_term - 1;
+   |                 ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_variables)]` on by default
+   = help: maybe prefix with an underscore: `_stale_term`
+
+error: could not compile `k0maru-cluster` (lib) due to 37 previous errors; 8 warnings emitted
+warning: `k0maru-cluster` (lib) generated 8 warnings (run `cargo fix --lib -p k0maru-cluster` to apply 4 suggestions)
+   Compiling k0maru-cluster-submodule-shard-499 v0.1.0

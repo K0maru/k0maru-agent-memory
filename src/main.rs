@@ -34,6 +34,9 @@ enum Commands {
 
     /// Start zero-daemon FastMCP stdio server for AI agents (Claude Code, Cursor, Windsurf)
     Mcp(McpArgs),
+
+    /// Synchronize vault documents incrementally into disposable SQLite cache
+    Sync(SyncArgs),
 }
 
 #[derive(Args, Debug)]
@@ -90,6 +93,21 @@ pub struct McpArgs {
     /// Path to vault root directory (defaults to current dir or detects nearest vault)
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct SyncArgs {
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Force full rebuild of all documents, ignoring cached mtime and hashes
+    #[arg(short, long)]
+    pub force: bool,
+
+    /// Output structured JSON instead of human-readable text
+    #[arg(long)]
+    pub json: bool,
 }
 
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
@@ -289,6 +307,40 @@ fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     server.run_stdio(stdin.lock(), stdout.lock())
 }
 
+fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault.clone());
+    let cache_dir = vault_path.join(".k0maru");
+    let cache_path = cache_dir.join("cache.sqlite");
+
+    let mut storage = match SqliteStorage::open(&cache_path) {
+        Ok(s) => s,
+        Err(_) => SqliteStorage::in_memory()?,
+    };
+
+    let stats = if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists()
+    {
+        let adapter = ObsidianAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(args.force)?
+    } else {
+        let adapter = GenericWikiAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(args.force)?
+    };
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&stats)?;
+        println!("{}", json_str);
+    } else {
+        println!(
+            "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {})",
+            stats.duration_ms, stats.added, stats.modified, stats.deleted, stats.unchanged
+        );
+    }
+
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -312,6 +364,12 @@ fn main() {
         }
         Some(Commands::Mcp(args)) => {
             if let Err(e) = run_mcp(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Sync(args)) => {
+            if let Err(e) = run_sync(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
