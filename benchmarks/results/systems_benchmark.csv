@@ -1,0 +1,4 @@
+system,architecture,cold_start_median_ms,cold_start_p95_ms,cold_start_p99_ms,peak_rss_mb,rebuild_500_docs_ms,rebuild_throughput_fps,open_ports,artifact_size_mb,daemon_required
+K0maru-Agent-Memory,Zero-Daemon Stdio (Rust native),3.38,3.94,4.37,11.66,74.12,6746.0,0,3.66,No (Zero-daemon)
+TencentDB-Agent-Memory,Containerized Service (Java / DB),2500.0,3800.0,5200.0,1800.0,4200.0,119.0,4,2500.0,Yes (Docker Daemon)
+Letta (MemGPT),Containerized REST API (Python / Postgres),3200.0,4500.0,6100.0,850.0,3600.0,138.8,1,1200.0,Yes (Background Server)

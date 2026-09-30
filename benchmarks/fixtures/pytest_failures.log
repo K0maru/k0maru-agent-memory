@@ -1,0 +1,800 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.8, pytest-8.1.1, pluggy-1.4.0
+rootdir: /Users/k0maru3/workspace/k0maru-agent-memory
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.3.0, asyncio-0.23.6, cov-5.0.0, mock-3.14.0, xdist-3.5.0
+asyncio: mode=Mode.STRICT
+collected 164 items
+
+tests/unit/test_adapters.py .....................                       [ 12%]
+tests/unit/test_markdown_parser.py ................................     [ 32%]
+tests/unit/test_sqlite_storage.py .............F........                [ 45%]
+tests/unit/test_loadout_builder.py ..........F.F....                   [ 55%]
+tests/unit/test_offload_engine.py .....................                 [ 68%]
+tests/integration/test_mcp_server.py ........F...F....                  [ 80%]
+tests/integration/test_vault_sync.py ...E.F....F...                     [ 90%]
+tests/integration/test_e2e_flow.py .F...F......                        [100%]
+
+=================================== FAILURES ===================================
+___________________________ test_sqlite_wal_transaction_rollback [0] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [1] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [2] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [3] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [4] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [5] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [6] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [7] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [8] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [9] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [10] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [11] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [12] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [13] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [14] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [15] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [16] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [17] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [18] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [19] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [20] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [21] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [22] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [23] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [24] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [25] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [26] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [27] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [28] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [29] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [30] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [31] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [32] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [33] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [34] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [35] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [36] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [37] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [38] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [39] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [40] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [41] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [42] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [43] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [44] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [45] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [46] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [47] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [48] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [49] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [50] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [51] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [52] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+___________________________ test_vault_sync_concurrent_file_modification [53] ___________________________
+tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_modification
+    assert synced_count == 25, f"Expected 25 synced cards, got {synced_count}"
+E   AssertionError: Expected 25 synced cards, got 19
+E   assert 19 == 25
+----------------------------- Captured stderr call -----------------------------
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+Worker thread 3 encountered race condition during atomic rename.
+
+___________________________ test_markdown_parser_wikilink_aliases [54] ___________________________
+tests/unit/test_markdown_parser.py:112: in test_markdown_parser_wikilink_aliases
+    assert parsed_links == expected_links
+E   AssertionError: assert [{'target': 'CardA', 'alias': 'Alpha'}] == [{'target': 'CardA', 'alias': 'Alpha'}, {'target': 'CardB', 'alias': None}]
+E     Right contains one more item: {'target': 'CardB', 'alias': None}
+E     Full diff:
+E       [
+E         {
+E           'alias': 'Alpha',
+E           'target': 'CardA',
+E         },
+E     +   {
+E     +     'alias': None,
+E     +     'target': 'CardB',
+E     +   },
+E       ]
+
+___________________________ test_sqlite_wal_transaction_rollback [55] ___________________________
+tests/unit/test_sqlite_storage.py:184: in test_sqlite_wal_transaction_rollback
+    storage.execute_batch(corrupted_tx_payload)
+src/storage/sqlite.py:92: in execute_batch
+    cursor.executescript(script)
+E   sqlite3.OperationalError: database table is locked
+----------------------------- Captured stdout call -----------------------------
+[DEBUG] Acquiring write lock for transaction tx_0092182
+[WARN] Lock acquisition waited 5000ms before timeout
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+    with self.conn.transaction():
+LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
+
+___________________________ test_loadout_builder_token_budget_exceeded [56] ___________________________
+tests/unit/test_loadout_builder.py:64: in test_loadout_builder_token_budget_exceeded
+    assert loadout.token_count <= 300, f"Token count {loadout.token_count} exceeds limit"
+E   AssertionError: Token count 482 exceeds limit
+E   assert 482 <= 300
+E    +  where 482 = LoadoutResult(name='AtlasCluster', tokens=482).token_count
+----------------------------- Captured stdout call -----------------------------
+Loadout generated:
+# Project: AtlasCluster
+Status: active
+Cards included: 14 cards (CardA, CardB, CardC, CardD, CardE, CardF)
+Summary length: 1824 characters
+
+___________________________ test_mcp_inspect_node_missing_reference [57] ___________________________
+tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_reference
+    res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
+src/mcp/client.py:45: in call_tool
+    raise ToolExecutionError(res["error"]["message"])
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+----------------------------- Captured log call --------------------------------
+2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
+2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
+
+=========================== short test summary info ============================
+FAILED tests/test_cases.py::test_case_0 - AssertionError: check failed at iteration 0
+FAILED tests/test_cases.py::test_case_1 - AssertionError: check failed at iteration 1
+FAILED tests/test_cases.py::test_case_2 - AssertionError: check failed at iteration 2
+FAILED tests/test_cases.py::test_case_3 - AssertionError: check failed at iteration 3
+FAILED tests/test_cases.py::test_case_4 - AssertionError: check failed at iteration 4
+FAILED tests/test_cases.py::test_case_5 - AssertionError: check failed at iteration 5
+FAILED tests/test_cases.py::test_case_6 - AssertionError: check failed at iteration 6
+FAILED tests/test_cases.py::test_case_7 - AssertionError: check failed at iteration 7
+FAILED tests/test_cases.py::test_case_8 - AssertionError: check failed at iteration 8
+FAILED tests/test_cases.py::test_case_9 - AssertionError: check failed at iteration 9
+FAILED tests/test_cases.py::test_case_10 - AssertionError: check failed at iteration 10
+FAILED tests/test_cases.py::test_case_11 - AssertionError: check failed at iteration 11
+FAILED tests/test_cases.py::test_case_12 - AssertionError: check failed at iteration 12
+FAILED tests/test_cases.py::test_case_13 - AssertionError: check failed at iteration 13
+FAILED tests/test_cases.py::test_case_14 - AssertionError: check failed at iteration 14
+================== 58 failed, 150 passed, 2 errors in 24.18s ===================
+PASSED tests/generated/test_shard_778.py::test_ok
+PASSED tests/generated/test_shard_779.py::test_ok
+PASSED tests/generated/test_shard_780.py::test_ok
+PASSED tests/generated/test_shard_781.py::test_ok
+PASSED tests/generated/test_shard_782.py::test_ok
+PASSED tests/generated/test_shard_783.py::test_ok
+PASSED tests/generated/test_shard_784.py::test_ok
+PASSED tests/generated/test_shard_785.py::test_ok
+PASSED tests/generated/test_shard_786.py::test_ok
+PASSED tests/generated/test_shard_787.py::test_ok
+PASSED tests/generated/test_shard_788.py::test_ok
+PASSED tests/generated/test_shard_789.py::test_ok
+PASSED tests/generated/test_shard_790.py::test_ok
+PASSED tests/generated/test_shard_791.py::test_ok
+PASSED tests/generated/test_shard_792.py::test_ok
+PASSED tests/generated/test_shard_793.py::test_ok
+PASSED tests/generated/test_shard_794.py::test_ok
+PASSED tests/generated/test_shard_795.py::test_ok
+PASSED tests/generated/test_shard_796.py::test_ok
+PASSED tests/generated/test_shard_797.py::test_ok
+PASSED tests/generated/test_shard_798.py::test_ok
+PASSED tests/generated/test_shard_799.py::test_ok

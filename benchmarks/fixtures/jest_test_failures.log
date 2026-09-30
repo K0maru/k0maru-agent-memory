@@ -1,0 +1,1200 @@
+$ jest --colors --maxWorkers=4 --verbose
+  console.log
+    [INFO] Starting Jest Test Runner in workspace /Users/k0maru3/workspace/frontend-hub
+
+  console.warn
+    [WARN] React.createFactory() is deprecated and will be removed in next major release.
+      at node_modules/react-dom/cjs/react-dom.development.js:1248:15
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 1)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 2)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 3)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 4)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 5)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 6)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 7)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 8)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 9)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 10)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 11)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 12)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 13)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 14)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 15)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 16)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 17)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 18)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 19)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 20)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 21)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 22)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 23)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 24)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 25)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 26)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 27)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 28)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 29)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 30)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 31)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 32)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 33)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 34)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 35)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 36)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 37)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 38)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 39)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 40)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 41)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 42)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 43)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 44)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 45)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 46)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 47)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 48)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 49)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 50)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 51)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 52)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 53)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 54)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 55)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 56)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 57)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 58)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 59)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+FAIL src/state/slices/projectSlice.test.ts (run 60)
+  ● projectSlice › reducers › handleLoadoutFetchRejected
+
+    TypeError: Cannot read properties of undefined (reading 'error')
+
+      at projectSlice.ts:89:32
+      at node_modules/@reduxjs/toolkit/src/createReducer.ts:284:18
+      at Object.<anonymous> (src/state/slices/projectSlice.test.ts:44:17)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+
+FAIL src/components/Dashboard/GraphViewer.test.tsx (run 61)
+  ● GraphViewer › renders mermaid SVG diagram asynchronously
+
+    expect(received).toContain(expected)
+
+    Expected substring: "<svg id=\"mermaid-diagram\""
+    Received string:    "<div class=\"loading-spinner\">Rendering graph...</div>"
+
+      38 |     render(<GraphViewer chartDefinition={mockMermaid} />);
+      39 |     const rendered = screen.getByTestId('mermaid-container').innerHTML;
+    > 40 |     expect(rendered).toContain('<svg id="mermaid-diagram"');
+         |                      ^
+      41 |   });
+      42 |
+      at Object.<anonymous> (src/components/Dashboard/GraphViewer.test.tsx:40:22)
+      at Promise.then.completed (node_modules/jest-circus/build/utils.js:298:28)
+      at new Promise (<anonymous>)
+      at callAsyncCircusFn (node_modules/jest-circus/build/utils.js:231:10)
+      at _callCircusTest (node_modules/jest-circus/build/run.js:316:40)
+      at processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+FAIL src/api/k0maruClient.test.ts (run 62)
+  ● k0maruClient › offloadLogStream › streams large payload above 50 lines
+
+    AxiosError: timeout of 5000ms exceeded
+
+      at createError (node_modules/axios/lib/core/createError.js:16:15)
+      at RedirectableRequest.handleTimeout (node_modules/axios/lib/adapters/http.js:304:16)
+      at RedirectableRequest.emit (node:events:517:28)
+      at Timeout.<anonymous> (node_modules/follow-redirects/index.js:199:12)
+      at listOnTimeout (node:internal/timers:573:17)
+      at processTimers (node:internal/timers:514:7)
+
+    Cause:
+      Error: socket hang up
+          at connResetException (node:internal/errors:720:14)
+          at Socket.socketOnEnd (node:_http_client:543:23)
+          at Socket.emit (node:events:529:35)
+
+FAIL src/features/memory/CardMetadataEditor.test.tsx (run 63)
+  ● CardMetadataEditor › updates YAML frontmatter correctly
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Object {
+        "archived": false,
+    -   "tags": Array [
+    -     "project/core",
+    -     "status/active",
+    +   "tags": Array [
+    +     "project/core",
+        ],
+        "updated_at": "2026-09-30T12:00:00Z",
+      }
+
+      72 |     fireEvent.click(saveButton);
+      73 |     await waitFor(() => expect(onSaveMock).toHaveBeenCalled());
+    > 74 |     expect(onSaveMock).toHaveBeenCalledWith(expectedPayload);
+         |                        ^
+      at src/features/memory/CardMetadataEditor.test.tsx:74:24
+
+
+Test Suites: 18 failed, 42 passed, 60 total
+Tests:       45 failed, 320 passed, 365 total
+Snapshots:   0 total
+Time:        34.582 s
+Ran all test suites.
+error Command failed with exit code 1.
+PASS src/generated/shard_1189.test.ts
+PASS src/generated/shard_1190.test.ts
+PASS src/generated/shard_1191.test.ts
+PASS src/generated/shard_1192.test.ts
+PASS src/generated/shard_1193.test.ts
+PASS src/generated/shard_1194.test.ts
+PASS src/generated/shard_1195.test.ts
+PASS src/generated/shard_1196.test.ts
+PASS src/generated/shard_1197.test.ts
+PASS src/generated/shard_1198.test.ts
+PASS src/generated/shard_1199.test.ts

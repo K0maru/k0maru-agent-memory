@@ -13,8 +13,15 @@
 cache.sqlite
 .k0maru/
 
+# Python Virtualenv & Cache
+.venv/
+benchmarks/.venv/
+__pycache__/
+*.py[cod]
+
 # Runtime Logs & Offloaded Context
 *.log
+!benchmarks/fixtures/*.log
 .scratch/refs/
 *.tmp
 tmp/
