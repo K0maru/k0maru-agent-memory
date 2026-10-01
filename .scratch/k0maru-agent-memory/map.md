@@ -39,4 +39,5 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [22-wikilinks-graph-explorer-and-hierarchy-visualizer.md](issues/22-wikilinks-graph-explorer-and-hierarchy-visualizer.md) (Blocked by: 20) ✅ **COMPLETED**
 - [x] [23-log-trace-inspector-and-token-scoreboard.md](issues/23-log-trace-inspector-and-token-scoreboard.md) (Blocked by: 21, 22) ✅ **COMPLETED (v0.4.0)**
 - [x] [24-ui-i18n-language-switcher.md](issues/24-ui-i18n-language-switcher.md) (Blocked by: 23) ✅ **COMPLETED (v0.4.1)**
+- [x] [25-ui-hide-graph-tab.md](issues/25-ui-hide-graph-tab.md) (Blocked by: 24) ✅ **COMPLETED**
 

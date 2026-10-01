@@ -370,6 +370,12 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Temporarily hide WikiLinks Graph Explorer */
+#tab-btn-graph,
+#panel-graph {
+  display: none !important;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;

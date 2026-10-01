@@ -183,6 +183,39 @@ fn test_embedded_bundle_graph_explorer_elements() {
     );
 }
 
+#[test]
+fn test_graph_tab_and_panel_temporarily_hidden_in_ui() {
+    let style_file = DashboardAssets::get("style.css").expect("style.css must exist");
+    let style_css = std::str::from_utf8(&style_file.data).expect("valid utf-8");
+
+    // Verify #tab-btn-graph and #panel-graph are hidden via CSS
+    assert!(
+        style_css.contains("#tab-btn-graph"),
+        "style.css must contain #tab-btn-graph selector"
+    );
+    assert!(
+        style_css.contains("#panel-graph"),
+        "style.css must contain #panel-graph selector"
+    );
+    assert!(
+        style_css.contains("display: none"),
+        "style.css must contain display: none rule"
+    );
+
+    // Verify app.js fallback for graph tab routing
+    let js_file = DashboardAssets::get("app.js").expect("app.js must exist");
+    let js_code = std::str::from_utf8(&js_file.data).expect("valid utf-8");
+
+    assert!(
+        js_code.contains("target === 'graph'") || js_code.contains("tabId === 'graph'"),
+        "app.js must check for graph tab redirection"
+    );
+    assert!(
+        js_code.contains("isGraphPanelVisible"),
+        "app.js must guard simulation loops when graph panel is hidden"
+    );
+}
+
 #[tokio::test]
 async fn test_api_graph_payload_with_hierarchy_and_tags() {
     let temp = tempdir().unwrap();

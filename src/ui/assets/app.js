@@ -476,8 +476,14 @@ function initTabs() {
   const panels = document.querySelectorAll('.tab-panel');
 
   function switchTab(tabId, updateHash = true) {
-    const validTabs = ['search', 'graph', 'logs', 'scoreboard'];
-    const activeTab = validTabs.includes(tabId) ? tabId : 'search';
+    // If graph tab is requested, fallback cleanly to search (graph is temporarily hidden)
+    let target = tabId;
+    if (target === 'graph') {
+      target = 'search';
+    }
+
+    const validTabs = ['search', 'logs', 'scoreboard'];
+    const activeTab = validTabs.includes(target) ? target : 'search';
 
     tabs.forEach(tab => {
       if (tab.dataset.tab === activeTab) {
@@ -505,7 +511,7 @@ function initTabs() {
       fetchStatus();
     }
 
-    if (updateHash) {
+    if (updateHash || tabId === 'graph') {
       history.replaceState(null, null, `#${activeTab}`);
     }
   }
@@ -1118,6 +1124,19 @@ function classifyNodeTier(node) {
   return 'L3 Evergreen';
 }
 
+function isGraphPanelVisible() {
+  const panel = document.getElementById('panel-graph');
+  if (!panel) return false;
+  if (!panel.classList.contains('active')) return false;
+  if (typeof window !== 'undefined' && window.getComputedStyle) {
+    const style = window.getComputedStyle(panel);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+  }
+  return true;
+}
+
 function initGraphExplorer() {
   const canvas = document.getElementById('graph-canvas');
   if (!canvas) return;
@@ -1126,12 +1145,14 @@ function initGraphExplorer() {
   const container = document.getElementById('graph-viewport-container');
   if (container && window.ResizeObserver) {
     const ro = new ResizeObserver(() => {
+      if (!isGraphPanelVisible()) return;
       resizeGraphCanvas();
       reheatSimulation(0.3);
     });
     ro.observe(container);
   } else {
     window.addEventListener('resize', () => {
+      if (!isGraphPanelVisible()) return;
       resizeGraphCanvas();
       reheatSimulation(0.3);
     });
@@ -1139,6 +1160,7 @@ function initGraphExplorer() {
 
   // Hook tab activation
   window.onGraphTabActivated = () => {
+    if (!isGraphPanelVisible()) return;
     resizeGraphCanvas();
     if (!graphState.initialized) {
       loadGraphData();
@@ -1346,14 +1368,20 @@ function resetGraphView() {
 }
 
 function reheatSimulation(alpha = 0.6) {
+  if (!isGraphPanelVisible()) return;
   graphState.simulation.alpha = Math.max(graphState.simulation.alpha, alpha);
   startAnimationLoop();
 }
 
 function startAnimationLoop() {
+  if (!isGraphPanelVisible()) return;
   if (graphState.animFrameId) return;
 
   function loop() {
+    if (!isGraphPanelVisible()) {
+      graphState.animFrameId = null;
+      return;
+    }
     tickPhysics();
     renderGraph();
 
@@ -1374,6 +1402,7 @@ function startAnimationLoop() {
 }
 
 function tickPhysics() {
+  if (!isGraphPanelVisible()) return;
   const visibleNodes = graphState.nodes.filter(n => n.visible);
   const visibleLinks = graphState.links.filter(l => l.source.visible && l.target.visible);
   const count = visibleNodes.length;
