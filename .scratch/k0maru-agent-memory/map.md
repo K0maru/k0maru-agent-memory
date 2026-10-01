@@ -30,7 +30,7 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [13-sqlite-vec-virtual-table-and-storage-layer.md](issues/13-sqlite-vec-virtual-table-and-storage-layer.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [14-embedding-engine-trait-and-mock-provider.md](issues/14-embedding-engine-trait-and-mock-provider.md) (Blocked by: None) ✅ **COMPLETED**
 - [ ] [15-fastembed-local-onnx-backend.md](issues/15-fastembed-local-onnx-backend.md) (Blocked by: 14) 🎯 **FRONTIER**
-- [ ] [16-incremental-vector-sync-pipeline.md](issues/16-incremental-vector-sync-pipeline.md) (Blocked by: 13, 14) 🎯 **FRONTIER**
+- [x] [16-incremental-vector-sync-pipeline.md](issues/16-incremental-vector-sync-pipeline.md) (Blocked by: 13, 14) ✅ **COMPLETED**
 - [x] [17-reciprocal-rank-fusion-hybrid-search.md](issues/17-reciprocal-rank-fusion-hybrid-search.md) (Blocked by: 13, 14) ✅ **COMPLETED**
-- [ ] [18-cli-search-command-and-mcp-hybrid-recall.md](issues/18-cli-search-command-and-mcp-hybrid-recall.md) (Blocked by: 16, 17)
+- [ ] [18-cli-search-command-and-mcp-hybrid-recall.md](issues/18-cli-search-command-and-mcp-hybrid-recall.md) (Blocked by: 16, 17) 🎯 **FRONTIER**
 
