@@ -5,8 +5,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-blue.svg)]()
-[![Tests: 141 passed](https://img.shields.io/badge/Tests-141_passed-brightgreen.svg)]()
+[![Version: 0.4.2](https://img.shields.io/badge/Version-0.4.2-blue.svg)]()
+[![Tests: 145 passed](https://img.shields.io/badge/Tests-145_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -77,10 +77,12 @@ k0maru search "vector cache" --vault ~/wiki --json
 k0maru ui --vault ~/wiki --open
 ```
 
-- **混合检索调试台 (Search Debugger)**：支持交互式查询与模式切换，全景展示 BM25 排名、Vector 距离、RRF 得分与醒目的 Emerald `+0.05 Graph Boost` 拓扑升权徽标；
-- **WikiLinks 2D 力导向知识拓扑图谱 (Graph Explorer)**：100% 离线自研 Canvas 物理模拟器，按 L0~L3 语义精准着色，支持 1-hop 悬浮感知、孤岛脉冲探测与出入双链检查抽屉；
-- **符号化日志切片回溯 (Log & Trace Inspector)**：原生离线渲染 Mermaid 流程状态图，行号对齐且带错误高亮（`error` / `panicked`）的折叠堆栈查看器；
-- **缓存健康与 Token 节约计分板 (Token Scoreboard)**：实时统计向量覆盖率、缓存物理体积、基于量化基准的累积 Token 缩减量与 TRR 压缩比，提供一键实时同步。
+- **中英双语国际化 (Bilingual I18n)**：顶栏配备 `🌐 中文 / EN` 一键无缝即时切换，首访自动识别系统语言偏好并支持 `localStorage` 本地记忆持久化；
+- **多路检索调试台 (Search Debugger)**：支持交互式查询与模式切换，全景展示 BM25 排名、Vector 距离、RRF 得分与醒目的 Emerald `+0.05 Graph Boost` 拓扑升权徽标；
+- **符号化日志切片透视 (Log & Trace Inspector)**：原生离线渲染 Mermaid 流程状态图，行号对齐且带错误高亮（`error` / `panicked`）的折叠堆栈查看器，支持一键复制 Node ID 与原始报错切片；
+- **缓存健康与 Token 计分板 (Token Scoreboard)**：实时统计向量覆盖率、缓存物理体积、基于量化基准的累积 Token 缩减量与 TRR 压缩比，提供一键实时增量同步；
+- *(注：WikiLinks 知识图谱图鉴底层数据模型与 `/api/graph` 保持就绪，前端 UI 默认保持精简收起)*。
+
 
 ### 5. FastMCP 协议原生集成（`k0maru mcp`）
 无需启动后台网络服务，通过标准 `stdio` 暴露 Model Context Protocol（JSON-RPC 2.0），随 IDE 唤醒与退出：

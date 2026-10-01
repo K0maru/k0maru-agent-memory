@@ -13,11 +13,12 @@
 cargo build --release
 
 # 2. 安装至你的 PATH 路径（例如 ~/.local/bin 或 /usr/local/bin）
-cp target/release/k0maru ~/.local/bin/
+# macOS 建议先移除旧文件再拷贝签名，避免 inode 代码页缓存冲突：
+rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign -s - --force ~/.local/bin/k0maru
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.4.0
+# 输出: k0maru 0.4.2
 ```
 
 ---
@@ -117,17 +118,18 @@ k0maru inspect node_54697ed3
 
 ## 🖥️ 第五步：按需唤醒本地极客控制台 (`ui`)
 
-如果你想直观探索知识拓扑图谱、调试混合检索打分或监看 Token 节约情况：
+如果你想直观探索混合检索打分、透视长日志状态机或监看 Token 节约情况：
 
 ```bash
 # 按需唤醒极客控制台（自动打开浏览器）
 k0maru ui --vault ~/wiki --open
 ```
 
+- 🌐 **中英双语即时切换**：顶栏自带 `🌐 中文 / EN` 按钮，即点即切无须刷新，本地持久化并自动识别系统语言；
 - 🔍 **混合检索调试台**：实时直观查看 BM25 排名、Vector 距离与 `+0.05 Graph Boost` 拓扑升权；
-- 🕸️ **WikiLinks 2D 拓扑图谱**：100% 离线自研 Canvas 力导向图，按 L0~L3 语义着色，支持孤岛探测；
-- 📜 **长日志切片回溯**：原生脱机渲染 Mermaid 流程图与带错误行号的折叠堆栈；
-- 📊 **Token 计分板**：实时直观监看上下文治理节约量（TRR 98.8%）；
+- 📜 **长日志切片透视**：原生脱机渲染 Mermaid 流程图与带错误行号的折叠堆栈，一键复制错误切片；
+- 📊 **Token 计分板**：实时直观监看上下文治理节约量（TRR 98.8%）与缓存覆盖度，提供一键增量同步；
+- *(注：WikiLinks 拓扑图谱功能底层模型与 API 就绪，界面默认保持精简收起)*；
 - 退出只需在终端按下 `Ctrl + C`，**立即释放端口与内存，绝不留存任何后台守护进程**！
 
 ---
