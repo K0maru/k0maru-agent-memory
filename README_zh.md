@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.4.2](https://img.shields.io/badge/Version-0.4.2-blue.svg)]()
-[![Tests: 145 passed](https://img.shields.io/badge/Tests-145_passed-brightgreen.svg)]()
+[![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue.svg)]()
+[![Tests: 179 passed](https://img.shields.io/badge/Tests-179_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -126,6 +126,20 @@ k0maru sync --vault ~/wiki
 
 # 联动增量嵌入向量索引 (批量 32 篇，自动跳过未修改文档)
 k0maru sync --vault ~/wiki --vector
+```
+
+### 7. 一键全生态安装与环境健康诊断（`k0maru install` & `k0maru doctor`）
+彻底告别繁琐的手动编辑 JSON 文件。自动感知并配置您本地的 AI 智能体开发环境，具备非破坏性原子合并与全维度健康体检能力：
+
+```bash
+# 一键为所有支持的智能体客户端（Claude Code、Cursor、Gemini CLI、Windsurf、Cline）注入配置
+k0maru install --vault ~/Documents/MyVault
+
+# 仅预览将要修改的配置差异，不实际写入磁盘
+k0maru install --target claude --dry-run
+
+# 全面体检二进制环境、文档层级、SQLite/向量索引与客户端挂载状态
+k0maru doctor
 ```
 
 ---
@@ -273,11 +287,17 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. 验证运行
 k0maru --version
-# 输出: k0maru 0.4.2
+# 输出: k0maru 0.5.0
+
+# 4. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+k0maru install --vault ~/Documents/MyVault
+
+# 5. 全面体检系统与生态环境
+k0maru doctor
 ```
 
-### 挂载至 Claude Code / Cursor (FastMCP)
-在客户端 MCP 配置文件中添加：
+### 手动配置（可选）
+若您倾向于手动配置，也可在客户端 MCP 配置文件中直接写入：
 ```json
 {
   "mcpServers": {
@@ -288,6 +308,36 @@ k0maru --version
   }
 }
 ```
+
+---
+
+## 📖 CLI 常用指令速查表 (CLI Cheat Sheet)
+
+| 命令 | 常用参数 | 说明 |
+| :--- | :--- | :--- |
+| `k0maru install` | `--vault <path>` | 一键将 `k0maru-memory` 挂载至智能体客户端配置文件 |
+| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--dry-run` | 仅预览配置变更差异，不实际写入磁盘 |
+| `k0maru doctor` | `--vault <path>` | 全面体检二进制环境、知识库、缓存索引与生态挂载健康度 |
+| | `--json` | 输出机器可读的结构化诊断报告 |
+| `k0maru ui` | `--vault <path>` | 启动本地嵌入式可视化控制台（默认 `127.0.0.1:3721`） |
+| | `--port <port>` | 绑定自定义端口（默认 3721） |
+| | `--open` | 启动后自动在系统默认浏览器中打开控制台 |
+| `k0maru loadout <query>` | `--vault <path>` | 指定目标知识库根目录 |
+| | `--copy` | 将装配好的 <300 Token 背包直接复制至系统剪贴板 |
+| | `--json` | 输出结构化 JSON 背包数据 |
+| | `-l`, `--list` | 列出知识库内所有活跃项目 |
+| `k0maru search <query>` | `--vault <path>` | 指定目标知识库根目录 |
+| | `--mode <hybrid\|bm25\|vector>` | 检索模式（默认 `hybrid` RRF 混合检索） |
+| | `--limit <N>` | 最多返回的结果数量（默认 5 篇） |
+| | `--json` | 输出结构化 JSON 检索结果 |
+| `k0maru sync` | `--vault <path>` | 增量扫描并更新 SQLite 索引与图谱拓扑 |
+| | `--vector` | 增量批量生成与刷新本地向量嵌入 |
+| | `--json` | 输出 JSON 格式同步统计 |
+| `k0maru offload` | `--threshold <N>` | 触发符号化卸载的日志行数阈值（默认 50 行） |
+| | `--task-id <id>` | 绑定任务标识符以便归档追踪 |
+| `k0maru inspect <id>` | `<node_id>` | 根据 Node ID 调取已卸载的原始报错堆栈切片 |
+| `k0maru mcp` | `--vault <path>` | 启动标准 stdio MCP 服务，供智能体或 IDE 挂载 |
 
 ---
 

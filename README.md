@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.4.2](https://img.shields.io/badge/Version-0.4.2-blue.svg)]()
-[![Tests: 145 passed](https://img.shields.io/badge/Tests-145_passed-brightgreen.svg)]()
+[![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue.svg)]()
+[![Tests: 179 passed](https://img.shields.io/badge/Tests-179_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -124,6 +124,20 @@ k0maru sync --vault ~/wiki
 
 # Batch incremental vector embeddings (32 docs/batch, auto-skips clean files)
 k0maru sync --vault ~/wiki --vector
+```
+
+### 7. One-Click Ecosystem Setup & Diagnostics (`k0maru install` & `k0maru doctor`)
+No more manual JSON configuration. Automatically detect and configure MCP client integrations across your entire toolchain, with non-destructive atomic JSON merges and system health auditing:
+
+```bash
+# One-click install k0maru-memory into Claude Code, Cursor, Gemini CLI, Windsurf, Cline
+k0maru install --vault ~/Documents/MyVault
+
+# Preview changes without modifying disk
+k0maru install --target claude --dry-run
+
+# Run full health check on binary, vault documents, SQLite indices, and client mounts
+k0maru doctor
 ```
 
 ---
@@ -250,11 +264,17 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. Verify installation
 k0maru --version
-# Output: k0maru 0.4.2
+# Output: k0maru 0.5.0
+
+# 4. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+k0maru install --vault ~/Documents/MyVault
+
+# 5. Verify system & client integration health
+k0maru doctor
 ```
 
-### Mount to Claude Code / Cursor (FastMCP)
-Add `k0maru` to your client's MCP configuration file (e.g. `~/.claude.json` or `~/.gemini/config/mcp_config.json`):
+### Manual Configuration (Optional)
+If you prefer manual setup, add `k0maru` to your client's MCP configuration file (e.g. `~/.claude.json` or `~/.gemini/config/mcp_config.json`):
 
 ```json
 {
@@ -273,6 +293,11 @@ Add `k0maru` to your client's MCP configuration file (e.g. `~/.claude.json` or `
 
 | Command | Key Flags | Description |
 | :--- | :--- | :--- |
+| `k0maru install` | `--vault <path>` | One-click install `k0maru-memory` to agent clients |
+| | `--target <client>` | Target specific client (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--dry-run` | Preview planned configuration diffs without writing to disk |
+| `k0maru doctor` | `--vault <path>` | Run comprehensive system, vault, storage, and ecosystem diagnostics |
+| | `--json` | Output machine-readable structured diagnostic report |
 | `k0maru ui` | `--vault <path>` | Start local embedded developer console (default `127.0.0.1:3721`) |
 | | `--port <port>` | Bind custom local port (default: 3721) |
 | | `--open` | Automatically open console in system default browser |
