@@ -8,7 +8,7 @@ use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::scanner::IncrementalScanner;
 use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
-use k0maru::vector::MockEmbeddingEngine;
+use k0maru::vector::default_embedding_engine;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -332,7 +332,15 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let mut server = k0maru::mcp::McpServer::new(vault_path);
+    let mut server = k0maru::mcp::McpServer::new(&vault_path);
+    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+        Some(vault_path.join(".k0maru").join("models"))
+    } else {
+        None
+    };
+    if let Ok(embedder) = default_embedding_engine(model_cache) {
+        server = server.with_embedder(embedder);
+    }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     server.run_stdio(stdin.lock(), stdout.lock())
@@ -349,9 +357,12 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let embedder: Option<std::sync::Arc<dyn k0maru::vector::EmbeddingEngine>> = if args.vector {
-        Some(std::sync::Arc::new(
-            k0maru::vector::MockEmbeddingEngine::new(384),
-        ))
+        let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+            Some(vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        Some(default_embedding_engine(model_cache)?)
     } else {
         None
     };
@@ -437,8 +448,13 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let cache_path = cache_dir.join("cache.sqlite");
 
     let storage = SqliteStorage::open(&cache_path)?;
-    let embedder = std::sync::Arc::new(MockEmbeddingEngine::new(384));
-    let engine = HybridSearchEngine::new(&storage, Some(embedder));
+    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+        Some(vault_path.join(".k0maru").join("models"))
+    } else {
+        None
+    };
+    let embedder = default_embedding_engine(model_cache).ok();
+    let engine = HybridSearchEngine::new(&storage, embedder);
 
     let results = engine.search(&args.query, mode, args.limit)?;
 

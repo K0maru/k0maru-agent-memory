@@ -9,6 +9,8 @@ pub enum VectorError {
     DimensionMismatch { expected: usize, actual: usize },
     /// Requested embedding model could not be found or loaded.
     ModelNotFound(String),
+    /// Model initialization or loading failure.
+    ModelInitFailed(String),
     /// Inference failure during model execution.
     InferenceError(String),
     /// Internal engine failure.
@@ -26,6 +28,7 @@ impl fmt::Display for VectorError {
                 )
             }
             Self::ModelNotFound(msg) => write!(f, "Model not found: {}", msg),
+            Self::ModelInitFailed(msg) => write!(f, "Model initialization failed: {}", msg),
             Self::InferenceError(msg) => write!(f, "Vector inference error: {}", msg),
             Self::Internal(msg) => write!(f, "Internal vector error: {}", msg),
         }

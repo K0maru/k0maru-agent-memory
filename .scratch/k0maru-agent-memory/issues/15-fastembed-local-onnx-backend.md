@@ -1,7 +1,7 @@
 # 15 — FastEmbed Local CPU ONNX Runtime Backend
 
 **Type:** task  
-**Status:** ready-for-agent  
+**Status:** resolved  
 **Blocked by:** 14  
 
 ## Context
@@ -24,6 +24,6 @@ For real-world semantic retrieval, we need a local CPU-based embedding model tha
 4. Unit and integration tests (mocked or conditional on model availability).
 
 ## Acceptance Criteria
-- [ ] `FastEmbedBackend` compiles and implements `EmbeddingEngine`.
-- [ ] Only loads weights when explicitly invoked (never on `offload` or `version`).
-- [ ] Thread-safe across concurrent queries.
+- [x] `FastEmbedBackend` compiles and implements `EmbeddingEngine`.
+- [x] Only loads weights when explicitly invoked (never on `offload` or `version`).
+- [x] Thread-safe across concurrent queries.

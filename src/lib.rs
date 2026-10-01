@@ -23,7 +23,9 @@ pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
 pub use scanner::{IncrementalScanner, VectorSyncEngine, VectorSyncStats};
 pub use storage::{HybridSearchEngine, SearchMode, SearchResult, SqliteStorage};
-pub use vector::{EmbeddingEngine, MockEmbeddingEngine, VectorError};
+#[cfg(feature = "fastembed")]
+pub use vector::FastEmbedBackend;
+pub use vector::{default_embedding_engine, EmbeddingEngine, MockEmbeddingEngine, VectorError};
 
 #[cfg(test)]
 mod tests {

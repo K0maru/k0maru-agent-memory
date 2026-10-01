@@ -23,6 +23,11 @@ walkdir = "2.5"
 arboard = "3.4"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 sqlite-vec = "0.1"
+fastembed = { version = "4", optional = true }
+
+[features]
+default = ["fastembed"]
+fastembed = ["dep:fastembed"]
 
 [dev-dependencies]
 tempfile = "3.10"
