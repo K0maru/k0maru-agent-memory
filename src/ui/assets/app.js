@@ -1,7 +1,452 @@
 /**
  * K0maru Agent Memory Hub — Developer Dark Cockpit Frontend
- * Vanilla ES6 Application Logic
+ * Vanilla ES6 Application Logic & Bilingual I18n Engine
  */
+
+let currentLang = 'en';
+
+const TRANSLATIONS = {
+  en: {
+    'brand.subtitle': 'Obsidian & LLM-Wiki Zero-Daemon Memory Core',
+    'status.vault': 'Vault:',
+    'status.vault_title': 'Active Vault Path',
+    'status.docs': 'Docs:',
+    'status.docs_title': 'Total Indexed Documents',
+    'status.vectors': 'Vectors:',
+    'status.vectors_title': 'Total Embedded Vectors',
+    'status.synced': 'Synced:',
+    'status.synced_title': 'Last Incremental Sync Timestamp',
+    'status.connecting': 'Connecting...',
+    'status.disconnected': 'Disconnected',
+    'status.never': 'Never',
+    'status.unknown': 'Unknown',
+    'sync.button': 'Sync Vault',
+    'sync.syncing': 'Syncing...',
+    'sync.synced': 'Synced',
+    'sync.error': 'Error',
+    'sync.ready': 'Ready',
+    'sync.title': 'Trigger incremental scanner and vector reindex',
+    'sync.toggle_lang_title': 'Switch Language (Current: English)',
+    'tabs.search': 'Search Debugger',
+    'tabs.graph': 'Graph Explorer',
+    'tabs.logs': 'Log Inspector',
+    'tabs.scoreboard': 'Token Scoreboard',
+    'search.title': 'Hybrid Search Debugger & Explainability',
+    'search.desc': 'Interactive query playground with BM25 rank, vector cosine distance, RRF fusion, and WikiLinks Graph Boost.',
+    'search.latency_title': 'Search query execution latency',
+    'search.placeholder': 'Type query to test retrieval ranking (e.g. memory architecture, vector index)...',
+    'search.shortcut_hint': '[ / or ⌘K ]',
+    'search.mode_label': 'Mode:',
+    'search.mode_hybrid': 'Hybrid (RRF)',
+    'search.mode_hybrid_title': 'Reciprocal Rank Fusion with WikiLinks Graph Boost',
+    'search.mode_bm25': 'BM25 Lexical',
+    'search.mode_bm25_title': 'Pure BM25 full-text keyword retrieval',
+    'search.mode_vector': 'Vector Dense',
+    'search.mode_vector_title': 'Dense vector semantic cosine similarity',
+    'search.limit_label': 'Limit:',
+    'search.run_button': 'Run',
+    'search.run_title': 'Execute Query immediately',
+    'search.initial_text': 'Enter a query above to view explainable search ranking waterfall.',
+    'search.initial_subtext': 'Press / or ⌘K to focus search • Try "memory", "storage", or "architecture"',
+    'search.no_hits_title': 'No matching notes found',
+    'search.no_hits_desc': 'Zero notes matched "<strong>{query}</strong>" in <strong>{mode}</strong> mode.',
+    'search.no_hits_sug1': 'Try broader keywords, partial stems, or check for typos.',
+    'search.no_hits_sug2': 'Switch mode to Vector Dense to find semantically related notes.',
+    'search.no_hits_sug3': 'Click Sync Vault in the top header to ensure recent files are indexed.',
+    'search.score_label': 'Score:',
+    'search.score_title': 'Fused RRF Score',
+    'search.bm25_hit_title': 'BM25 rank in candidate pool',
+    'search.bm25_miss_title': 'Not ranked in BM25 lexical pool',
+    'search.vector_badge': 'Vector #{rank}',
+    'search.vector_miss': 'Vector --',
+    'search.vector_hit_title': 'Vector nearest neighbor rank',
+    'search.vector_miss_title': 'Not ranked in Vector dense pool',
+    'search.graph_boost': 'Graph Boost',
+    'search.graph_boost_title': 'Elevated by 1-hop WikiLinks graph connectivity',
+    'search.failed': 'Search execution failed: {error}',
+    'search.failed_sub': 'Check backend status or adjust query parameters',
+    'graph.title': 'WikiLinks Knowledge Graph Explorer',
+    'graph.desc': '2D force-directed knowledge graph with semantic hierarchy color-coding and orphan discovery.',
+    'graph.search_placeholder': 'Search / focus node...',
+    'graph.tier_project': 'Project',
+    'graph.tier_project_title': 'Toggle Project notes',
+    'graph.tier_l3': 'L3 Evergreen',
+    'graph.tier_l3_title': 'Toggle L3 Evergreen notes',
+    'graph.tier_l2': 'L2 Log',
+    'graph.tier_l2_title': 'Toggle L2 Log notes',
+    'graph.tier_l1': 'L1 Resource',
+    'graph.tier_l1_title': 'Toggle L1 Resource notes',
+    'graph.tier_l0': 'L0 Daily',
+    'graph.tier_l0_title': 'Toggle L0 Daily notes',
+    'graph.highlight_orphans': 'Highlight Orphans',
+    'graph.highlight_orphans_title': 'Highlight nodes with 0 links and 0 backlinks',
+    'graph.zoom_in_title': 'Zoom In (+)',
+    'graph.zoom_out_title': 'Zoom Out (-)',
+    'graph.zoom_fit': 'Fit',
+    'graph.zoom_fit_title': 'Fit to View',
+    'graph.counter': '{nodes} nodes · {links} links',
+    'graph.drawer_title_default': 'Select a Note',
+    'graph.drawer_close_title': 'Close Inspector (Esc)',
+    'graph.drawer_tags': 'Tags',
+    'graph.drawer_no_tags': 'No tags',
+    'graph.drawer_outlinks': 'Out-Links',
+    'graph.drawer_no_outlinks': 'No outgoing WikiLinks',
+    'graph.drawer_backlinks': 'Inbound Backlinks',
+    'graph.drawer_no_backlinks': 'No inbound backlinks',
+    'logs.title': 'Log & Trace Inspector',
+    'logs.desc': 'Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.',
+    'logs.badge': '{count} logs',
+    'logs.search_placeholder': 'Filter by node ID or task ID...',
+    'logs.empty_title': 'No offloaded logs found in .scratch/refs/',
+    'logs.empty_subtext': 'Run long commands or k0maru offload to capture logs',
+    'logs.no_match': 'No logs matching "{filter}"',
+    'logs.no_match_sub': 'Try adjusting search query',
+    'logs.lines': '{count} lines',
+    'logs.select_node': 'Select a log node',
+    'logs.copy_node_id': 'Copy Node ID',
+    'logs.copy_node_id_title': 'Copy Node ID to clipboard',
+    'logs.copy_raw_log': 'Copy Raw Log',
+    'logs.copy_raw_log_title': 'Copy Raw Log slice to clipboard',
+    'logs.copied': 'Copied!',
+    'logs.diagram_title': 'State Machine Pipeline Diagram',
+    'logs.diagram_placeholder': 'Select a log node to render pipeline state diagram.',
+    'logs.raw_slice_title': 'Raw Log Slice',
+    'logs.raw_slice_legend': 'Error & Warning Highlighted',
+    'logs.raw_slice_placeholder': 'Raw log output will appear here.',
+    'logs.log_empty': 'Log is empty.',
+    'logs.loading_diagram': 'Loading trace diagram...',
+    'logs.loading_raw': 'Loading raw log slice...',
+    'logs.diagram_failed': 'Failed to load diagram: {error}',
+    'logs.raw_failed': 'Failed to load log content: {error}',
+    'scoreboard.title': 'Cache Health & Token Scoreboard',
+    'scoreboard.desc': 'Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).',
+    'scoreboard.status_healthy': 'Healthy',
+    'scoreboard.kpi_docs_label': 'Vault Documents',
+    'scoreboard.kpi_docs_sub': 'Parsed Markdown notes',
+    'scoreboard.kpi_vecs_label': 'Vector Embeddings',
+    'scoreboard.kpi_vecs_sub': 'Dense vector index coverage',
+    'scoreboard.kpi_cache_label': 'Cache Database Size',
+    'scoreboard.kpi_cache_sub': 'SQLite cache.sqlite footprint',
+    'scoreboard.kpi_logs_label': 'Offloaded Log Nodes',
+    'scoreboard.kpi_logs_sub': 'Symbolic terminal traces',
+    'scoreboard.token_title': 'Token Economics & Context Hygiene',
+    'scoreboard.benchmark_badge': 'Phase 3.8 Baseline',
+    'scoreboard.token_hero_label': 'Estimated Cumulative Tokens Saved',
+    'scoreboard.token_hero_unit': 'tokens',
+    'scoreboard.token_hero_desc': 'Saved by replacing bulky terminal streams with symbolic pointer nodes.',
+    'scoreboard.trr_title': 'Token Reduction Ratio (TRR)',
+    'scoreboard.trr_target': 'Phase 3.8: 99.44% Target',
+    'scoreboard.callout_title': 'Benchmark Verified:',
+    'scoreboard.callout_desc': 'Exceeds Phase 3.8 TRR baseline of 99.44% context reduction on 10,000-line compiler traces.',
+    'scoreboard.sync_card_title': 'Cache Operations & Index Sync',
+    'scoreboard.sync_ready': 'Ready',
+    'scoreboard.sync_card_desc': 'Trigger an incremental scan to index newly added or modified Markdown files, update WikiLinks connections, and compute vector embeddings without daemon overhead.',
+    'scoreboard.active_vault_label': 'Active Vault Path:',
+    'scoreboard.last_sync_label': 'Last Sync Completed:',
+    'scoreboard.engine_mode_label': 'Engine Mode:',
+    'scoreboard.engine_mode_val': 'Zero-Daemon Embedded (FastMCP)',
+    'scoreboard.btn_incremental_sync': 'Run Incremental Sync',
+    'toast.vault_synced': 'Vault synced: +{added} added, ~{modified} updated, {vectors} vectors embedded',
+    'toast.sync_failed': 'Sync failed: {message}',
+    'toast.copied': 'Copied to clipboard!',
+    'toast.copy_failed': 'Failed to copy to clipboard',
+    'toast.copy_not_supported': 'Clipboard copy not supported',
+    'toast.graph_failed': 'Graph load failed: {message}',
+    'toast.lang_switched': 'Switched to English',
+  },
+  zh: {
+    'brand.subtitle': 'Obsidian 与大模型 Wiki 零后台常驻记忆中枢',
+    'status.vault': '知识库:',
+    'status.vault_title': '当前活跃知识库路径',
+    'status.docs': '文档:',
+    'status.docs_title': '已索引文档总数',
+    'status.vectors': '向量:',
+    'status.vectors_title': '已嵌入向量总数',
+    'status.synced': '同步:',
+    'status.synced_title': '最近增量同步时间戳',
+    'status.connecting': '连接中...',
+    'status.disconnected': '已断开',
+    'status.never': '从未',
+    'status.unknown': '未知',
+    'sync.button': '同步知识库',
+    'sync.syncing': '同步中...',
+    'sync.synced': '已同步',
+    'sync.error': '同步失败',
+    'sync.ready': '就绪',
+    'sync.title': '触发增量扫描与向量重新索引',
+    'sync.toggle_lang_title': '切换语言 (当前: 简体中文)',
+    'tabs.search': '多路检索调试',
+    'tabs.graph': '知识图谱图鉴',
+    'tabs.logs': '日志与状态机透视',
+    'tabs.scoreboard': 'Token 节省计分板',
+    'search.title': '多路混合检索调试与可解释性瀑布流',
+    'search.desc': '交互式检索试验场：支持 BM25 排名、向量余弦相似度、RRF 倒数排名融合与 WikiLinks 图谱加权。',
+    'search.latency_title': '检索查询执行延迟',
+    'search.placeholder': '输入检索查询词测试排序（如：memory architecture, 向量索引）...',
+    'search.shortcut_hint': '[ / 或 ⌘K ]',
+    'search.mode_label': '检索模式:',
+    'search.mode_hybrid': '混合检索 (RRF)',
+    'search.mode_hybrid_title': '倒数排名融合 (RRF) 搭配 WikiLinks 图谱加权',
+    'search.mode_bm25': 'BM25 词法检索',
+    'search.mode_bm25_title': '纯 BM25 全文关键词检索',
+    'search.mode_vector': '语义向量检索',
+    'search.mode_vector_title': '稠密向量语义余弦相似度检索',
+    'search.limit_label': '返回数量:',
+    'search.run_button': '运行',
+    'search.run_title': '立即执行检索',
+    'search.initial_text': '在上方输入检索词以查看可解释的多路排序瀑布流。',
+    'search.initial_subtext': '按 / 或 ⌘K 聚焦检索框 • 尝试输入 "memory"、"storage" 或 "architecture"',
+    'search.no_hits_title': '未找到匹配的笔记',
+    'search.no_hits_desc': '在 <strong>{mode}</strong> 模式下未找到与 "<strong>{query}</strong>" 匹配的笔记。',
+    'search.no_hits_sug1': '尝试更宽泛的关键词、词干，或检查拼写是否有误。',
+    'search.no_hits_sug2': '切换为“语义向量检索”模式以查找语义相关笔记。',
+    'search.no_hits_sug3': '点击顶部“同步知识库”确保最新笔记已加入索引。',
+    'search.score_label': '得分:',
+    'search.score_title': 'RRF 融合综合得分',
+    'search.bm25_hit_title': 'BM25 候选池排名',
+    'search.bm25_miss_title': '未命中 BM25 词法候选池',
+    'search.vector_badge': '向量排名 #{rank}',
+    'search.vector_miss': '向量 --',
+    'search.vector_hit_title': '向量近邻检索排名',
+    'search.vector_miss_title': '未命中向量稠密候选池',
+    'search.graph_boost': '图谱加权',
+    'search.graph_boost_title': '由 1-hop WikiLinks 图谱连通性提升',
+    'search.failed': '检索执行失败：{error}',
+    'search.failed_sub': '请检查后端状态或调整查询参数',
+    'graph.title': 'WikiLinks 知识图谱图鉴',
+    'graph.desc': '2D 力导向知识图谱：具备语义层级色彩编码与孤立笔记发现能力。',
+    'graph.search_placeholder': '检索 / 定位笔记节点...',
+    'graph.tier_project': '项目',
+    'graph.tier_project_title': '显示/隐藏项目笔记',
+    'graph.tier_l3': 'L3 永恒笔记',
+    'graph.tier_l3_title': '显示/隐藏 L3 永恒笔记',
+    'graph.tier_l2': 'L2 决策日志',
+    'graph.tier_l2_title': '显示/隐藏 L2 决策日志',
+    'graph.tier_l1': 'L1 资源引用',
+    'graph.tier_l1_title': '显示/隐藏 L1 资源引用',
+    'graph.tier_l0': 'L0 日记',
+    'graph.tier_l0_title': '显示/隐藏 L0 日记',
+    'graph.highlight_orphans': '高亮孤立笔记',
+    'graph.highlight_orphans_title': '高亮出链与入链均为 0 的孤立笔记',
+    'graph.zoom_in_title': '放大 (+)',
+    'graph.zoom_out_title': '缩小 (-)',
+    'graph.zoom_fit': '居中',
+    'graph.zoom_fit_title': '适应画布',
+    'graph.counter': '{nodes} 节点 · {links} 连线',
+    'graph.drawer_title_default': '选择笔记节点',
+    'graph.drawer_close_title': '关闭抽屉 (Esc)',
+    'graph.drawer_tags': '标签',
+    'graph.drawer_no_tags': '无标签',
+    'graph.drawer_outlinks': '出链引用',
+    'graph.drawer_no_outlinks': '无出链引用',
+    'graph.drawer_backlinks': '反向链接 Backlinks',
+    'graph.drawer_no_backlinks': '无反向链接',
+    'logs.title': '日志与状态机透视',
+    'logs.desc': '可视化 Mermaid 状态机图表渲染器与已卸载节点的折叠调用栈查看器。',
+    'logs.badge': '{count} 条日志',
+    'logs.search_placeholder': '按 Node ID 或 Task ID 过滤...',
+    'logs.empty_title': '.scratch/refs/ 中未找到已卸载日志',
+    'logs.empty_subtext': '运行耗时命令或执行 k0maru offload 捕获日志',
+    'logs.no_match': '未找到匹配 "{filter}" 的日志',
+    'logs.no_match_sub': '尝试调整过滤关键词',
+    'logs.lines': '{count} 行',
+    'logs.select_node': '选择日志节点',
+    'logs.copy_node_id': '复制 Node ID',
+    'logs.copy_node_id_title': '复制 Node ID 到剪贴板',
+    'logs.copy_raw_log': '复制原始日志',
+    'logs.copy_raw_log_title': '复制原始日志切片到剪贴板',
+    'logs.copied': '已复制!',
+    'logs.diagram_title': '状态机管线图',
+    'logs.diagram_placeholder': '选择日志节点以渲染管线状态图。',
+    'logs.raw_slice_title': '原始日志切片',
+    'logs.raw_slice_legend': '已高亮错误与警告',
+    'logs.raw_slice_placeholder': '原始日志输出将显示在此处。',
+    'logs.log_empty': '日志内容为空。',
+    'logs.loading_diagram': '正在加载轨迹状态图...',
+    'logs.loading_raw': '正在加载原始日志切片...',
+    'logs.diagram_failed': '加载状态图失败：{error}',
+    'logs.raw_failed': '加载日志内容失败：{error}',
+    'scoreboard.title': '缓存健康与 Token 节省计分板',
+    'scoreboard.desc': '实时监控索引文档、向量覆盖率、缓存体积以及累计上下文压缩率 (TRR)。',
+    'scoreboard.status_healthy': '运行良好',
+    'scoreboard.kpi_docs_label': '索引 Markdown 文档',
+    'scoreboard.kpi_docs_sub': '已解析 Markdown 笔记',
+    'scoreboard.kpi_vecs_label': '向量索引与覆盖率',
+    'scoreboard.kpi_vecs_sub': '稠密向量索引覆盖率',
+    'scoreboard.kpi_cache_label': 'SQLite 缓存体积',
+    'scoreboard.kpi_cache_sub': 'cache.sqlite 占用空间',
+    'scoreboard.kpi_logs_label': '已卸载日志节点',
+    'scoreboard.kpi_logs_sub': '符号化终端调用轨迹',
+    'scoreboard.token_title': 'Token 经济学与上下文整洁度',
+    'scoreboard.benchmark_badge': 'Phase 3.8 基线',
+    'scoreboard.token_hero_label': '累计估算节省 Token',
+    'scoreboard.token_hero_unit': 'tokens',
+    'scoreboard.token_hero_desc': '通过使用符号指针节点替代冗长的终端输出流实现节省。',
+    'scoreboard.trr_title': '上下文压缩率 (TRR)',
+    'scoreboard.trr_target': 'Phase 3.8: 99.44% 达标线',
+    'scoreboard.callout_title': '基线实测验证:',
+    'scoreboard.callout_desc': '在 10,000 行编译日志追踪测试中，超越 Phase 3.8 TRR 99.44% 上下文压缩基线。',
+    'scoreboard.sync_card_title': '缓存运维与索引同步',
+    'scoreboard.sync_ready': '就绪',
+    'scoreboard.sync_card_desc': '触发增量扫描，零守护进程常驻开销下索引新增或修改的 Markdown 文档、更新 WikiLinks 关联并生成向量嵌入。',
+    'scoreboard.active_vault_label': '当前活跃知识库路径:',
+    'scoreboard.last_sync_label': '最近完成同步:',
+    'scoreboard.engine_mode_label': '运行引擎模式:',
+    'scoreboard.engine_mode_val': '零守护进程嵌入式 (FastMCP)',
+    'scoreboard.btn_incremental_sync': '执行增量同步',
+    'toast.vault_synced': '知识库已同步：新增 +{added} 篇，更新 ~{modified} 篇，嵌入 {vectors} 个向量',
+    'toast.sync_failed': '同步失败：{message}',
+    'toast.copied': '已复制到剪贴板！',
+    'toast.copy_failed': '复制到剪贴板失败',
+    'toast.copy_not_supported': '当前环境不支持剪贴板复制',
+    'toast.graph_failed': '加载图谱数据失败：{message}',
+    'toast.lang_switched': '已切换至简体中文',
+  },
+};
+
+function t(key, params = {}) {
+  const lang = currentLang;
+  let text = (TRANSLATIONS[lang] && TRANSLATIONS[lang][key]) ||
+             (TRANSLATIONS['en'] && TRANSLATIONS['en'][key]) ||
+             key;
+  for (const [k, v] of Object.entries(params)) {
+    text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+  }
+  return text;
+}
+
+function getLanguage() {
+  try {
+    const stored = localStorage.getItem('k0maru_lang');
+    if (stored === 'zh' || stored === 'en') {
+      return stored;
+    }
+  } catch (_e) {}
+  const navLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+  if (navLang.startsWith('zh')) {
+    return 'zh';
+  }
+  return 'en';
+}
+
+function setLanguage(lang) {
+  currentLang = (lang === 'zh') ? 'zh' : 'en';
+  try {
+    localStorage.setItem('k0maru_lang', currentLang);
+  } catch (_e) {}
+  document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+
+  const indicator = document.getElementById('lang-indicator');
+  if (indicator) {
+    indicator.textContent = currentLang === 'zh' ? '中文' : 'English';
+  }
+  const btnToggle = document.getElementById('btn-lang-toggle');
+  if (btnToggle) {
+    btnToggle.title = currentLang === 'zh' ? '切换语言 (当前: 简体中文)' : 'Switch Language (Current: English)';
+  }
+
+  // Translate static DOM elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key && TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) {
+      el.textContent = TRANSLATIONS[currentLang][key];
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key && TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) {
+      el.setAttribute('placeholder', TRANSLATIONS[currentLang][key]);
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key && TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) {
+      el.setAttribute('title', TRANSLATIONS[currentLang][key]);
+    }
+  });
+
+  // Re-render dynamic elements
+  const syncBtn = document.getElementById('btn-sync');
+  if (syncBtn) {
+    const syncText = syncBtn.querySelector('.btn-text');
+    if (syncText) {
+      if (syncBtn.classList.contains('syncing')) {
+        syncText.textContent = t('sync.syncing');
+      } else {
+        syncText.textContent = t('sync.button');
+      }
+    }
+  }
+
+  const scoreboardSyncStatus = document.getElementById('scoreboard-sync-status');
+  if (scoreboardSyncStatus) {
+    if (scoreboardSyncStatus.textContent === 'Syncing...' || scoreboardSyncStatus.textContent === '同步中...') {
+      scoreboardSyncStatus.textContent = t('sync.syncing');
+    } else {
+      scoreboardSyncStatus.textContent = t('sync.ready');
+    }
+  }
+
+  if (typeof updateGraphCounter === 'function' && graphState && graphState.nodes) {
+    updateGraphCounter();
+  }
+
+  if (typeof openDrawer === 'function' && graphState && graphState.selectedNode) {
+    openDrawer(graphState.selectedNode);
+  }
+
+  if (cachedLogs) {
+    const logsBadge = document.getElementById('logs-count-badge');
+    if (logsBadge) {
+      logsBadge.textContent = t('logs.badge', { count: cachedLogs.length });
+    }
+    const searchInput = document.getElementById('logs-search');
+    const filter = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    if (typeof renderLogsList === 'function') {
+      renderLogsList(filter);
+    }
+  }
+
+  const searchInput = document.getElementById('search-input');
+  const resultsContainer = document.getElementById('search-results');
+  if (resultsContainer) {
+    if (!searchInput || !searchInput.value.trim()) {
+      if (typeof renderEmptyInitialState === 'function') {
+        renderEmptyInitialState(resultsContainer);
+      }
+    } else if (window.latestSearchResults && typeof renderSearchResults === 'function') {
+      renderSearchResults(window.latestSearchResults, searchInput.value.trim(), resultsContainer);
+    }
+  }
+
+  if (window.latestStatus && typeof renderStatus === 'function') {
+    renderStatus(window.latestStatus);
+  }
+}
+
+function initLanguageSwitcher() {
+  const btnToggle = document.getElementById('btn-lang-toggle');
+  if (btnToggle) {
+    btnToggle.addEventListener('click', () => {
+      const nextLang = currentLang === 'zh' ? 'en' : 'zh';
+      setLanguage(nextLang);
+      showToast(t('toast.lang_switched'), 'info');
+    });
+  }
+}
+
+function getTierDisplayName(tierKey) {
+  switch (tierKey) {
+    case 'Project': return t('graph.tier_project');
+    case 'L3 Evergreen': return t('graph.tier_l3');
+    case 'L2 Log': return t('graph.tier_l2');
+    case 'L1 Resource': return t('graph.tier_l1');
+    case 'L0 Daily': return t('graph.tier_l0');
+    default: return tierKey;
+  }
+}
 
 // Application State for Search Console
 let currentSearchMode = 'hybrid';
@@ -11,12 +456,14 @@ let currentAbortController = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
+  initLanguageSwitcher();
   initSync();
   initSearchConsole();
   initGraphExplorer();
   initLogInspector();
   initScoreboard();
   initKeyboardShortcuts();
+  setLanguage(getLanguage());
   fetchStatus();
   loadLogsList();
 });
@@ -217,6 +664,7 @@ async function executeSearch() {
 
   // If query is empty, render initial helpful state
   if (!query) {
+    window.latestSearchResults = null;
     renderEmptyInitialState(resultsContainer);
     if (latencyEl) latencyEl.textContent = '-- ms';
     return;
@@ -246,12 +694,14 @@ async function executeSearch() {
     }
 
     const results = await res.json();
+    window.latestSearchResults = results;
     renderSearchResults(results, query, resultsContainer);
   } catch (err) {
     if (err.name === 'AbortError') {
       return;
     }
     console.error('Search query failed:', err);
+    window.latestSearchResults = null;
     renderSearchError(err.message, resultsContainer);
     if (latencyEl) latencyEl.textContent = 'Err';
   } finally {
@@ -266,8 +716,8 @@ function renderEmptyInitialState(container) {
         <circle cx="11" cy="11" r="8"></circle>
         <path d="m21 21-4.3-4.3"></path>
       </svg>
-      <p class="placeholder-text">Enter a query above to view explainable search ranking waterfall.</p>
-      <span class="placeholder-subtext mono">Press / or ⌘K to focus search &bull; Try "memory", "storage", or "architecture"</span>
+      <p class="placeholder-text" data-i18n="search.initial_text">${t('search.initial_text')}</p>
+      <span class="placeholder-subtext mono" data-i18n="search.initial_subtext">${t('search.initial_subtext')}</span>
     </div>
   `;
 }
@@ -280,8 +730,8 @@ function renderSearchError(errorMessage, container) {
         <line x1="12" y1="8" x2="12" y2="12"></line>
         <line x1="12" y1="16" x2="12.01" y2="16"></line>
       </svg>
-      <p class="placeholder-text" style="color: var(--danger);">Search execution failed: ${escapeHtml(errorMessage)}</p>
-      <span class="placeholder-subtext mono">Check backend status or adjust query parameters</span>
+      <p class="placeholder-text" style="color: var(--danger);">${t('search.failed', { error: escapeHtml(errorMessage) })}</p>
+      <span class="placeholder-subtext mono" data-i18n="search.failed_sub">${t('search.failed_sub')}</span>
     </div>
   `;
 }
@@ -295,12 +745,12 @@ function renderSearchResults(results, query, container) {
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           <line x1="8" y1="11" x2="14" y2="11"></line>
         </svg>
-        <h3 class="zero-hits-title">No matching notes found</h3>
-        <p class="zero-hits-desc">Zero notes matched "<strong>${escapeHtml(query)}</strong>" in <strong>${escapeHtml(currentSearchMode)}</strong> mode.</p>
+        <h3 class="zero-hits-title" data-i18n="search.no_hits_title">${t('search.no_hits_title')}</h3>
+        <p class="zero-hits-desc">${t('search.no_hits_desc', { query: escapeHtml(query), mode: escapeHtml(currentSearchMode) })}</p>
         <ul class="zero-hits-suggestions">
-          <li>Try broader keywords, partial stems, or check for typos.</li>
-          <li>Switch mode to <strong>Vector Dense</strong> to find semantically related notes.</li>
-          <li>Click <strong>Sync Vault</strong> in the top header to ensure recent files are indexed.</li>
+          <li data-i18n="search.no_hits_sug1">${t('search.no_hits_sug1')}</li>
+          <li data-i18n="search.no_hits_sug2">${t('search.no_hits_sug2')}</li>
+          <li data-i18n="search.no_hits_sug3">${t('search.no_hits_sug3')}</li>
         </ul>
       </div>
     `;
@@ -309,26 +759,27 @@ function renderSearchResults(results, query, container) {
 
   const cardsHtml = results.map((item, idx) => {
     const tier = getHierarchyTier(item.path);
+    const tierName = getTierDisplayName(tier.name);
     const scoreFormatted = Number(item.score).toFixed(4);
     const highlightedSnippet = highlightQueryTerms(item.snippet, query);
 
     // BM25 badge
     const bm25Badge = item.bm25_rank != null
-      ? `<span class="pill-bm25 hit" title="BM25 rank in candidate pool">BM25 #${item.bm25_rank}</span>`
-      : `<span class="pill-bm25" title="Not ranked in BM25 lexical pool">BM25 --</span>`;
+      ? `<span class="pill-bm25 hit" title="${t('search.bm25_hit_title')}">BM25 #${item.bm25_rank}</span>`
+      : `<span class="pill-bm25" title="${t('search.bm25_miss_title')}">BM25 --</span>`;
 
     // Vector badge
     const vectorBadge = item.vector_rank != null
-      ? `<span class="pill-vector hit" title="Vector nearest neighbor rank">Vector #${item.vector_rank}</span>`
-      : `<span class="pill-vector" title="Not ranked in Vector dense pool">Vector --</span>`;
+      ? `<span class="pill-vector hit" title="${t('search.vector_hit_title')}">${t('search.vector_badge', { rank: item.vector_rank })}</span>`
+      : `<span class="pill-vector" title="${t('search.vector_miss_title')}">${t('search.vector_miss')}</span>`;
 
     // Graph boost badge
     const graphBoostBadge = (item.graph_boost && item.graph_boost > 0)
-      ? `<span class="badge badge-emerald graph-boost" title="Elevated by 1-hop WikiLinks graph connectivity">
+      ? `<span class="badge badge-emerald graph-boost" title="${t('search.graph_boost_title')}">
           <svg class="graph-boost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path>
           </svg>
-          +${Number(item.graph_boost).toFixed(2)} Graph Boost
+          +${Number(item.graph_boost).toFixed(2)} ${t('search.graph_boost')}
         </span>`
       : '';
 
@@ -337,7 +788,7 @@ function renderSearchResults(results, query, container) {
         <div class="card-header">
           <div class="card-title-group">
             <div class="card-title-row">
-              <span class="badge-tier ${tier.className}">${tier.name}</span>
+              <span class="badge-tier ${tier.className}">${tierName}</span>
               <h3 class="card-title">${escapeHtml(item.title || item.path)}</h3>
             </div>
             <span class="card-path mono">
@@ -350,8 +801,8 @@ function renderSearchResults(results, query, container) {
           </div>
 
           <div class="waterfall-pill-group">
-            <span class="pill-score" title="Fused RRF Score">
-              <span class="pill-label">Score:</span>
+            <span class="pill-score" title="${t('search.score_title')}">
+              <span class="pill-label" data-i18n="search.score_label">${t('search.score_label')}</span>
               <span class="score-val">${scoreFormatted}</span>
             </span>
             ${bm25Badge}
@@ -449,7 +900,7 @@ async function fetchStatus() {
     console.error('Failed to load vault status:', err);
     const vaultEl = document.getElementById('status-vault-path');
     if (vaultEl) {
-      vaultEl.textContent = 'Disconnected';
+      vaultEl.textContent = t('status.disconnected');
       vaultEl.title = err.message;
     }
   }
@@ -459,7 +910,7 @@ function renderStatus(status) {
   // Vault Path
   const vaultPathEl = document.getElementById('status-vault-path');
   if (vaultPathEl) {
-    vaultPathEl.textContent = status.vault_path || 'Unknown';
+    vaultPathEl.textContent = status.vault_path || t('status.unknown');
     vaultPathEl.title = status.vault_path || '';
   }
 
@@ -483,7 +934,7 @@ function renderStatus(status) {
       lastSyncEl.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       lastSyncEl.title = d.toISOString();
     } else {
-      lastSyncEl.textContent = 'Never';
+      lastSyncEl.textContent = t('status.never');
     }
   }
 
@@ -503,10 +954,12 @@ function initSync() {
     allBtns.forEach(b => {
       b.classList.add('syncing');
       b.disabled = true;
+      const syncText = b.querySelector('.btn-text');
+      if (syncText) syncText.textContent = t('sync.syncing');
     });
 
     const statusBadge = document.getElementById('scoreboard-sync-status');
-    if (statusBadge) statusBadge.textContent = 'Syncing...';
+    if (statusBadge) statusBadge.textContent = t('sync.syncing');
 
     try {
       const res = await fetch('/api/sync', {
@@ -524,18 +977,20 @@ function initSync() {
       const modified = syncData.sync_stats?.modified ?? 0;
       const vectors = syncData.vector_stats?.embedded_count ?? 0;
 
-      showToast(`Vault synced: +${added} added, ~${modified} updated, ${vectors} vectors embedded`, 'success');
+      showToast(t('toast.vault_synced', { added, modified, vectors }), 'success');
       await fetchStatus();
       await loadLogsList();
     } catch (err) {
       console.error('Vault sync error:', err);
-      showToast(`Sync failed: ${err.message}`, 'error');
+      showToast(t('toast.sync_failed', { message: err.message }), 'error');
     } finally {
       allBtns.forEach(b => {
         b.classList.remove('syncing');
         b.disabled = false;
+        const syncText = b.querySelector('.btn-text');
+        if (syncText) syncText.textContent = t('sync.button');
       });
-      if (statusBadge) statusBadge.textContent = 'Ready';
+      if (statusBadge) statusBadge.textContent = t('sync.ready');
     }
   }
 
@@ -831,7 +1286,7 @@ function updateGraphCounter() {
 
   const visibleNodes = graphState.nodes.filter(n => n.visible);
   const visibleLinks = graphState.links.filter(l => l.source.visible && l.target.visible);
-  counterEl.textContent = `${visibleNodes.length} nodes \u00B7 ${visibleLinks.length} links`;
+  counterEl.textContent = t('graph.counter', { nodes: visibleNodes.length, links: visibleLinks.length });
 }
 
 function resizeGraphCanvas() {
@@ -1446,7 +1901,7 @@ function openDrawer(node) {
   // Hierarchy Badge
   const hierarchyEl = document.getElementById('drawer-hierarchy');
   if (hierarchyEl) {
-    hierarchyEl.textContent = node.tierConfig.name;
+    hierarchyEl.textContent = getTierDisplayName(node.tierName);
     hierarchyEl.className = `badge-tier ${node.tierConfig.badgeClass}`;
   }
 
@@ -1456,7 +1911,7 @@ function openDrawer(node) {
     if (node.tags && node.tags.length > 0) {
       tagsEl.innerHTML = node.tags.map(t => `<span class="drawer-tag-pill">#${escapeHtml(t)}</span>`).join('');
     } else {
-      tagsEl.innerHTML = '<span class="drawer-empty-hint">No tags</span>';
+      tagsEl.innerHTML = `<span class="drawer-empty-hint" data-i18n="graph.drawer_no_tags">${t('graph.drawer_no_tags')}</span>`;
     }
   }
 
@@ -1500,7 +1955,7 @@ function openDrawer(node) {
         });
       });
     } else {
-      outLinksEl.innerHTML = '<li class="drawer-empty-hint">No outgoing WikiLinks</li>';
+      outLinksEl.innerHTML = `<li class="drawer-empty-hint" data-i18n="graph.drawer_no_outlinks">${t('graph.drawer_no_outlinks')}</li>`;
     }
   }
 
@@ -1538,7 +1993,7 @@ function openDrawer(node) {
         });
       });
     } else {
-      backlinksEl.innerHTML = '<li class="drawer-empty-hint">No inbound backlinks</li>';
+      backlinksEl.innerHTML = `<li class="drawer-empty-hint" data-i18n="graph.drawer_no_backlinks">${t('graph.drawer_no_backlinks')}</li>`;
     }
   }
 }
@@ -1573,7 +2028,7 @@ function initLogInspector() {
   if (copyIdBtn) {
     copyIdBtn.addEventListener('click', () => {
       if (selectedLogId) {
-        copyToClipboard(selectedLogId, copyIdBtn, 'Copy Node ID');
+        copyToClipboard(selectedLogId, copyIdBtn, 'logs.copy_node_id');
       }
     });
   }
@@ -1582,7 +2037,7 @@ function initLogInspector() {
   if (copyLogBtn) {
     copyLogBtn.addEventListener('click', () => {
       if (currentLogData && currentLogData.content) {
-        copyToClipboard(currentLogData.content, copyLogBtn, 'Copy Raw Log');
+        copyToClipboard(currentLogData.content, copyLogBtn, 'logs.copy_raw_log');
       }
     });
   }
@@ -1619,7 +2074,7 @@ async function loadLogsList() {
     cachedLogs = Array.isArray(logs) ? logs : [];
 
     if (badgeEl) {
-      badgeEl.textContent = `${cachedLogs.length} logs`;
+      badgeEl.textContent = t('logs.badge', { count: cachedLogs.length });
     }
 
     const searchInput = document.getElementById('logs-search');
@@ -1639,7 +2094,7 @@ async function loadLogsList() {
     console.error('Failed to load logs:', err);
     container.innerHTML = `
       <div class="placeholder-state logs-empty-state">
-        <p class="placeholder-text" style="color: var(--danger);">Failed to load logs: ${escapeHtml(err.message)}</p>
+        <p class="placeholder-text" style="color: var(--danger);">${t('logs.raw_failed', { error: escapeHtml(err.message) })}</p>
       </div>
     `;
   }
@@ -1664,15 +2119,15 @@ function renderLogsList(filter = '') {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
-          <p class="placeholder-text">No offloaded logs found in .scratch/refs/</p>
-          <span class="placeholder-subtext mono">Run long commands or k0maru offload to capture logs</span>
+          <p class="placeholder-text" data-i18n="logs.empty_title">${t('logs.empty_title')}</p>
+          <span class="placeholder-subtext mono" data-i18n="logs.empty_subtext">${t('logs.empty_subtext')}</span>
         </div>
       `;
     } else {
       container.innerHTML = `
         <div class="placeholder-state logs-empty-state">
-          <p class="placeholder-text">No logs matching "${escapeHtml(filter)}"</p>
-          <span class="placeholder-subtext mono">Try adjusting search query</span>
+          <p class="placeholder-text">${t('logs.no_match', { filter: escapeHtml(filter) })}</p>
+          <span class="placeholder-subtext mono" data-i18n="logs.no_match_sub">${t('logs.no_match_sub')}</span>
         </div>
       `;
     }
@@ -1690,7 +2145,7 @@ function renderLogsList(filter = '') {
       <div class="log-item ${isSelected ? 'active' : ''}" data-id="${escapeHtml(log.id)}" role="button" tabindex="0">
         <div class="log-item-header">
           <span class="log-item-id mono">${escapeHtml(log.id)}</span>
-          <span class="badge badge-muted mono log-item-lines">${log.line_count} lines</span>
+          <span class="badge badge-muted mono log-item-lines">${t('logs.lines', { count: log.line_count })}</span>
         </div>
         <div class="log-item-meta">
           ${taskBadge}
@@ -1770,23 +2225,23 @@ async function selectLogNode(nodeId) {
       }
     }
     if (detailLinesEl) {
-      detailLinesEl.textContent = `${meta.line_count} lines`;
+      detailLinesEl.textContent = t('logs.lines', { count: meta.line_count });
       detailLinesEl.style.display = 'inline-flex';
     }
     if (detailTimeEl) {
       detailTimeEl.textContent = meta.created_at;
     }
     if (rawLineBadge) {
-      rawLineBadge.textContent = `${meta.line_count} lines`;
+      rawLineBadge.textContent = t('logs.lines', { count: meta.line_count });
     }
   }
 
   // Placeholder while loading
   if (mermaidViewer) {
-    mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text">Loading trace diagram...</p></div>`;
+    mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" data-i18n="logs.loading_diagram">${t('logs.loading_diagram')}</p></div>`;
   }
   if (rawViewer) {
-    rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text">Loading raw log slice...</p></div>`;
+    rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" data-i18n="logs.loading_raw">${t('logs.loading_raw')}</p></div>`;
   }
 
   try {
@@ -1812,17 +2267,17 @@ async function selectLogNode(nodeId) {
   } catch (err) {
     console.error('Failed to inspect log node:', err);
     if (mermaidViewer) {
-      mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">Failed to load diagram: ${escapeHtml(err.message)}</p></div>`;
+      mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">${t('logs.diagram_failed', { error: escapeHtml(err.message) })}</p></div>`;
     }
     if (rawViewer) {
-      rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">Failed to load log content: ${escapeHtml(err.message)}</p></div>`;
+      rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">${t('logs.raw_failed', { error: escapeHtml(err.message) })}</p></div>`;
     }
   }
 }
 
 function renderRawLogSlice(rawContent, container) {
   if (!rawContent || !container) {
-    container.innerHTML = '<div class="placeholder-state"><p class="placeholder-text">Log is empty.</p></div>';
+    container.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" data-i18n="logs.log_empty">${t('logs.log_empty')}</p></div>`;
     return;
   }
 
@@ -1831,7 +2286,7 @@ function renderRawLogSlice(rawContent, container) {
 
   const rawLineBadge = document.getElementById('raw-log-line-badge');
   if (rawLineBadge) {
-    rawLineBadge.textContent = `${totalLines} lines`;
+    rawLineBadge.textContent = t('logs.lines', { count: totalLines });
   }
 
   const rowsHtml = lines.map((line, idx) => {
@@ -1861,13 +2316,13 @@ function renderRawLogSlice(rawContent, container) {
   container.innerHTML = rowsHtml;
 }
 
-function copyToClipboard(text, button, originalLabel = 'Copy') {
+function copyToClipboard(text, button, originalKey = 'logs.copy_node_id') {
   if (!text) return;
 
   function setCopied() {
     button.classList.add('copied');
     const textSpan = button.querySelector('.btn-copy-text');
-    if (textSpan) textSpan.textContent = 'Copied!';
+    if (textSpan) textSpan.textContent = t('logs.copied');
 
     const icon = button.querySelector('.copy-btn-icon');
     let prevIconHtml = '';
@@ -1880,11 +2335,11 @@ function copyToClipboard(text, button, originalLabel = 'Copy') {
       `;
     }
 
-    showToast('Copied to clipboard!', 'success');
+    showToast(t('toast.copied'), 'success');
 
     setTimeout(() => {
       button.classList.remove('copied');
-      if (textSpan) textSpan.textContent = originalLabel;
+      if (textSpan) textSpan.textContent = t(originalKey);
       const currentIcon = button.querySelector('.copy-btn-icon');
       if (currentIcon && prevIconHtml) {
         currentIcon.outerHTML = prevIconHtml;
@@ -1913,11 +2368,11 @@ function copyToClipboard(text, button, originalLabel = 'Copy') {
       if (successful) {
         setCopied();
       } else {
-        showToast('Failed to copy to clipboard', 'error');
+        showToast(t('toast.copy_failed'), 'error');
       }
     } catch (e) {
       console.error('Fallback copy error:', e);
-      showToast('Clipboard copy not supported', 'error');
+      showToast(t('toast.copy_not_supported'), 'error');
     }
   }
 }
@@ -2276,7 +2731,7 @@ function updateScoreboard(status) {
   // Vault Path & Sync Status in Card
   const cardVaultPath = document.getElementById('scoreboard-vault-path');
   if (cardVaultPath) {
-    cardVaultPath.textContent = status.vault_path || 'Unknown';
+    cardVaultPath.textContent = status.vault_path || t('status.unknown');
     cardVaultPath.title = status.vault_path || '';
   }
 
@@ -2286,7 +2741,7 @@ function updateScoreboard(status) {
       const d = new Date(status.last_sync_time * 1000);
       cardLastSync.textContent = d.toLocaleString();
     } else {
-      cardLastSync.textContent = 'Never';
+      cardLastSync.textContent = t('status.never');
     }
   }
 

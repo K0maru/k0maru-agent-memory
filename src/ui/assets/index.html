@@ -20,32 +20,32 @@
           <h1 class="brand-title">K0maru Agent Memory Hub</h1>
           <!-- Screen-reader / compatibility heading -->
           <span class="sr-only"><h1>K0maru Dashboard API Active</h1></span>
-          <span class="brand-subtitle">Obsidian &amp; LLM-Wiki Zero-Daemon Memory Core</span>
+          <span class="brand-subtitle" data-i18n="brand.subtitle">Obsidian &amp; LLM-Wiki Zero-Daemon Memory Core</span>
         </div>
-        <span class="badge badge-emerald">v0.3.0</span>
+        <span class="badge badge-emerald">v0.4.1</span>
       </div>
     </div>
 
     <!-- Live Status Badges -->
     <div class="status-bar" id="status-bar">
-      <div class="status-pill" title="Active Vault Path">
+      <div class="status-pill" title="Active Vault Path" data-i18n-title="status.vault_title">
         <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
         </svg>
-        <span class="pill-label">Vault:</span>
+        <span class="pill-label" data-i18n="status.vault">Vault:</span>
         <span id="status-vault-path" class="mono pill-value truncate">Connecting...</span>
       </div>
 
-      <div class="status-pill" title="Total Indexed Documents">
+      <div class="status-pill" title="Total Indexed Documents" data-i18n-title="status.docs_title">
         <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
           <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
-        <span class="pill-label">Docs:</span>
+        <span class="pill-label" data-i18n="status.docs">Docs:</span>
         <span id="status-doc-count" class="mono pill-value font-bold">--</span>
       </div>
 
-      <div class="status-pill" title="Total Embedded Vectors">
+      <div class="status-pill" title="Total Embedded Vectors" data-i18n-title="status.vectors_title">
         <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <path d="m4.93 4.93 4.24 4.24"></path>
@@ -53,30 +53,39 @@
           <path d="m14.83 14.83 4.24 4.24"></path>
           <path d="m9.17 14.83-4.24 4.24"></path>
         </svg>
-        <span class="pill-label">Vectors:</span>
+        <span class="pill-label" data-i18n="status.vectors">Vectors:</span>
         <span id="status-vector-count" class="mono pill-value font-bold">--</span>
       </div>
 
-      <div class="status-pill" title="Last Incremental Sync Timestamp">
+      <div class="status-pill" title="Last Incremental Sync Timestamp" data-i18n-title="status.synced_title">
         <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
-        <span class="pill-label">Synced:</span>
+        <span class="pill-label" data-i18n="status.synced">Synced:</span>
         <span id="status-last-sync" class="mono pill-value">--</span>
       </div>
     </div>
 
     <!-- Actions -->
     <div class="header-right">
-      <button id="btn-sync" class="btn btn-primary" title="Trigger incremental scanner and vector reindex">
+      <button id="btn-lang-toggle" class="btn btn-secondary btn-lang" title="Switch Language / 切换语言">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span id="lang-indicator">EN / 中文</span>
+      </button>
+
+      <button id="btn-sync" class="btn btn-primary" title="Trigger incremental scanner and vector reindex" data-i18n-title="sync.title">
         <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
           <path d="M3 3v5h5"></path>
           <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
           <path d="M16 21h5v-5"></path>
         </svg>
-        <span class="btn-text">Sync Vault</span>
+        <span class="btn-text" data-i18n="sync.button">Sync Vault</span>
       </button>
     </div>
   </header>
@@ -89,7 +98,7 @@
           <circle cx="11" cy="11" r="8"></circle>
           <path d="m21 21-4.3-4.3"></path>
         </svg>
-        <span>Search Debugger</span>
+        <span data-i18n="tabs.search">Search Debugger</span>
       </button>
 
       <button class="tab-btn" data-tab="graph" id="tab-btn-graph">
@@ -100,7 +109,7 @@
           <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"></line>
           <line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
         </svg>
-        <span>Graph Explorer</span>
+        <span data-i18n="tabs.graph">Graph Explorer</span>
       </button>
 
       <button class="tab-btn" data-tab="logs" id="tab-btn-logs">
@@ -111,7 +120,7 @@
           <line x1="16" x2="8" y1="17" y2="17"></line>
           <polyline points="10 9 9 9 8 9"></polyline>
         </svg>
-        <span>Log Inspector</span>
+        <span data-i18n="tabs.logs">Log Inspector</span>
       </button>
 
       <button class="tab-btn" data-tab="scoreboard" id="tab-btn-scoreboard">
@@ -120,7 +129,7 @@
           <line x1="18" x2="18" y1="20" y2="4"></line>
           <line x1="6" x2="6" y1="20" y2="16"></line>
         </svg>
-        <span>Token Scoreboard</span>
+        <span data-i18n="tabs.scoreboard">Token Scoreboard</span>
       </button>
     </div>
   </nav>
@@ -131,11 +140,11 @@
     <section id="panel-search" class="tab-panel active" aria-labelledby="tab-btn-search">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Hybrid Search Debugger &amp; Explainability</h2>
-          <p class="panel-desc">Interactive query playground with BM25 rank, vector cosine distance, RRF fusion, and WikiLinks Graph Boost.</p>
+          <h2 class="panel-title" data-i18n="search.title">Hybrid Search Debugger &amp; Explainability</h2>
+          <p class="panel-desc" data-i18n="search.desc">Interactive query playground with BM25 rank, vector cosine distance, RRF fusion, and WikiLinks Graph Boost.</p>
         </div>
         <div class="panel-header-badges">
-          <span class="badge badge-muted mono" id="search-latency" title="Search query execution latency">-- ms</span>
+          <span class="badge badge-muted mono" id="search-latency" title="Search query execution latency" data-i18n-title="search.latency_title">-- ms</span>
           <span class="badge badge-muted mono">Endpoint: /api/search</span>
         </div>
       </div>
@@ -147,32 +156,32 @@
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
-            <input type="text" class="input search-input" id="search-input" placeholder="Type query to test retrieval ranking (e.g. memory architecture, vector index)..." autocomplete="off" spellcheck="false">
+            <input type="text" class="input search-input" id="search-input" placeholder="Type query to test retrieval ranking (e.g. memory architecture, vector index)..." data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false">
             <div class="shortcut-hint-wrap">
-              <kbd class="shortcut-hint">[ / or ⌘K ]</kbd>
+              <kbd class="shortcut-hint" data-i18n="search.shortcut_hint">[ / or ⌘K ]</kbd>
             </div>
           </div>
 
           <div class="search-controls">
             <div class="search-controls-left">
-              <span class="control-label">Mode:</span>
+              <span class="control-label" data-i18n="search.mode_label">Mode:</span>
               <div class="mode-toggles" role="radiogroup" aria-label="Search Mode">
-                <button type="button" class="btn btn-sm btn-mode active" data-mode="hybrid" title="Reciprocal Rank Fusion with WikiLinks Graph Boost">Hybrid (RRF)</button>
-                <button type="button" class="btn btn-sm btn-mode" data-mode="bm25" title="Pure BM25 full-text keyword retrieval">BM25 Lexical</button>
-                <button type="button" class="btn btn-sm btn-mode" data-mode="vector" title="Dense vector semantic cosine similarity">Vector Dense</button>
+                <button type="button" class="btn btn-sm btn-mode active" data-mode="hybrid" title="Reciprocal Rank Fusion with WikiLinks Graph Boost" data-i18n-title="search.mode_hybrid_title" data-i18n="search.mode_hybrid">Hybrid (RRF)</button>
+                <button type="button" class="btn btn-sm btn-mode" data-mode="bm25" title="Pure BM25 full-text keyword retrieval" data-i18n-title="search.mode_bm25_title" data-i18n="search.mode_bm25">BM25 Lexical</button>
+                <button type="button" class="btn btn-sm btn-mode" data-mode="vector" title="Dense vector semantic cosine similarity" data-i18n-title="search.mode_vector_title" data-i18n="search.mode_vector">Vector Dense</button>
               </div>
             </div>
 
             <div class="search-controls-right">
               <div class="slider-group">
-                <label for="search-limit" class="slider-label">Limit: <span id="search-limit-val" class="mono font-bold">5</span></label>
+                <label for="search-limit" class="slider-label"><span data-i18n="search.limit_label">Limit:</span> <span id="search-limit-val" class="mono font-bold">5</span></label>
                 <input type="range" id="search-limit" class="range-slider" min="1" max="20" value="5" step="1">
               </div>
-              <button class="btn btn-sm btn-secondary" id="btn-run-search" title="Execute Query immediately">
+              <button class="btn btn-sm btn-secondary" id="btn-run-search" title="Execute Query immediately" data-i18n-title="search.run_title">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
-                <span>Run</span>
+                <span data-i18n="search.run_button">Run</span>
               </button>
             </div>
           </div>
@@ -185,8 +194,8 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.3-4.3"></path>
               </svg>
-              <p class="placeholder-text">Enter a query above to view explainable search ranking waterfall.</p>
-              <span class="placeholder-subtext mono">Press / or ⌘K to focus search &bull; Try "memory", "storage", or "architecture"</span>
+              <p class="placeholder-text" data-i18n="search.initial_text">Enter a query above to view explainable search ranking waterfall.</p>
+              <span class="placeholder-subtext mono" data-i18n="search.initial_subtext">Press / or ⌘K to focus search &bull; Try "memory", "storage", or "architecture"</span>
             </div>
           </div>
         </div>
@@ -197,8 +206,8 @@
     <section id="panel-graph" class="tab-panel" aria-labelledby="tab-btn-graph">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">WikiLinks Knowledge Graph Explorer</h2>
-          <p class="panel-desc">2D force-directed knowledge graph with semantic hierarchy color-coding and orphan discovery.</p>
+          <h2 class="panel-title" data-i18n="graph.title">WikiLinks Knowledge Graph Explorer</h2>
+          <p class="panel-desc" data-i18n="graph.desc">2D force-directed knowledge graph with semantic hierarchy color-coding and orphan discovery.</p>
         </div>
         <div class="panel-header-badges">
           <span class="badge badge-muted mono" id="graph-counter">0 nodes &bull; 0 links</span>
@@ -215,54 +224,54 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.3-4.3"></path>
               </svg>
-              <input type="text" class="input graph-search-input" id="graph-search" placeholder="Search / focus node..." autocomplete="off" spellcheck="false">
+              <input type="text" class="input graph-search-input" id="graph-search" placeholder="Search / focus node..." data-i18n-placeholder="graph.search_placeholder" autocomplete="off" spellcheck="false">
             </div>
 
             <div class="hierarchy-filters" role="group" aria-label="Hierarchy Level Filters">
-              <button type="button" class="btn-filter-pill active" data-tier="Project" title="Toggle Project notes">
+              <button type="button" class="btn-filter-pill active" data-tier="Project" title="Toggle Project notes" data-i18n-title="graph.tier_project_title">
                 <span class="pill-dot dot-project"></span>
-                <span>Project</span>
+                <span data-i18n="graph.tier_project">Project</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L3 Evergreen" title="Toggle L3 Evergreen notes">
+              <button type="button" class="btn-filter-pill active" data-tier="L3 Evergreen" title="Toggle L3 Evergreen notes" data-i18n-title="graph.tier_l3_title">
                 <span class="pill-dot dot-l3"></span>
-                <span>L3 Evergreen</span>
+                <span data-i18n="graph.tier_l3">L3 Evergreen</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L2 Log" title="Toggle L2 Log notes">
+              <button type="button" class="btn-filter-pill active" data-tier="L2 Log" title="Toggle L2 Log notes" data-i18n-title="graph.tier_l2_title">
                 <span class="pill-dot dot-l2"></span>
-                <span>L2 Log</span>
+                <span data-i18n="graph.tier_l2">L2 Log</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L1 Resource" title="Toggle L1 Resource notes">
+              <button type="button" class="btn-filter-pill active" data-tier="L1 Resource" title="Toggle L1 Resource notes" data-i18n-title="graph.tier_l1_title">
                 <span class="pill-dot dot-l1"></span>
-                <span>L1 Resource</span>
+                <span data-i18n="graph.tier_l1">L1 Resource</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L0 Daily" title="Toggle L0 Daily notes">
+              <button type="button" class="btn-filter-pill active" data-tier="L0 Daily" title="Toggle L0 Daily notes" data-i18n-title="graph.tier_l0_title">
                 <span class="pill-dot dot-l0"></span>
-                <span>L0 Daily</span>
+                <span data-i18n="graph.tier_l0">L0 Daily</span>
               </button>
             </div>
           </div>
 
           <div class="graph-toolbar-right">
-            <label class="toggle-switch-wrap" title="Highlight nodes with 0 links and 0 backlinks">
+            <label class="toggle-switch-wrap" title="Highlight nodes with 0 links and 0 backlinks" data-i18n-title="graph.highlight_orphans_title">
               <input type="checkbox" id="toggle-orphans" class="toggle-switch-input">
               <span class="toggle-switch-slider"></span>
-              <span class="toggle-switch-label">Highlight Orphans</span>
+              <span class="toggle-switch-label" data-i18n="graph.highlight_orphans">Highlight Orphans</span>
             </label>
 
             <div class="zoom-controls" role="group" aria-label="Graph Zoom Controls">
-              <button type="button" class="btn-icon" id="btn-zoom-in" title="Zoom In (+)">
+              <button type="button" class="btn-icon" id="btn-zoom-in" title="Zoom In (+)" data-i18n-title="graph.zoom_in_title">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
               </button>
-              <button type="button" class="btn-icon" id="btn-zoom-out" title="Zoom Out (-)">
+              <button type="button" class="btn-icon" id="btn-zoom-out" title="Zoom Out (-)" data-i18n-title="graph.zoom_out_title">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
               </button>
-              <button type="button" class="btn-icon btn-fit" id="btn-zoom-fit" title="Fit to View">
-                <span>Fit</span>
+              <button type="button" class="btn-icon btn-fit" id="btn-zoom-fit" title="Fit to View" data-i18n-title="graph.zoom_fit_title">
+                <span data-i18n="graph.zoom_fit">Fit</span>
               </button>
             </div>
           </div>
@@ -277,10 +286,10 @@
             <div class="drawer-header">
               <div class="drawer-header-info">
                 <span id="drawer-hierarchy" class="badge-tier tier-project">Project</span>
-                <h3 id="drawer-title" class="drawer-title">Select a Note</h3>
+                <h3 id="drawer-title" class="drawer-title" data-i18n="graph.drawer_title_default">Select a Note</h3>
                 <span id="drawer-path" class="drawer-path mono">--</span>
               </div>
-              <button type="button" class="btn-icon drawer-close-btn" id="graph-drawer-close" title="Close Inspector (Esc)">
+              <button type="button" class="btn-icon drawer-close-btn" id="graph-drawer-close" title="Close Inspector (Esc)" data-i18n-title="graph.drawer_close_title">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -291,31 +300,31 @@
             <div class="drawer-body">
               <!-- Tags Section -->
               <div class="drawer-section" id="drawer-section-tags">
-                <h4 class="drawer-section-title">Tags</h4>
+                <h4 class="drawer-section-title" data-i18n="graph.drawer_tags">Tags</h4>
                 <div id="drawer-tags" class="drawer-tags-list">
-                  <span class="drawer-empty-hint">No tags</span>
+                  <span class="drawer-empty-hint" data-i18n="graph.drawer_no_tags">No tags</span>
                 </div>
               </div>
 
               <!-- Out-Links Section -->
               <div class="drawer-section" id="drawer-section-outlinks">
                 <h4 class="drawer-section-title">
-                  <span>Out-Links</span>
+                  <span data-i18n="graph.drawer_outlinks">Out-Links</span>
                   <span class="section-count mono" id="drawer-outlinks-count">(0)</span>
                 </h4>
                 <ul id="drawer-outlinks" class="drawer-link-list">
-                  <li class="drawer-empty-hint">No outgoing WikiLinks</li>
+                  <li class="drawer-empty-hint" data-i18n="graph.drawer_no_outlinks">No outgoing WikiLinks</li>
                 </ul>
               </div>
 
               <!-- Inbound Backlinks Section -->
               <div class="drawer-section" id="drawer-section-backlinks">
                 <h4 class="drawer-section-title">
-                  <span>Inbound Backlinks</span>
+                  <span data-i18n="graph.drawer_backlinks">Inbound Backlinks</span>
                   <span class="section-count mono" id="drawer-backlinks-count">(0)</span>
                 </h4>
                 <ul id="drawer-backlinks" class="drawer-link-list">
-                  <li class="drawer-empty-hint">No inbound backlinks</li>
+                  <li class="drawer-empty-hint" data-i18n="graph.drawer_no_backlinks">No inbound backlinks</li>
                 </ul>
               </div>
             </div>
@@ -328,8 +337,8 @@
     <section id="panel-logs" class="tab-panel" aria-labelledby="tab-btn-logs">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Log &amp; Trace Inspector</h2>
-          <p class="panel-desc">Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.</p>
+          <h2 class="panel-title" data-i18n="logs.title">Log &amp; Trace Inspector</h2>
+          <p class="panel-desc" data-i18n="logs.desc">Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.</p>
         </div>
         <div class="panel-header-badges">
           <span class="badge badge-muted mono" id="logs-count-badge">0 logs</span>
@@ -345,7 +354,7 @@
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
-            <input type="text" class="input logs-search-input" id="logs-search" placeholder="Filter by node ID or task ID..." autocomplete="off" spellcheck="false">
+            <input type="text" class="input logs-search-input" id="logs-search" placeholder="Filter by node ID or task ID..." data-i18n-placeholder="logs.search_placeholder" autocomplete="off" spellcheck="false">
           </div>
           <div class="logs-list" id="logs-list" role="list">
             <div class="placeholder-state logs-empty-state" id="logs-empty-hint">
@@ -353,8 +362,8 @@
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                 <polyline points="14 2 14 8 20 8"></polyline>
               </svg>
-              <p class="placeholder-text">No offloaded logs found in .scratch/refs/</p>
-              <span class="placeholder-subtext mono">Run long commands or k0maru offload to capture logs</span>
+              <p class="placeholder-text" data-i18n="logs.empty_title">No offloaded logs found in .scratch/refs/</p>
+              <span class="placeholder-subtext mono" data-i18n="logs.empty_subtext">Run long commands or k0maru offload to capture logs</span>
             </div>
           </div>
         </aside>
@@ -364,26 +373,26 @@
           <div class="detail-header" id="log-detail-header">
             <div class="detail-title-group">
               <div class="detail-badges">
-                <span id="log-detail-id" class="badge badge-emerald mono">Select a log node</span>
+                <span id="log-detail-id" class="badge badge-emerald mono" data-i18n="logs.select_node">Select a log node</span>
                 <span id="log-detail-task" class="badge badge-muted mono" style="display: none;"></span>
                 <span id="log-detail-lines" class="badge badge-muted mono" style="display: none;">0 lines</span>
               </div>
               <span id="log-detail-time" class="mono text-muted text-xs">--</span>
             </div>
             <div class="detail-actions" id="log-detail-actions">
-              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-node-id" title="Copy Node ID to clipboard" disabled>
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-node-id" title="Copy Node ID to clipboard" data-i18n-title="logs.copy_node_id_title" disabled>
                 <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
                   <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
                 </svg>
-                <span class="btn-copy-text">Copy Node ID</span>
+                <span class="btn-copy-text" data-i18n="logs.copy_node_id">Copy Node ID</span>
               </button>
-              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-raw-log" title="Copy Raw Log slice to clipboard" disabled>
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-raw-log" title="Copy Raw Log slice to clipboard" data-i18n-title="logs.copy_raw_log_title" disabled>
                 <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
                   <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
                 </svg>
-                <span class="btn-copy-text">Copy Raw Log</span>
+                <span class="btn-copy-text" data-i18n="logs.copy_raw_log">Copy Raw Log</span>
               </button>
             </div>
           </div>
@@ -397,13 +406,13 @@
                   <line x1="3" y1="9" x2="21" y2="9"></line>
                   <line x1="9" y1="21" x2="9" y2="9"></line>
                 </svg>
-                <span>State Machine Pipeline Diagram</span>
+                <span data-i18n="logs.diagram_title">State Machine Pipeline Diagram</span>
               </h3>
               <span class="badge badge-muted mono" id="mermaid-syntax-badge">stateDiagram-v2</span>
             </div>
             <div id="log-mermaid-viewer" class="mermaid-viewer">
               <div class="placeholder-state" id="mermaid-empty-state">
-                <p class="placeholder-text">Select a log node to render pipeline state diagram.</p>
+                <p class="placeholder-text" data-i18n="logs.diagram_placeholder">Select a log node to render pipeline state diagram.</p>
               </div>
             </div>
           </div>
@@ -415,14 +424,14 @@
                 <svg class="icon chevron-icon" id="raw-log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
-                <span>Raw Log Slice</span>
+                <span data-i18n="logs.raw_slice_title">Raw Log Slice</span>
                 <span class="badge badge-muted mono" id="raw-log-line-badge">0 lines</span>
               </h3>
-              <span class="mono text-muted text-xs">Error &amp; Warning Highlighted</span>
+              <span class="mono text-muted text-xs" data-i18n="logs.raw_slice_legend">Error &amp; Warning Highlighted</span>
             </div>
             <div id="log-raw-viewer" class="raw-log-viewer">
               <div class="placeholder-state">
-                <p class="placeholder-text">Raw log output will appear here.</p>
+                <p class="placeholder-text" data-i18n="logs.raw_slice_placeholder">Raw log output will appear here.</p>
               </div>
             </div>
           </div>
@@ -434,11 +443,11 @@
     <section id="panel-scoreboard" class="tab-panel" aria-labelledby="tab-btn-scoreboard">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Cache Health &amp; Token Scoreboard</h2>
-          <p class="panel-desc">Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).</p>
+          <h2 class="panel-title" data-i18n="scoreboard.title">Cache Health &amp; Token Scoreboard</h2>
+          <p class="panel-desc" data-i18n="scoreboard.desc">Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).</p>
         </div>
         <div class="panel-header-badges">
-          <span class="badge badge-muted mono" id="scoreboard-status-badge">Healthy</span>
+          <span class="badge badge-muted mono" id="scoreboard-status-badge" data-i18n="scoreboard.status_healthy">Healthy</span>
           <span class="badge badge-muted mono">Endpoint: /api/status</span>
         </div>
       </div>
@@ -452,9 +461,9 @@
               <polyline points="14 2 14 8 20 8"></polyline>
             </svg>
           </div>
-          <span class="metric-label">Vault Documents</span>
+          <span class="metric-label" data-i18n="scoreboard.kpi_docs_label">Vault Documents</span>
           <span id="scoreboard-doc-count" class="metric-value font-bold mono">--</span>
-          <span class="metric-subtitle">Parsed Markdown notes</span>
+          <span class="metric-subtitle" data-i18n="scoreboard.kpi_docs_sub">Parsed Markdown notes</span>
         </div>
 
         <div class="cockpit-card metric-card">
@@ -467,12 +476,12 @@
               <path d="m9.17 14.83-4.24 4.24"></path>
             </svg>
           </div>
-          <span class="metric-label">Vector Embeddings</span>
+          <span class="metric-label" data-i18n="scoreboard.kpi_vecs_label">Vector Embeddings</span>
           <div class="metric-value-row">
             <span id="scoreboard-vec-count" class="metric-value font-bold mono">--</span>
             <span id="scoreboard-vec-coverage" class="badge badge-emerald mono">0%</span>
           </div>
-          <span class="metric-subtitle">Dense vector index coverage</span>
+          <span class="metric-subtitle" data-i18n="scoreboard.kpi_vecs_sub">Dense vector index coverage</span>
         </div>
 
         <div class="cockpit-card metric-card">
@@ -483,9 +492,9 @@
               <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
             </svg>
           </div>
-          <span class="metric-label">Cache Database Size</span>
+          <span class="metric-label" data-i18n="scoreboard.kpi_cache_label">Cache Database Size</span>
           <span id="scoreboard-cache-size" class="metric-value font-bold mono">-- KB</span>
-          <span class="metric-subtitle">SQLite cache.sqlite footprint</span>
+          <span class="metric-subtitle" data-i18n="scoreboard.kpi_cache_sub">SQLite cache.sqlite footprint</span>
         </div>
 
         <div class="cockpit-card metric-card">
@@ -496,9 +505,9 @@
               <line x1="6" y1="20" x2="6" y2="14"></line>
             </svg>
           </div>
-          <span class="metric-label">Offloaded Log Nodes</span>
+          <span class="metric-label" data-i18n="scoreboard.kpi_logs_label">Offloaded Log Nodes</span>
           <span id="scoreboard-log-count" class="metric-value font-bold mono">--</span>
-          <span class="metric-subtitle">Symbolic terminal traces</span>
+          <span class="metric-subtitle" data-i18n="scoreboard.kpi_logs_sub">Symbolic terminal traces</span>
         </div>
       </div>
 
@@ -511,24 +520,24 @@
               <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
               </svg>
-              <span>Token Economics &amp; Context Hygiene</span>
+              <span data-i18n="scoreboard.token_title">Token Economics &amp; Context Hygiene</span>
             </h3>
-            <span class="badge badge-emerald" id="token-benchmark-badge">Phase 3.8 Baseline</span>
+            <span class="badge badge-emerald" id="token-benchmark-badge" data-i18n="scoreboard.benchmark_badge">Phase 3.8 Baseline</span>
           </div>
 
           <div class="token-economics-body">
             <div class="token-metric-hero">
-              <span class="token-hero-label">Estimated Cumulative Tokens Saved</span>
+              <span class="token-hero-label" data-i18n="scoreboard.token_hero_label">Estimated Cumulative Tokens Saved</span>
               <div class="token-hero-val-wrap">
                 <span id="token-saved-val" class="token-hero-value mono">0</span>
-                <span class="token-hero-unit mono">tokens</span>
+                <span class="token-hero-unit mono" data-i18n="scoreboard.token_hero_unit">tokens</span>
               </div>
-              <span class="token-hero-desc">Saved by replacing bulky terminal streams with symbolic pointer nodes.</span>
+              <span class="token-hero-desc" data-i18n="scoreboard.token_hero_desc">Saved by replacing bulky terminal streams with symbolic pointer nodes.</span>
             </div>
 
             <div class="trr-meter-section">
               <div class="trr-meter-header">
-                <span class="trr-meter-title">Token Reduction Ratio (TRR)</span>
+                <span class="trr-meter-title" data-i18n="scoreboard.trr_title">Token Reduction Ratio (TRR)</span>
                 <span id="token-trr-val" class="trr-meter-val mono font-bold">99.44%</span>
               </div>
               <div class="trr-progress-track">
@@ -536,7 +545,7 @@
               </div>
               <div class="trr-benchmarks">
                 <span class="benchmark-point mono">0%</span>
-                <span class="benchmark-point mono active" title="Phase 3.8 Baseline">Phase 3.8: 99.44% Target</span>
+                <span class="benchmark-point mono active" title="Phase 3.8 Baseline" data-i18n="scoreboard.trr_target" data-i18n-title="scoreboard.benchmark_badge">Phase 3.8: 99.44% Target</span>
                 <span class="benchmark-point mono">100%</span>
               </div>
             </div>
@@ -546,8 +555,8 @@
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
               <div class="callout-text">
-                <strong class="callout-title">Benchmark Verified:</strong>
-                <span class="callout-desc">Exceeds Phase 3.8 TRR baseline of 99.44% context reduction on 10,000-line compiler traces.</span>
+                <strong class="callout-title" data-i18n="scoreboard.callout_title">Benchmark Verified:</strong>
+                <span class="callout-desc" data-i18n="scoreboard.callout_desc">Exceeds Phase 3.8 TRR baseline of 99.44% context reduction on 10,000-line compiler traces.</span>
               </div>
             </div>
           </div>
@@ -563,28 +572,28 @@
                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
                 <path d="M16 21h5v-5"></path>
               </svg>
-              <span>Cache Operations &amp; Index Sync</span>
+              <span data-i18n="scoreboard.sync_card_title">Cache Operations &amp; Index Sync</span>
             </h3>
-            <span class="badge badge-muted mono" id="scoreboard-sync-status">Ready</span>
+            <span class="badge badge-muted mono" id="scoreboard-sync-status" data-i18n="scoreboard.sync_ready">Ready</span>
           </div>
 
           <div class="cache-operations-body">
-            <p class="cache-desc">
+            <p class="cache-desc" data-i18n="scoreboard.sync_card_desc">
               Trigger an incremental scan to index newly added or modified Markdown files, update WikiLinks connections, and compute vector embeddings without daemon overhead.
             </p>
 
             <div class="sync-status-details">
               <div class="sync-detail-row">
-                <span class="detail-label">Active Vault Path:</span>
+                <span class="detail-label" data-i18n="scoreboard.active_vault_label">Active Vault Path:</span>
                 <span id="scoreboard-vault-path" class="detail-value mono truncate">Connecting...</span>
               </div>
               <div class="sync-detail-row">
-                <span class="detail-label">Last Sync Completed:</span>
+                <span class="detail-label" data-i18n="scoreboard.last_sync_label">Last Sync Completed:</span>
                 <span id="scoreboard-last-sync" class="detail-value mono">--</span>
               </div>
               <div class="sync-detail-row">
-                <span class="detail-label">Engine Mode:</span>
-                <span class="detail-value mono">Zero-Daemon Embedded (FastMCP)</span>
+                <span class="detail-label" data-i18n="scoreboard.engine_mode_label">Engine Mode:</span>
+                <span class="detail-value mono" data-i18n="scoreboard.engine_mode_val">Zero-Daemon Embedded (FastMCP)</span>
               </div>
             </div>
 
@@ -596,7 +605,7 @@
                   <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
                   <path d="M16 21h5v-5"></path>
                 </svg>
-                <span class="btn-text">Run Incremental Sync</span>
+                <span class="btn-text" data-i18n="scoreboard.btn_incremental_sync">Run Incremental Sync</span>
               </button>
             </div>
           </div>

@@ -261,6 +261,33 @@ body {
   border-color: var(--border-light);
 }
 
+.btn-lang {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  gap: 6px;
+  border-color: var(--border);
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--muted);
+}
+
+.btn-lang:hover {
+  color: var(--fg);
+  border-color: var(--accent-border);
+  background: var(--card-hover);
+}
+
+.btn-lang .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+
+#lang-indicator {
+  letter-spacing: 0.02em;
+}
+
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
