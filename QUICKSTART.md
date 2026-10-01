@@ -1,3 +1,5 @@
+[English README](README.md) | [中文说明文档](README_zh.md)
+
 # ⚡ K0maru-Agent-Memory 极速上手指南 (Quick Start)
 
 本文档带你在 **1 分钟** 内掌握 `k0maru` 的日常核心实操！
