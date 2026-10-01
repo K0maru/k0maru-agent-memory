@@ -200,20 +200,126 @@
           <h2 class="panel-title">WikiLinks Knowledge Graph Explorer</h2>
           <p class="panel-desc">2D force-directed knowledge graph with semantic hierarchy color-coding and orphan discovery.</p>
         </div>
-        <span class="badge badge-muted mono">Endpoint: /api/graph</span>
+        <div class="panel-header-badges">
+          <span class="badge badge-muted mono" id="graph-counter">0 nodes &bull; 0 links</span>
+          <span class="badge badge-muted mono">Endpoint: /api/graph</span>
+        </div>
       </div>
 
-      <div class="cockpit-card graph-viewport-card">
-        <div class="placeholder-state">
-          <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="18" cy="5" r="3"></circle>
-            <circle cx="6" cy="12" r="3"></circle>
-            <circle cx="18" cy="19" r="3"></circle>
-            <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"></line>
-            <line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
-          </svg>
-          <p class="placeholder-text">Interactive canvas graph canvas initialized.</p>
-          <span class="placeholder-subtext mono">Ticket 22: Canvas Force-Directed Knowledge Graph</span>
+      <div class="cockpit-card graph-workspace-card">
+        <!-- Floating Controls Toolbar -->
+        <div class="graph-toolbar" id="graph-toolbar">
+          <div class="graph-toolbar-left">
+            <div class="graph-search-wrap">
+              <svg class="icon graph-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+              </svg>
+              <input type="text" class="input graph-search-input" id="graph-search" placeholder="Search / focus node..." autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="hierarchy-filters" role="group" aria-label="Hierarchy Level Filters">
+              <button type="button" class="btn-filter-pill active" data-tier="Project" title="Toggle Project notes">
+                <span class="pill-dot dot-project"></span>
+                <span>Project</span>
+              </button>
+              <button type="button" class="btn-filter-pill active" data-tier="L3 Evergreen" title="Toggle L3 Evergreen notes">
+                <span class="pill-dot dot-l3"></span>
+                <span>L3 Evergreen</span>
+              </button>
+              <button type="button" class="btn-filter-pill active" data-tier="L2 Log" title="Toggle L2 Log notes">
+                <span class="pill-dot dot-l2"></span>
+                <span>L2 Log</span>
+              </button>
+              <button type="button" class="btn-filter-pill active" data-tier="L1 Resource" title="Toggle L1 Resource notes">
+                <span class="pill-dot dot-l1"></span>
+                <span>L1 Resource</span>
+              </button>
+              <button type="button" class="btn-filter-pill active" data-tier="L0 Daily" title="Toggle L0 Daily notes">
+                <span class="pill-dot dot-l0"></span>
+                <span>L0 Daily</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="graph-toolbar-right">
+            <label class="toggle-switch-wrap" title="Highlight nodes with 0 links and 0 backlinks">
+              <input type="checkbox" id="toggle-orphans" class="toggle-switch-input">
+              <span class="toggle-switch-slider"></span>
+              <span class="toggle-switch-label">Highlight Orphans</span>
+            </label>
+
+            <div class="zoom-controls" role="group" aria-label="Graph Zoom Controls">
+              <button type="button" class="btn-icon" id="btn-zoom-in" title="Zoom In (+)">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <button type="button" class="btn-icon" id="btn-zoom-out" title="Zoom Out (-)">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <button type="button" class="btn-icon btn-fit" id="btn-zoom-fit" title="Fit to View">
+                <span>Fit</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Graph Viewport -->
+        <div class="graph-viewport-container" id="graph-viewport-container">
+          <canvas id="graph-canvas"></canvas>
+
+          <!-- Side Inspector Drawer -->
+          <aside id="graph-inspector" class="graph-drawer" aria-label="Note Inspector" aria-hidden="true">
+            <div class="drawer-header">
+              <div class="drawer-header-info">
+                <span id="drawer-hierarchy" class="badge-tier tier-project">Project</span>
+                <h3 id="drawer-title" class="drawer-title">Select a Note</h3>
+                <span id="drawer-path" class="drawer-path mono">--</span>
+              </div>
+              <button type="button" class="btn-icon drawer-close-btn" id="graph-drawer-close" title="Close Inspector (Esc)">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div class="drawer-body">
+              <!-- Tags Section -->
+              <div class="drawer-section" id="drawer-section-tags">
+                <h4 class="drawer-section-title">Tags</h4>
+                <div id="drawer-tags" class="drawer-tags-list">
+                  <span class="drawer-empty-hint">No tags</span>
+                </div>
+              </div>
+
+              <!-- Out-Links Section -->
+              <div class="drawer-section" id="drawer-section-outlinks">
+                <h4 class="drawer-section-title">
+                  <span>Out-Links</span>
+                  <span class="section-count mono" id="drawer-outlinks-count">(0)</span>
+                </h4>
+                <ul id="drawer-outlinks" class="drawer-link-list">
+                  <li class="drawer-empty-hint">No outgoing WikiLinks</li>
+                </ul>
+              </div>
+
+              <!-- Inbound Backlinks Section -->
+              <div class="drawer-section" id="drawer-section-backlinks">
+                <h4 class="drawer-section-title">
+                  <span>Inbound Backlinks</span>
+                  <span class="section-count mono" id="drawer-backlinks-count">(0)</span>
+                </h4>
+                <ul id="drawer-backlinks" class="drawer-link-list">
+                  <li class="drawer-empty-hint">No inbound backlinks</li>
+                </ul>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     </section>
