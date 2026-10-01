@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>K0maru Agent Memory Hub</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Top Navigation Cockpit Header -->
+  <header class="cockpit-header">
+    <div class="header-left">
+      <div class="brand-group">
+        <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 2 17 12 22 22 17 22 7 12 2"></polygon>
+          <polyline points="2 7 12 12 22 7"></polyline>
+          <polyline points="12 22 12 12"></polyline>
+        </svg>
+        <div class="brand-text">
+          <h1 class="brand-title">K0maru Agent Memory Hub</h1>
+          <!-- Screen-reader / compatibility heading -->
+          <span class="sr-only"><h1>K0maru Dashboard API Active</h1></span>
+          <span class="brand-subtitle">Obsidian &amp; LLM-Wiki Zero-Daemon Memory Core</span>
+        </div>
+        <span class="badge badge-emerald">v0.3.0</span>
+      </div>
+    </div>
+
+    <!-- Live Status Badges -->
+    <div class="status-bar" id="status-bar">
+      <div class="status-pill" title="Active Vault Path">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="pill-label">Vault:</span>
+        <span id="status-vault-path" class="mono pill-value truncate">Connecting...</span>
+      </div>
+
+      <div class="status-pill" title="Total Indexed Documents">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        <span class="pill-label">Docs:</span>
+        <span id="status-doc-count" class="mono pill-value font-bold">--</span>
+      </div>
+
+      <div class="status-pill" title="Total Embedded Vectors">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="m4.93 4.93 4.24 4.24"></path>
+          <path d="m14.83 9.17 4.24-4.24"></path>
+          <path d="m14.83 14.83 4.24 4.24"></path>
+          <path d="m9.17 14.83-4.24 4.24"></path>
+        </svg>
+        <span class="pill-label">Vectors:</span>
+        <span id="status-vector-count" class="mono pill-value font-bold">--</span>
+      </div>
+
+      <div class="status-pill" title="Last Incremental Sync Timestamp">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span class="pill-label">Synced:</span>
+        <span id="status-last-sync" class="mono pill-value">--</span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="header-right">
+      <button id="btn-sync" class="btn btn-primary" title="Trigger incremental scanner and vector reindex">
+        <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+          <path d="M16 21h5v-5"></path>
+        </svg>
+        <span class="btn-text">Sync Vault</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Cockpit Navigation Tabs -->
+  <nav class="cockpit-tabs" aria-label="Cockpit Views">
+    <div class="tabs-container">
+      <button class="tab-btn active" data-tab="search" id="tab-btn-search">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
+        <span>Search Debugger</span>
+      </button>
+
+      <button class="tab-btn" data-tab="graph" id="tab-btn-graph">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"></circle>
+          <circle cx="6" cy="12" r="3"></circle>
+          <circle cx="18" cy="19" r="3"></circle>
+          <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"></line>
+          <line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
+        </svg>
+        <span>Graph Explorer</span>
+      </button>
+
+      <button class="tab-btn" data-tab="logs" id="tab-btn-logs">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" x2="8" y1="13" y2="13"></line>
+          <line x1="16" x2="8" y1="17" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+        <span>Log Inspector</span>
+      </button>
+
+      <button class="tab-btn" data-tab="scoreboard" id="tab-btn-scoreboard">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" x2="12" y1="20" y2="10"></line>
+          <line x1="18" x2="18" y1="20" y2="4"></line>
+          <line x1="6" x2="6" y1="20" y2="16"></line>
+        </svg>
+        <span>Token Scoreboard</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Cockpit Main Viewports -->
+  <main class="cockpit-main">
+    <!-- Tab 1: Hybrid Search Debugger -->
+    <section id="panel-search" class="tab-panel active" aria-labelledby="tab-btn-search">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Hybrid Search Debugger &amp; Explainability</h2>
+          <p class="panel-desc">Interactive query playground with BM25 rank, vector cosine distance, RRF fusion, and WikiLinks Graph Boost.</p>
+        </div>
+        <span class="badge badge-muted mono">Endpoint: /api/search</span>
+      </div>
+
+      <div class="cockpit-card">
+        <div class="search-form-stub">
+          <div class="search-input-wrap">
+            <svg class="icon search-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <input type="text" class="input search-input" id="search-query-input" placeholder="Type query to test retrieval ranking (e.g. project architecture)..." autocomplete="off">
+          </div>
+          <div class="search-controls">
+            <div class="mode-toggles">
+              <button class="btn btn-sm btn-mode active" data-mode="hybrid">Hybrid</button>
+              <button class="btn btn-sm btn-mode" data-mode="bm25">BM25</button>
+              <button class="btn btn-sm btn-mode" data-mode="vector">Vector</button>
+            </div>
+            <button class="btn btn-sm btn-secondary" id="btn-run-search">Execute Query</button>
+          </div>
+        </div>
+
+        <div class="results-container" id="search-results-container">
+          <div class="placeholder-state">
+            <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <p class="placeholder-text">Enter a query above to view explainable search ranking waterfall.</p>
+            <span class="placeholder-subtext mono">Ticket 21: Search Debugger &amp; Scoring Waterfall</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Knowledge Graph Explorer -->
+    <section id="panel-graph" class="tab-panel" aria-labelledby="tab-btn-graph">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">WikiLinks Knowledge Graph Explorer</h2>
+          <p class="panel-desc">2D force-directed knowledge graph with semantic hierarchy color-coding and orphan discovery.</p>
+        </div>
+        <span class="badge badge-muted mono">Endpoint: /api/graph</span>
+      </div>
+
+      <div class="cockpit-card graph-viewport-card">
+        <div class="placeholder-state">
+          <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" x2="15.42" y1="13.51" y2="17.49"></line>
+            <line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
+          </svg>
+          <p class="placeholder-text">Interactive canvas graph canvas initialized.</p>
+          <span class="placeholder-subtext mono">Ticket 22: Canvas Force-Directed Knowledge Graph</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Log & Trace Inspector -->
+    <section id="panel-logs" class="tab-panel" aria-labelledby="tab-btn-logs">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Log &amp; Trace Inspector</h2>
+          <p class="panel-desc">Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.</p>
+        </div>
+        <span class="badge badge-muted mono">Endpoint: /api/logs</span>
+      </div>
+
+      <div class="cockpit-card">
+        <div class="placeholder-state">
+          <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" x2="8" y1="13" y2="13"></line>
+            <line x1="16" x2="8" y1="17" y2="17"></line>
+          </svg>
+          <p class="placeholder-text">Log nodes and Mermaid execution chart renderer ready.</p>
+          <span class="placeholder-subtext mono">Ticket 23: Log Inspector &amp; Mermaid Renderer</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Token Scoreboard -->
+    <section id="panel-scoreboard" class="tab-panel" aria-labelledby="tab-btn-scoreboard">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Cache Health &amp; Token Scoreboard</h2>
+          <p class="panel-desc">Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).</p>
+        </div>
+        <span class="badge badge-muted mono">Endpoint: /api/status</span>
+      </div>
+
+      <div class="grid grid-cols-4 scoreboard-grid">
+        <div class="cockpit-card metric-card">
+          <span class="metric-label">Vault Documents</span>
+          <span id="scoreboard-doc-count" class="metric-value font-bold mono">--</span>
+          <span class="metric-subtitle">Parsed Markdown notes</span>
+        </div>
+
+        <div class="cockpit-card metric-card">
+          <span class="metric-label">Vector Embeddings</span>
+          <span id="scoreboard-vec-count" class="metric-value font-bold mono">--</span>
+          <span class="metric-subtitle">Dense vector index coverage</span>
+        </div>
+
+        <div class="cockpit-card metric-card">
+          <span class="metric-label">Cache Database Size</span>
+          <span id="scoreboard-cache-size" class="metric-value font-bold mono">-- KB</span>
+          <span class="metric-subtitle">SQLite cache.sqlite footprint</span>
+        </div>
+
+        <div class="cockpit-card metric-card">
+          <span class="metric-label">Offloaded Log Nodes</span>
+          <span id="scoreboard-log-count" class="metric-value font-bold mono">--</span>
+          <span class="metric-subtitle">Symbolic terminal traces</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

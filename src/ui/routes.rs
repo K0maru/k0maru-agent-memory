@@ -8,10 +8,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Response};
+use axum::http::header::CONTENT_TYPE;
+use axum::http::{StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
@@ -139,7 +141,12 @@ pub struct SyncResponse {
     pub vector_stats: VectorSyncStats,
 }
 
-/// Creates the Axum router with all API routes, CORS layer, and root HTML fallback.
+/// Embedded static assets for the developer cockpit dashboard.
+#[derive(RustEmbed)]
+#[folder = "src/ui/assets/"]
+pub struct DashboardAssets;
+
+/// Creates the Axum router with all API routes, CORS layer, and embedded static asset serving.
 pub fn create_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -147,20 +154,70 @@ pub fn create_router(state: AppState) -> Router {
         .allow_headers(Any);
 
     Router::new()
-        .route("/", get(handle_root))
         .route("/api/status", get(handle_status))
         .route("/api/search", get(handle_search))
         .route("/api/graph", get(handle_graph))
         .route("/api/logs", get(handle_logs))
         .route("/api/logs/:id", get(handle_log_by_id))
         .route("/api/sync", post(handle_sync))
-        .fallback(handle_root)
+        .fallback(static_handler)
         .layer(cors)
         .with_state(state)
 }
 
-async fn handle_root() -> Html<&'static str> {
-    Html("<!DOCTYPE html><html><head><title>K0maru Dashboard</title></head><body><h1>K0maru Dashboard API Active</h1></body></html>")
+/// Serves compile-time embedded static assets with MIME deduction and SPA fallback.
+pub async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let raw_path = uri.path();
+
+    // If an unknown /api/* route was requested, return 404 JSON instead of HTML
+    if raw_path.starts_with("/api") {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("API endpoint '{}' not found", raw_path)
+            })),
+        )
+            .into_response();
+    }
+
+    let mut path = raw_path.trim_start_matches('/').to_string();
+    if path.is_empty() {
+        path = "index.html".to_string();
+    }
+
+    let lookup_path = if DashboardAssets::get(&path).is_some() {
+        path.clone()
+    } else if let Some(stripped) = path.strip_prefix("assets/") {
+        stripped.to_string()
+    } else {
+        path.clone()
+    };
+
+    match DashboardAssets::get(&lookup_path) {
+        Some(content) => {
+            let content_type = if lookup_path.ends_with(".html") {
+                "text/html; charset=utf-8".to_string()
+            } else {
+                mime_guess::from_path(&lookup_path)
+                    .first_or_octet_stream()
+                    .to_string()
+            };
+            ([(CONTENT_TYPE, content_type)], content.data).into_response()
+        }
+        None => {
+            // SPA fallback: return index.html for client-side routing
+            match DashboardAssets::get("index.html") {
+                Some(content) => {
+                    ([(CONTENT_TYPE, "text/html; charset=utf-8")], content.data).into_response()
+                }
+                None => (
+                    StatusCode::NOT_FOUND,
+                    "404 Not Found: index.html missing from bundle",
+                )
+                    .into_response(),
+            }
+        }
+    }
 }
 
 async fn handle_status(
