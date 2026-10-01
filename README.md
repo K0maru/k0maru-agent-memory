@@ -5,8 +5,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-blue.svg)]()
-[![Tests: 120 passed](https://img.shields.io/badge/Tests-120_passed-brightgreen.svg)]()
+[![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-blue.svg)]()
+[![Tests: 141 passed](https://img.shields.io/badge/Tests-141_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -69,14 +69,27 @@ k0maru search "vector cache" --vault ~/wiki --json
 - **一次性向量缓存契约（Disposable Vector Cache）**：向量仅存在于可随时丢弃重建的 `cache.sqlite` 中，`sync --vector` 自动基于 `xxh3` 内容哈希进行 0 增量跳过计算；
 - **冷启动与轻量化隔离**：高频热路径（`loadout`、`offload`、`--version`）严格零加载 ONNX 运行环境，冷启动性能保持严格在 <5ms。
 
-### 4. FastMCP 协议原生集成（`k0maru mcp`）
+### 4. 内嵌式极客面板与可视化调试台（`k0maru ui`）
+按需在本地临时启动高性能可视化控制台（支持 `--open` 自动唤醒默认浏览器），前端静态资源通过 `rust-embed` 完全内嵌编译进单静态二进制，退出（`Ctrl+C`）即刻释放所有端口与内存，绝无常驻守护进程：
+
+```bash
+# 唤醒本地极客驾驶舱并自动打开浏览器
+k0maru ui --vault ~/wiki --open
+```
+
+- **混合检索调试台 (Search Debugger)**：支持交互式查询与模式切换，全景展示 BM25 排名、Vector 距离、RRF 得分与醒目的 Emerald `+0.05 Graph Boost` 拓扑升权徽标；
+- **WikiLinks 2D 力导向知识拓扑图谱 (Graph Explorer)**：100% 离线自研 Canvas 物理模拟器，按 L0~L3 语义精准着色，支持 1-hop 悬浮感知、孤岛脉冲探测与出入双链检查抽屉；
+- **符号化日志切片回溯 (Log & Trace Inspector)**：原生离线渲染 Mermaid 流程状态图，行号对齐且带错误高亮（`error` / `panicked`）的折叠堆栈查看器；
+- **缓存健康与 Token 节约计分板 (Token Scoreboard)**：实时统计向量覆盖率、缓存物理体积、基于量化基准的累积 Token 缩减量与 TRR 压缩比，提供一键实时同步。
+
+### 5. FastMCP 协议原生集成（`k0maru mcp`）
 无需启动后台网络服务，通过标准 `stdio` 暴露 Model Context Protocol（JSON-RPC 2.0），随 IDE 唤醒与退出：
 - `get_project_loadout`：获取项目紧凑型读档提示词包（严格受控预算）；
 - `recall_memory`：基于 FTS5 BM25 + `sqlite-vec` + RRF + 双链图拓扑加速的混合语义记忆检索（自动附加反链拓扑与精准上下文摘要）；
 - `offload_context`：提供字符串级的长文本符号化卸载；
 - `inspect_log_node`：检索已卸载的局部日志切片。
 
-### 5. 增量感知与快速同步（`k0maru sync`）
+### 6. 增量感知与快速同步（`k0maru sync`）
 基于文件的最后修改时间（`mtime`）与 `xxh3` 校验和状态机，仅增量处理新增、修改或删除的文档，支持 `--vector` 增量嵌入与 `--json` 输出供外部工具与自动化脚本调用。
 
 ```bash
