@@ -8,6 +8,7 @@ pub mod adapters;
 pub mod core;
 pub mod doctor;
 pub mod ecosystem;
+pub mod install;
 pub mod loadout;
 pub mod mcp;
 pub mod offload;
@@ -23,6 +24,10 @@ pub use doctor::{
 };
 pub use ecosystem::{
     inspect_all_clients, inspect_client, ClientConfigInfo, ClientConfigStatus, McpClient,
+};
+pub use install::{
+    format_install_report, inject_k0maru_mcp, run_install, ClientInstallOutcome, InstallOptions,
+    InstallReport, InstallTarget,
 };
 pub use loadout::{
     copy_to_clipboard, estimate_tokens, L2LogSummary, L3CardSummary, LoadoutBuilder, LoadoutResult,

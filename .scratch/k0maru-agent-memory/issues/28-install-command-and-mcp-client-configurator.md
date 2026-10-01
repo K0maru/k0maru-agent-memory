@@ -1,7 +1,7 @@
 # 28 — Install Command & MCP Client Configurator
 
 **Type:** task  
-**Status:** open  
+**Status:** resolved  
 **Blocked by:** 27  
 
 ## Context
@@ -31,3 +31,11 @@ Provide developers with a frictionless one-click command (`k0maru install`) that
    - New configs are properly created with valid JSON.
    - `--dry-run` performs zero disk modifications.
    - 100% test pass rate, zero warnings on `cargo clippy`, zero formatting issues on `cargo fmt`.
+
+## Implementation Summary & Verification
+- Created `src/install/mod.rs` with `InstallTarget`, `InstallOptions`, `ClientInstallOutcome`, `InstallReport`, `inject_k0maru_mcp`, `run_install`, and `format_install_report`.
+- Integrated `k0maru install` subcommand in `src/main.rs` with `--vault`, `--target`, `--dry-run`, and `--json` support.
+- Added 15 unit and CLI integration tests in `tests/test_install.rs`.
+- All tests pass (179 passing tests across test suite).
+- `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` pass with zero errors.
+
