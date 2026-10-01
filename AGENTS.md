@@ -73,3 +73,8 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - **评测实验**：`bench/<slug>`；
    - **缺陷修复**：`fix/<slug>`；
    - **工作流**：从最新 `dev` 拉出分支 ➔ 独立上下文中 Worker 完成 TDD ➔ 通过 Review ➔ Squash & Merge 回 `dev` ➔ 删除工作分支。
+4. **特性验收与发版确认纪律（严禁过急提 PR / 发版）**：
+   - **严禁擅自向 main 提发布 PR、合并或打 Tag**：每次开发完一个新特性或完成工单后，**必须先停下来向人类汇报**开发成果、测试报告与本地实测指南；
+   - **人类主动体验与验收机制**：新特性先停留在 `dev`（或特性分支）供人类开发者在本地环境进行实测验证、交互体验；
+   - **人类明确确认后方可合入 main**：只有在人类亲自体验并明确指示（如“可以合入 main”、“提 PR 发版”、“确认发版”）后，方可启动向 `main` 合并、打 Release Tag 与推送发布流程。
+
