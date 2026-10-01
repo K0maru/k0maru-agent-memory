@@ -134,7 +134,10 @@
           <h2 class="panel-title">Hybrid Search Debugger &amp; Explainability</h2>
           <p class="panel-desc">Interactive query playground with BM25 rank, vector cosine distance, RRF fusion, and WikiLinks Graph Boost.</p>
         </div>
-        <span class="badge badge-muted mono">Endpoint: /api/search</span>
+        <div class="panel-header-badges">
+          <span class="badge badge-muted mono" id="search-latency" title="Search query execution latency">-- ms</span>
+          <span class="badge badge-muted mono">Endpoint: /api/search</span>
+        </div>
       </div>
 
       <div class="cockpit-card">
@@ -144,26 +147,47 @@
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
-            <input type="text" class="input search-input" id="search-query-input" placeholder="Type query to test retrieval ranking (e.g. project architecture)..." autocomplete="off">
-          </div>
-          <div class="search-controls">
-            <div class="mode-toggles">
-              <button class="btn btn-sm btn-mode active" data-mode="hybrid">Hybrid</button>
-              <button class="btn btn-sm btn-mode" data-mode="bm25">BM25</button>
-              <button class="btn btn-sm btn-mode" data-mode="vector">Vector</button>
+            <input type="text" class="input search-input" id="search-input" placeholder="Type query to test retrieval ranking (e.g. memory architecture, vector index)..." autocomplete="off" spellcheck="false">
+            <div class="shortcut-hint-wrap">
+              <kbd class="shortcut-hint">[ / or ⌘K ]</kbd>
             </div>
-            <button class="btn btn-sm btn-secondary" id="btn-run-search">Execute Query</button>
+          </div>
+
+          <div class="search-controls">
+            <div class="search-controls-left">
+              <span class="control-label">Mode:</span>
+              <div class="mode-toggles" role="radiogroup" aria-label="Search Mode">
+                <button type="button" class="btn btn-sm btn-mode active" data-mode="hybrid" title="Reciprocal Rank Fusion with WikiLinks Graph Boost">Hybrid (RRF)</button>
+                <button type="button" class="btn btn-sm btn-mode" data-mode="bm25" title="Pure BM25 full-text keyword retrieval">BM25 Lexical</button>
+                <button type="button" class="btn btn-sm btn-mode" data-mode="vector" title="Dense vector semantic cosine similarity">Vector Dense</button>
+              </div>
+            </div>
+
+            <div class="search-controls-right">
+              <div class="slider-group">
+                <label for="search-limit" class="slider-label">Limit: <span id="search-limit-val" class="mono font-bold">5</span></label>
+                <input type="range" id="search-limit" class="range-slider" min="1" max="20" value="5" step="1">
+              </div>
+              <button class="btn btn-sm btn-secondary" id="btn-run-search" title="Execute Query immediately">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>Run</span>
+              </button>
+            </div>
           </div>
         </div>
 
         <div class="results-container" id="search-results-container">
-          <div class="placeholder-state">
-            <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <path d="m21 21-4.3-4.3"></path>
-            </svg>
-            <p class="placeholder-text">Enter a query above to view explainable search ranking waterfall.</p>
-            <span class="placeholder-subtext mono">Ticket 21: Search Debugger &amp; Scoring Waterfall</span>
+          <div id="search-results" class="search-results-list">
+            <div class="placeholder-state" id="search-initial-state">
+              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+              </svg>
+              <p class="placeholder-text">Enter a query above to view explainable search ranking waterfall.</p>
+              <span class="placeholder-subtext mono">Press / or ⌘K to focus search &bull; Try "memory", "storage", or "architecture"</span>
+            </div>
           </div>
         </div>
       </div>
