@@ -19,7 +19,7 @@
 | **上下文卸载** | `Offload` | 长日志与复杂运行状态的截断与符号化卸载机制。将 >50 行的原始输出落盘至临时目录，并在对话中替换为带 `node_id` 的 Mermaid 状态机图谱。 |
 | **MCP 服务** | `FastMCPServer` | 遵循 Model Context Protocol 的 stdio 进程服务，为 Cursor、Antigravity、Claude Code 等外部 Agent 提供标准内存检索与写入工具。 |
 | **混合检索融合** | `HybridSearch / RRF` | 倒数排名融合算法（Reciprocal Rank Fusion, $k=60$），将 FTS5 BM25 词法全文检索与 `sqlite-vec` 语义向量距离融合，并叠加 WikiLinks 拓扑图谱升权（Graph Boost +0.05）。 |
-| **开发者驾驶舱** | `DeveloperCockpit / UI` | 内嵌于单个二进制的零守护进程本地 Web 界面（`k0maru ui`），提供检索解释性打分、日志状态机透视与 Token 计分板，退出即释放端口。 |
+| **开发者控制台** | `DeveloperConsole / UI` | 内嵌于单个二进制的零守护进程本地 Web 界面（`k0maru ui`），提供检索解释性打分、日志状态机透视与 Token 计分板，退出即释放端口。 |
 | **双语国际化** | `BilingualI18n` | 纯前端离线自包含的中英双语国际化引擎，支持顶栏 `🌐 中文 / EN` 即时切换、系统语言自适应识别与 `localStorage` 本地持久化。 |
 
 ---

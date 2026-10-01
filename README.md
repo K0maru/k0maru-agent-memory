@@ -69,13 +69,15 @@ k0maru search "vector cache" --vault ~/wiki --json
 - **一次性向量缓存契约（Disposable Vector Cache）**：向量仅存在于可随时丢弃重建的 `cache.sqlite` 中，`sync --vector` 自动基于 `xxh3` 内容哈希进行 0 增量跳过计算；
 - **冷启动与轻量化隔离**：高频热路径（`loadout`、`offload`、`--version`）严格零加载 ONNX 运行环境，冷启动性能保持严格在 <5ms。
 
-### 4. 内嵌式极客面板与可视化调试台（`k0maru ui`）
+### 4. 内嵌式可视化控制台与调试台（`k0maru ui`）
 按需在本地临时启动高性能可视化控制台（支持 `--open` 自动唤醒默认浏览器），前端静态资源通过 `rust-embed` 完全内嵌编译进单静态二进制，退出（`Ctrl+C`）即刻释放所有端口与内存，绝无常驻守护进程：
 
 ```bash
-# 唤醒本地极客驾驶舱并自动打开浏览器
+# 唤醒本地可视化控制台并自动打开浏览器
 k0maru ui --vault ~/wiki --open
 ```
+
+![K0maru 开发者控制台 - 多路检索调试与图谱加权](docs/images/ui-search.png)
 
 - **中英双语国际化 (Bilingual I18n)**：顶栏配备 `🌐 中文 / EN` 一键无缝即时切换，首访自动识别系统语言偏好并支持 `localStorage` 本地记忆持久化；
 - **多路检索调试台 (Search Debugger)**：支持交互式查询与模式切换，全景展示 BM25 排名、Vector 距离、RRF 得分与醒目的 Emerald `+0.05 Graph Boost` 拓扑升权徽标；
@@ -83,7 +85,7 @@ k0maru ui --vault ~/wiki --open
 - **缓存健康与 Token 计分板 (Token Scoreboard)**：实时统计向量覆盖率、缓存物理体积、基于量化基准的累积 Token 缩减量与 TRR 压缩比，提供一键实时增量同步；
 - *(注：WikiLinks 知识图谱图鉴底层数据模型与 `/api/graph` 保持就绪，前端 UI 默认保持精简收起)*。
 
-> 📖 **详尽驾驶舱图文教程与实操工作流请参阅**：[docs/UI_TUTORIAL.md](docs/UI_TUTORIAL.md)
+> 📖 **详尽控制台图文教程与实操工作流请参阅**：[docs/UI_TUTORIAL.md](docs/UI_TUTORIAL.md)
 
 
 ### 5. FastMCP 协议原生集成（`k0maru mcp`）
