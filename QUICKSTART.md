@@ -1,3 +1,5 @@
+[English README](README.md) | [中文说明文档](README_zh.md)
+
 # ⚡ K0maru-Agent-Memory 极速上手指南 (Quick Start)
 
 本文档带你在 **1 分钟** 内掌握 `k0maru` 的日常核心实操！
@@ -18,7 +20,7 @@ rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign 
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.4.2
+# 输出: k0maru 0.5.0
 ```
 
 ---
@@ -79,33 +81,43 @@ k0maru inspect node_54697ed3
 
 ---
 
-## 🤖 第四步：在 IDE 中配置 FastMCP（让 AI 自主调用）
+## 🤖 第四步：一键配置 FastMCP（让 AI 自主调用）
 
 配置后，**你连命令行都不需要敲**，AI 在跟你的对话中会自己翻看你的笔记库！
 
-### 1. Claude Code 配置 (`~/.claude.json`)
-```json
-{
-  "mcpServers": {
-    "k0maru-memory": {
-      "command": "k0maru",
-      "args": ["mcp", "--vault", "/path/to/your/wiki"]
-    }
-  }
-}
+### 1. 一键全生态自动挂载（推荐）
+```bash
+# 自动检测并写入所有已安装客户端（Claude Code、Cursor、Gemini CLI、Windsurf、Cline）：
+k0maru install --vault ~/wiki
+
+# 运行健康诊断体检：
+k0maru doctor
 ```
 
-### 2. Antigravity / agy 配置 (`~/.gemini/config/mcp_config.json`)
-```json
-{
-  "mcpServers": {
-    "k0maru-memory": {
-      "command": "k0maru",
-      "args": ["mcp", "--vault", "/path/to/your/wiki"]
+### 2. 手动配置（可选）
+若您习惯手动管理配置文件：
+- **Claude Code** (`~/.claude.json`)：
+  ```json
+  {
+    "mcpServers": {
+      "k0maru-memory": {
+        "command": "k0maru",
+        "args": ["mcp", "--vault", "/path/to/your/wiki"]
+      }
     }
   }
-}
-```
+  ```
+- **Antigravity / agy** (`~/.gemini/config/mcp_config.json`)：
+  ```json
+  {
+    "mcpServers": {
+      "k0maru-memory": {
+        "command": "k0maru",
+        "args": ["mcp", "--vault", "/path/to/your/wiki"]
+      }
+    }
+  }
+  ```
 
 ### 3. 配置完成后的自然语言体验（无需任何特定关键词）：
 在聊天窗口中直接用大白话提问，AI 会根据语义意图自动命中对应 MCP 工具：
@@ -149,6 +161,11 @@ k0maru ui --vault ~/wiki --open
 
 | 命令 | 关键参数 | 功能说明 |
 | :--- | :--- | :--- |
+| `k0maru install` | `--vault <path>` | 一键将 `k0maru-memory` 挂载至智能体客户端配置文件 |
+| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--dry-run` | 仅预览配置变更差异，不实际写入磁盘 |
+| `k0maru doctor` | `--vault <path>` | 全面体检二进制环境、知识库、缓存索引与生态挂载健康度 |
+| | `--json` | 输出机器可读的结构化诊断报告 |
 | `k0maru ui` | `--vault <path>` | 启动本地内嵌极客控制台（默认 `127.0.0.1:3721`） |
 | | `--port <port>` | 自定义绑定端口号（默认 3721） |
 | | `--open` | 启动后自动在系统默认浏览器中打开控制台 |

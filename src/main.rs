@@ -4,6 +4,8 @@ use clap::{Args, Parser, Subcommand};
 
 use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
 use k0maru::core::traits::VaultAdapter;
+use k0maru::doctor::{format_report, run_diagnostics};
+use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::scanner::IncrementalScanner;
@@ -41,6 +43,12 @@ enum Commands {
 
     /// Search knowledge hub memories and notes using BM25, semantic vector, or hybrid retrieval
     Search(SearchArgs),
+
+    /// Diagnose system health, vault integrity, storage indices, and MCP client configurations
+    Doctor(DoctorArgs),
+
+    /// Automatically configure k0maru-memory MCP server in AI coding agents (Claude, Cursor, etc.)
+    Install(InstallArgs),
 
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
@@ -154,6 +162,36 @@ pub struct SearchArgs {
     pub limit: usize,
 
     /// Output full machine-readable JSON array of search hits
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DoctorArgs {
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Output structured JSON instead of human-readable report
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct InstallArgs {
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline
+    #[arg(short, long, default_value = "all")]
+    pub target: String,
+
+    /// Preview configuration changes without writing to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output structured JSON instead of human-readable text
     #[arg(long)]
     pub json: bool,
 }
@@ -508,6 +546,47 @@ fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     handle_search(args)
 }
 
+fn run_doctor(args: DoctorArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault);
+    let report = run_diagnostics(&vault_path, None);
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&report)?;
+        println!("{}", json_str);
+    } else {
+        println!("{}", format_report(&report));
+    }
+
+    if report.summary.failures > 0 {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault);
+    let target: InstallTarget = args.target.parse()?;
+
+    let options = InstallOptions {
+        vault_path,
+        target,
+        dry_run: args.dry_run,
+        home_override: None,
+    };
+
+    let report = run_install(options).map_err(|e| e as Box<dyn std::error::Error>)?;
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&report)?;
+        println!("{}", json_str);
+    } else {
+        println!("{}", format_install_report(&report));
+    }
+
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -543,6 +622,18 @@ fn main() {
         }
         Some(Commands::Search(args)) => {
             if let Err(e) = run_search(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Doctor(args)) => {
+            if let Err(e) = run_doctor(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Install(args)) => {
+            if let Err(e) = run_install_cmd(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
