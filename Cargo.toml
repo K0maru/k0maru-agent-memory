@@ -1,6 +1,6 @@
 [package]
 name = "k0maru"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
 
@@ -22,6 +22,12 @@ pulldown-cmark = "0.11"
 walkdir = "2.5"
 arboard = "3.4"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+sqlite-vec = "0.1"
+fastembed = { version = "4", optional = true }
+
+[features]
+default = ["fastembed"]
+fastembed = ["dep:fastembed"]
 
 [dev-dependencies]
 tempfile = "3.10"

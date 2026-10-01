@@ -4,11 +4,15 @@
 //! physical Markdown vaults ([`VaultAdapter`]) and ephemeral SQLite cache ([`CacheStorage`]).
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::core::models::{CachedDocMeta, SyncStats};
 use crate::core::traits::{CacheStorage, VaultAdapter};
+use crate::scanner::vector_sync::{VectorSyncEngine, VectorSyncStats};
+use crate::storage::SqliteStorage;
+use crate::vector::EmbeddingEngine;
 
 /// Categorized file paths representing filesystem vs cache dirty sets.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -167,5 +171,34 @@ impl<'a, A: VaultAdapter, S: CacheStorage> IncrementalScanner<'a, A, S> {
             unchanged: dirty.unchanged.len(),
             duration_ms,
         })
+    }
+}
+
+impl<'a, A: VaultAdapter> IncrementalScanner<'a, A, SqliteStorage> {
+    /// Synchronizes filesystem vault changes into SQLite storage and updates vector embeddings.
+    ///
+    /// If `embedder` is `Some`, calls [`VectorSyncEngine`] to incrementally embed new/modified
+    /// documents and purge deleted ones. If `None`, vector synchronization is skipped.
+    pub fn sync_vault_with_vector(
+        &mut self,
+        _vault_root: &Path,
+        embedder: Option<Arc<dyn EmbeddingEngine>>,
+    ) -> Result<(SyncStats, VectorSyncStats), Box<dyn std::error::Error>> {
+        let sync_stats = self.sync(false)?;
+        let vector_stats = if let Some(ref engine) = embedder {
+            VectorSyncEngine::sync(self.storage, &**engine)?
+        } else {
+            VectorSyncStats::default()
+        };
+        Ok((sync_stats, vector_stats))
+    }
+
+    /// Backwards-compatible convenience method to synchronize vault into SQLite storage.
+    pub fn sync_vault(
+        &mut self,
+        vault_root: &Path,
+    ) -> Result<SyncStats, Box<dyn std::error::Error>> {
+        self.sync_vault_with_vector(vault_root, None)
+            .map(|(s, _)| s)
     }
 }

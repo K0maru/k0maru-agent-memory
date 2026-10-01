@@ -7,7 +7,8 @@ use k0maru::core::traits::VaultAdapter;
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::scanner::IncrementalScanner;
-use k0maru::storage::SqliteStorage;
+use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
+use k0maru::vector::default_embedding_engine;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,6 +38,9 @@ enum Commands {
 
     /// Synchronize vault documents incrementally into disposable SQLite cache
     Sync(SyncArgs),
+
+    /// Search knowledge hub memories and notes using BM25, semantic vector, or hybrid retrieval
+    Search(SearchArgs),
 }
 
 #[derive(Args, Debug)]
@@ -106,6 +110,33 @@ pub struct SyncArgs {
     pub force: bool,
 
     /// Output structured JSON instead of human-readable text
+    #[arg(long)]
+    pub json: bool,
+
+    /// Generate vector embeddings for synchronized documents
+    #[arg(long)]
+    pub vector: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SearchArgs {
+    /// Search query string
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Search execution mode: hybrid, bm25, or vector
+    #[arg(short, long, default_value = "hybrid")]
+    pub mode: String,
+
+    /// Maximum number of search results to return
+    #[arg(short, long, default_value = "5")]
+    pub limit: usize,
+
+    /// Output full machine-readable JSON array of search hits
     #[arg(long)]
     pub json: bool,
 }
@@ -301,7 +332,15 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let mut server = k0maru::mcp::McpServer::new(vault_path);
+    let mut server = k0maru::mcp::McpServer::new(&vault_path);
+    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+        Some(vault_path.join(".k0maru").join("models"))
+    } else {
+        None
+    };
+    if let Ok(embedder) = default_embedding_engine(model_cache) {
+        server = server.with_embedder(embedder);
+    }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     server.run_stdio(stdin.lock(), stdout.lock())
@@ -317,20 +356,65 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => SqliteStorage::in_memory()?,
     };
 
-    let stats = if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists()
-    {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(args.force)?
+    let embedder: Option<std::sync::Arc<dyn k0maru::vector::EmbeddingEngine>> = if args.vector {
+        let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+            Some(vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        Some(default_embedding_engine(model_cache)?)
     } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(args.force)?
+        None
     };
 
+    let (stats, vec_stats) =
+        if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
+            let adapter = ObsidianAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+            if args.force {
+                let sync_stats = scanner.sync(true)?;
+                let vec_stats = if let Some(ref engine) = embedder {
+                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
+                } else {
+                    k0maru::scanner::VectorSyncStats::default()
+                };
+                (sync_stats, vec_stats)
+            } else {
+                scanner.sync_vault_with_vector(&vault_path, embedder)?
+            }
+        } else {
+            let adapter = GenericWikiAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+            if args.force {
+                let sync_stats = scanner.sync(true)?;
+                let vec_stats = if let Some(ref engine) = embedder {
+                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
+                } else {
+                    k0maru::scanner::VectorSyncStats::default()
+                };
+                (sync_stats, vec_stats)
+            } else {
+                scanner.sync_vault_with_vector(&vault_path, embedder)?
+            }
+        };
+
     if args.json {
-        let json_str = serde_json::to_string_pretty(&stats)?;
-        println!("{}", json_str);
+        if args.vector {
+            let json_str = serde_json::to_string_pretty(&serde_json::json!({
+                "cache": stats,
+                "vector": vec_stats,
+            }))?;
+            println!("{}", json_str);
+        } else {
+            let json_str = serde_json::to_string_pretty(&stats)?;
+            println!("{}", json_str);
+        }
+    } else if args.vector {
+        println!(
+            "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {}) | Vector (embedded: {}, deleted: {}, skipped: {})",
+            stats.duration_ms, stats.added, stats.modified, stats.deleted, stats.unchanged,
+            vec_stats.embedded_count, vec_stats.deleted_count, vec_stats.skipped_count
+        );
     } else {
         println!(
             "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {})",
@@ -339,6 +423,72 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let mode = match args.mode.to_lowercase().as_str() {
+        "hybrid" => SearchMode::Hybrid,
+        "bm25" => SearchMode::Bm25,
+        "vector" => SearchMode::Vector,
+        other => {
+            return Err(format!(
+                "Invalid search mode '{}'. Supported modes: hybrid, bm25, vector",
+                other
+            )
+            .into());
+        }
+    };
+
+    let vault_path = detect_vault_path(args.vault.clone());
+    if !vault_path.exists() {
+        return Err(format!("Vault path does not exist: {}", vault_path.display()).into());
+    }
+
+    let cache_dir = vault_path.join(".k0maru");
+    let cache_path = cache_dir.join("cache.sqlite");
+
+    let storage = SqliteStorage::open(&cache_path)?;
+    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+        Some(vault_path.join(".k0maru").join("models"))
+    } else {
+        None
+    };
+    let embedder = default_embedding_engine(model_cache).ok();
+    let engine = HybridSearchEngine::new(&storage, embedder);
+
+    let results = engine.search(&args.query, mode, args.limit)?;
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&results)?;
+        println!("{}", json_str);
+    } else {
+        if results.is_empty() {
+            println!("🔍 No results found matching query: '{}'", args.query);
+            return Ok(());
+        }
+
+        println!(
+            "🔍 Search Results for '{}' ({} results, mode: {}):",
+            args.query,
+            results.len(),
+            args.mode
+        );
+        println!("--------------------------------------------------");
+        for (i, r) in results.iter().enumerate() {
+            let rank = i + 1;
+            println!("#{:<2} [{:.4}] {} ({})", rank, r.score, r.title, r.path);
+            if !r.snippet.is_empty() {
+                println!("    {}", r.snippet);
+            }
+        }
+        println!("--------------------------------------------------");
+    }
+
+    Ok(())
+}
+
+fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    handle_search(args)
 }
 
 fn main() {
@@ -370,6 +520,12 @@ fn main() {
         }
         Some(Commands::Sync(args)) => {
             if let Err(e) = run_sync(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Search(args)) => {
+            if let Err(e) = run_search(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
