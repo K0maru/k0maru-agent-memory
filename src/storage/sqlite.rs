@@ -193,6 +193,14 @@ impl SqliteStorage {
         }
     }
 
+    /// Retrieves a document by its relative path if present in cache.
+    pub fn get_document(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Document>, Box<dyn std::error::Error>> {
+        <Self as CacheStorage>::get_document(self, path)
+    }
+
     fn query_raw_docs(
         &self,
         sql: &str,
@@ -535,6 +543,50 @@ impl CacheStorage for SqliteStorage {
             results.push(r?);
         }
         Ok(results)
+    }
+
+    fn get_document(&self, path: &Path) -> Result<Option<Document>, Box<dyn std::error::Error>> {
+        let path_str = path.to_string_lossy();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT path, title, hierarchy, frontmatter, content_hash, mtime, body FROM documents WHERE path = ?1",
+        )?;
+        let mut rows = stmt.query(params![path_str])?;
+        if let Some(row) = rows.next()? {
+            let path_val: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let hierarchy_str: String = row.get(2)?;
+            let frontmatter_str: String = row.get(3)?;
+            let content_hash: String = row.get(4)?;
+            let mtime: i64 = row.get(5)?;
+            let body: String = row.get(6)?;
+
+            let path_buf = PathBuf::from(path_val);
+            let links = self.get_outgoing_links(&path_buf)?;
+            let mut tag_stmt = self
+                .conn
+                .prepare_cached("SELECT tag FROM tags WHERE document_path = ?1")?;
+            let tags: Vec<String> = tag_stmt
+                .query_map(params![path_str], |r| r.get(0))?
+                .collect::<Result<Vec<String>, _>>()?;
+
+            let hierarchy = parse_hierarchy(&hierarchy_str);
+            let frontmatter =
+                serde_json::from_str(&frontmatter_str).unwrap_or(serde_json::json!({}));
+
+            Ok(Some(Document {
+                path: path_buf,
+                title,
+                hierarchy,
+                frontmatter,
+                links,
+                tags,
+                content_hash,
+                mtime: mtime as u64,
+                body,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 

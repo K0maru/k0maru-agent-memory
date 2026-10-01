@@ -1,7 +1,7 @@
 # 17 — Reciprocal Rank Fusion (RRF) Hybrid Search Engine
 
 **Type:** task  
-**Status:** ready-for-agent  
+**Status:** resolved  
 **Blocked by:** 13, 14  
 
 ## Context
@@ -19,7 +19,7 @@ Pure keyword search (BM25) fails on synonyms, while pure vector search is vulner
    - If document is linked to/from a top-ranked result, add a graph boost (+0.05).
 3. Support Search Modes:
    - `SearchMode::Hybrid` (default when vectors present);
-   - `SearchMode::BM25` (lexical only);
+   - `SearchMode::Bm25` (lexical only);
    - `SearchMode::Vector` (semantic only).
 4. Unit tests in `tests/test_hybrid_search.rs`:
    - Test RRF score calculation with tie-breaking;
@@ -28,6 +28,14 @@ Pure keyword search (BM25) fails on synonyms, while pure vector search is vulner
    - Test graph boost elevating connected notes.
 
 ## Acceptance Criteria
-- [ ] RRF produces deterministic, normalized ranked list.
-- [ ] Graph boost rewards densely connected Wiki nodes.
-- [ ] Fallback to BM25 works seamlessly if vectors are disabled.
+- [x] RRF produces deterministic, normalized ranked list.
+- [x] Graph boost rewards densely connected Wiki nodes.
+- [x] Fallback to BM25 works seamlessly if vectors are disabled.
+
+## Resolution
+- Implemented `HybridSearchEngine`, `SearchMode`, and `SearchResult` in `src/storage/hybrid.rs`.
+- Added `get_document` to `CacheStorage` trait and `SqliteStorage` to retrieve document metadata and body for vector-only candidates.
+- Implemented Reciprocal Rank Fusion with configurable $k$, $w_{\text{bm25}}$, $w_{\text{vec}}$, and graph boost.
+- Implemented 1-hop bidirectional and edge Graph Boost (+0.05) utilizing `SqliteStorage::get_backlinks` and `SqliteStorage::get_outgoing_links`.
+- Implemented deterministic multi-level tie breaking on scores, ranks, and paths.
+- Added comprehensive unit tests in `tests/test_hybrid_search.rs` covering all search modes, fallback, edge cases, and graph boosting.

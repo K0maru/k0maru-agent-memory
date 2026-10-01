@@ -87,4 +87,9 @@ pub trait CacheStorage {
     fn get_cached_metadata(&self) -> Result<Vec<CachedDocMeta>, Box<dyn std::error::Error>> {
         Ok(Vec::new())
     }
+
+    /// Retrieves a document by its relative path if present in cache.
+    fn get_document(&self, _path: &Path) -> Result<Option<Document>, Box<dyn std::error::Error>> {
+        Ok(None)
+    }
 }

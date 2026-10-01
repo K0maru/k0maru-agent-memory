@@ -22,7 +22,7 @@ pub use loadout::{
 pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
 pub use scanner::IncrementalScanner;
-pub use storage::SqliteStorage;
+pub use storage::{HybridSearchEngine, SearchMode, SearchResult, SqliteStorage};
 pub use vector::{EmbeddingEngine, MockEmbeddingEngine, VectorError};
 
 #[cfg(test)]
