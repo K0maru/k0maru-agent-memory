@@ -40,4 +40,6 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [23-log-trace-inspector-and-token-scoreboard.md](issues/23-log-trace-inspector-and-token-scoreboard.md) (Blocked by: 21, 22) ✅ **COMPLETED (v0.4.0)**
 - [x] [25-ui-hide-graph-tab.md](issues/25-ui-hide-graph-tab.md) (Blocked by: 24) ✅ **COMPLETED (v0.4.2)**
 - [x] [26-open-source-bilingual-readme.md](issues/26-open-source-bilingual-readme.md) (Blocked by: 25) ✅ **COMPLETED**
+- [ ] [27-doctor-command-and-health-diagnostics.md](issues/27-doctor-command-and-health-diagnostics.md) (Blocked by: None)
+- [ ] [28-install-command-and-mcp-client-configurator.md](issues/28-install-command-and-mcp-client-configurator.md) (Blocked by: 27)
 

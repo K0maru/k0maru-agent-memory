@@ -6,6 +6,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod adapters;
 pub mod core;
+pub mod doctor;
+pub mod ecosystem;
 pub mod loadout;
 pub mod mcp;
 pub mod offload;
@@ -16,6 +18,12 @@ pub mod ui;
 pub mod vector;
 
 pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
+pub use doctor::{
+    format_report, run_diagnostics, DiagnosticItem, DoctorReport, DoctorSummary, StatusLevel,
+};
+pub use ecosystem::{
+    inspect_all_clients, inspect_client, ClientConfigInfo, ClientConfigStatus, McpClient,
+};
 pub use loadout::{
     copy_to_clipboard, estimate_tokens, L2LogSummary, L3CardSummary, LoadoutBuilder, LoadoutResult,
     ProjectInfo,
