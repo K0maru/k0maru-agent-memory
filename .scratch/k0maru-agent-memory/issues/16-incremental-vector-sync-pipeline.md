@@ -1,7 +1,7 @@
 # 16 — Incremental Vector Synchronization Pipeline
 
 **Type:** task  
-**Status:** ready-for-agent  
+**Status:** resolved  
 **Blocked by:** 13, 14  
 
 ## Context
@@ -27,6 +27,6 @@ Embedding large Markdown collections on CPU requires efficient incremental synch
    - Verify deleting a file cleans up its vector.
 
 ## Acceptance Criteria
-- [ ] Incremental zero-dirty check bypasses embedding computation completely.
-- [ ] Edited documents update both vector and metadata hash.
-- [ ] Deleted files are cleanly purged from vector index.
+- [x] Incremental zero-dirty check bypasses embedding computation completely.
+- [x] Edited documents update both vector and metadata hash.
+- [x] Deleted files are cleanly purged from vector index.

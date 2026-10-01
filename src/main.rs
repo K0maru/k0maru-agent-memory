@@ -108,6 +108,10 @@ pub struct SyncArgs {
     /// Output structured JSON instead of human-readable text
     #[arg(long)]
     pub json: bool,
+
+    /// Generate vector embeddings for synchronized documents
+    #[arg(long)]
+    pub vector: bool,
 }
 
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
@@ -317,20 +321,62 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => SqliteStorage::in_memory()?,
     };
 
-    let stats = if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists()
-    {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(args.force)?
+    let embedder: Option<std::sync::Arc<dyn k0maru::vector::EmbeddingEngine>> = if args.vector {
+        Some(std::sync::Arc::new(
+            k0maru::vector::MockEmbeddingEngine::new(384),
+        ))
     } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(args.force)?
+        None
     };
 
+    let (stats, vec_stats) =
+        if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
+            let adapter = ObsidianAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+            if args.force {
+                let sync_stats = scanner.sync(true)?;
+                let vec_stats = if let Some(ref engine) = embedder {
+                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
+                } else {
+                    k0maru::scanner::VectorSyncStats::default()
+                };
+                (sync_stats, vec_stats)
+            } else {
+                scanner.sync_vault_with_vector(&vault_path, embedder)?
+            }
+        } else {
+            let adapter = GenericWikiAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+            if args.force {
+                let sync_stats = scanner.sync(true)?;
+                let vec_stats = if let Some(ref engine) = embedder {
+                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
+                } else {
+                    k0maru::scanner::VectorSyncStats::default()
+                };
+                (sync_stats, vec_stats)
+            } else {
+                scanner.sync_vault_with_vector(&vault_path, embedder)?
+            }
+        };
+
     if args.json {
-        let json_str = serde_json::to_string_pretty(&stats)?;
-        println!("{}", json_str);
+        if args.vector {
+            let json_str = serde_json::to_string_pretty(&serde_json::json!({
+                "cache": stats,
+                "vector": vec_stats,
+            }))?;
+            println!("{}", json_str);
+        } else {
+            let json_str = serde_json::to_string_pretty(&stats)?;
+            println!("{}", json_str);
+        }
+    } else if args.vector {
+        println!(
+            "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {}) | Vector (embedded: {}, deleted: {}, skipped: {})",
+            stats.duration_ms, stats.added, stats.modified, stats.deleted, stats.unchanged,
+            vec_stats.embedded_count, vec_stats.deleted_count, vec_stats.skipped_count
+        );
     } else {
         println!(
             "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {})",

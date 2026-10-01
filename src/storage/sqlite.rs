@@ -383,14 +383,6 @@ impl CacheStorage for SqliteStorage {
             "DELETE FROM documents_fts WHERE path = ?1",
             params![path_str],
         )?;
-        let _ = tx.execute(
-            "DELETE FROM document_vectors WHERE id = ?1",
-            params![path_str],
-        );
-        let _ = tx.execute(
-            "DELETE FROM vector_metadata WHERE document_id = ?1",
-            params![path_str],
-        );
 
         tx.commit()?;
         Ok(())
