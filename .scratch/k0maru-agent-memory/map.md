@@ -29,8 +29,8 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [12-benchmark-chart-generator-and-ci-pipeline.md](issues/12-benchmark-chart-generator-and-ci-pipeline.md) (Blocked by: 10, 11) ✅ **COMPLETED (v0.2.0)**
 - [x] [13-sqlite-vec-virtual-table-and-storage-layer.md](issues/13-sqlite-vec-virtual-table-and-storage-layer.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [14-embedding-engine-trait-and-mock-provider.md](issues/14-embedding-engine-trait-and-mock-provider.md) (Blocked by: None) ✅ **COMPLETED**
-- [ ] [15-fastembed-local-onnx-backend.md](issues/15-fastembed-local-onnx-backend.md) (Blocked by: 14) 🎯 **FINAL FRONTIER**
+- [x] [15-fastembed-local-onnx-backend.md](issues/15-fastembed-local-onnx-backend.md) (Blocked by: 14) ✅ **COMPLETED**
 - [x] [16-incremental-vector-sync-pipeline.md](issues/16-incremental-vector-sync-pipeline.md) (Blocked by: 13, 14) ✅ **COMPLETED**
 - [x] [17-reciprocal-rank-fusion-hybrid-search.md](issues/17-reciprocal-rank-fusion-hybrid-search.md) (Blocked by: 13, 14) ✅ **COMPLETED**
-- [x] [18-cli-search-command-and-mcp-hybrid-recall.md](issues/18-cli-search-command-and-mcp-hybrid-recall.md) (Blocked by: 16, 17) ✅ **COMPLETED**
+- [x] [18-cli-search-command-and-mcp-hybrid-recall.md](issues/18-cli-search-command-and-mcp-hybrid-recall.md) (Blocked by: 16, 17) ✅ **COMPLETED (v0.3.0)**
 
