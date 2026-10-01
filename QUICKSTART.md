@@ -132,6 +132,8 @@ k0maru ui --vault ~/wiki --open
 - *(注：WikiLinks 拓扑图谱功能底层模型与 API 就绪，界面默认保持精简收起)*；
 - 退出只需在终端按下 `Ctrl + C`，**立即释放端口与内存，绝不留存任何后台守护进程**！
 
+> 📖 **详尽界面实操与高阶用法请参阅**：[docs/UI_TUTORIAL.md](docs/UI_TUTORIAL.md)
+
 ---
 
 ## 📖 CLI 常用指令速查手册

@@ -83,6 +83,8 @@ k0maru ui --vault ~/wiki --open
 - **缓存健康与 Token 计分板 (Token Scoreboard)**：实时统计向量覆盖率、缓存物理体积、基于量化基准的累积 Token 缩减量与 TRR 压缩比，提供一键实时增量同步；
 - *(注：WikiLinks 知识图谱图鉴底层数据模型与 `/api/graph` 保持就绪，前端 UI 默认保持精简收起)*。
 
+> 📖 **详尽驾驶舱图文教程与实操工作流请参阅**：[docs/UI_TUTORIAL.md](docs/UI_TUTORIAL.md)
+
 
 ### 5. FastMCP 协议原生集成（`k0maru mcp`）
 无需启动后台网络服务，通过标准 `stdio` 暴露 Model Context Protocol（JSON-RPC 2.0），随 IDE 唤醒与退出：
