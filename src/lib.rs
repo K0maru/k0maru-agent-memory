@@ -12,6 +12,7 @@ pub mod offload;
 pub mod parser;
 pub mod scanner;
 pub mod storage;
+pub mod ui;
 pub mod vector;
 
 pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
@@ -23,6 +24,7 @@ pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
 pub use scanner::{IncrementalScanner, VectorSyncEngine, VectorSyncStats};
 pub use storage::{HybridSearchEngine, SearchMode, SearchResult, SqliteStorage};
+pub use ui::run_server;
 #[cfg(feature = "fastembed")]
 pub use vector::FastEmbedBackend;
 pub use vector::{default_embedding_engine, EmbeddingEngine, MockEmbeddingEngine, VectorError};

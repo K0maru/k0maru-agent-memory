@@ -41,6 +41,23 @@ enum Commands {
 
     /// Search knowledge hub memories and notes using BM25, semantic vector, or hybrid retrieval
     Search(SearchArgs),
+
+    #[command(about = "Launch the local developer dashboard and visual memory explorer")]
+    Ui {
+        #[arg(short, long, help = "Path to the markdown vault")]
+        vault: Option<PathBuf>,
+
+        #[arg(
+            short,
+            long,
+            default_value_t = 3721,
+            help = "Port to bind the local dashboard server"
+        )]
+        port: u16,
+
+        #[arg(long, help = "Automatically open default browser")]
+        open: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -526,6 +543,23 @@ fn main() {
         }
         Some(Commands::Search(args)) => {
             if let Err(e) = run_search(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Ui { vault, port, open }) => {
+            let vault_path = detect_vault_path(vault);
+            let rt = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("❌ 错误: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            if let Err(e) = rt.block_on(k0maru::ui::run_server(vault_path, port, open)) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }

@@ -202,6 +202,13 @@ impl SqliteStorage {
         Ok(count as usize)
     }
 
+    /// Returns the total count of stored documents in `documents`.
+    pub fn document_count(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let mut stmt = self.conn.prepare_cached("SELECT count(*) FROM documents")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
     /// Returns true if there is at least one vector embedding in storage.
     pub fn has_vectors(&self) -> Result<bool, Box<dyn std::error::Error>> {
         Ok(self.vector_count()? > 0)
