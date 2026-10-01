@@ -5,7 +5,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests: 85 passed](https://img.shields.io/badge/Tests-85_passed-brightgreen.svg)]()
+[![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-blue.svg)]()
+[![Tests: 120 passed](https://img.shields.io/badge/Tests-120_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -23,8 +24,8 @@
 ### 🌟 核心设计原则
 
 * **自备文档（Bring Your Own Markdown）**：以用户已有的本地 Markdown 笔记（如 Obsidian Vault、Karpathy 风格 LLM-Wiki）作为唯一的事实源泉（Single Source of Truth），不引入私有二进制文件格式，不强制更改文件后缀或现有目录层级。
-* **瞬态缓存（Disposable Cache）**：底层仅维护单文件 SQLite 数据库（`cache.sqlite`），用于 FTS5 BM25 全文检索与双链图拓扑加速。该数据库被视为随时可抛弃的瞬态缓存，删除后可在数十毫秒内完全自愈重建。
-* **零守护进程与极简开销（Zero-Daemon & Low Overhead）**：纯 Rust 编写并静态编译为单个 ~3.6MB 的二进制可执行文件，冷启动耗时 ~3.4ms，常驻内存仅 ~11MB，不占用任何常驻网络端口，通过标准 CLI 管道与 `stdio` MCP 协议即用即走。
+* **瞬态缓存（Disposable Cache）**：底层仅维护单文件 SQLite 数据库（`cache.sqlite`），用于 FTS5 BM25 全文检索、`sqlite-vec` 向量虚表与双链图拓扑加速。该数据库被视为随时可抛弃的瞬态缓存，删除后可在数十毫秒内完全自愈重建。
+* **零守护进程与极简开销（Zero-Daemon & Low Overhead）**：纯 Rust 编写并静态编译为单个二进制可执行文件，冷启动耗时 ~3.4ms，常驻内存仅 ~11MB，不占用任何常驻网络端口，通过标准 CLI 管道与 `stdio` MCP 协议即用即走。
 
 ---
 
@@ -54,15 +55,37 @@ cargo test | k0maru offload
 k0maru inspect node_54697ed3
 ```
 
-### 3. FastMCP 协议原生集成（`k0maru mcp`）
+### 3. 一次性本地向量缓存与 RRF 混合检索（`k0maru search`）
+基于 C 原生 `sqlite-vec` 向量虚表与本地 CPU ONNX 嵌入引擎（`fastembed-rs`，默认 `all-MiniLM-L6-v2` 384 维向量），实现 BM25 词法全文检索与语义向量检索的互易倒数融合（Reciprocal Rank Fusion, RRF $k=60$），并结合 1-hop 双链拓扑图升权（Graph Boost +0.05）：
+
+```bash
+# 混合检索指定关键词或语义概念（默认 hybrid 模式，支持 bm25 / vector / hybrid）
+k0maru search "架构约束与上下文治理" --vault ~/wiki --mode hybrid --limit 5
+
+# 输出结构化 JSON 供脚本与智能体流式消费
+k0maru search "vector cache" --vault ~/wiki --json
+```
+
+- **一次性向量缓存契约（Disposable Vector Cache）**：向量仅存在于可随时丢弃重建的 `cache.sqlite` 中，`sync --vector` 自动基于 `xxh3` 内容哈希进行 0 增量跳过计算；
+- **冷启动与轻量化隔离**：高频热路径（`loadout`、`offload`、`--version`）严格零加载 ONNX 运行环境，冷启动性能保持严格在 <5ms。
+
+### 4. FastMCP 协议原生集成（`k0maru mcp`）
 无需启动后台网络服务，通过标准 `stdio` 暴露 Model Context Protocol（JSON-RPC 2.0），随 IDE 唤醒与退出：
-- `get_project_loadout`：获取项目紧凑型读档提示词包；
-- `recall_memory`：基于 SQLite FTS5 的 BM25 词法全文检索；
+- `get_project_loadout`：获取项目紧凑型读档提示词包（严格受控预算）；
+- `recall_memory`：基于 FTS5 BM25 + `sqlite-vec` + RRF + 双链图拓扑加速的混合语义记忆检索（自动附加反链拓扑与精准上下文摘要）；
 - `offload_context`：提供字符串级的长文本符号化卸载；
 - `inspect_log_node`：检索已卸载的局部日志切片。
 
-### 4. 增量感知与快速同步（`k0maru sync`）
-基于文件的最后修改时间（`mtime`）与 `xxh3` 校验和状态机，仅增量处理新增、修改或删除的文档，支持 `--json` 输出供外部工具与自动化脚本调用。
+### 5. 增量感知与快速同步（`k0maru sync`）
+基于文件的最后修改时间（`mtime`）与 `xxh3` 校验和状态机，仅增量处理新增、修改或删除的文档，支持 `--vector` 增量嵌入与 `--json` 输出供外部工具与自动化脚本调用。
+
+```bash
+# 仅增量扫描 Markdown 结构与 FTS 索引
+k0maru sync --vault ~/wiki
+
+# 联动增量嵌入向量索引 (批量 32 篇，自动跳过未修改文档)
+k0maru sync --vault ~/wiki --vector
+```
 
 ---
 
@@ -100,22 +123,29 @@ graph TD
         Storage[("SqliteStorage (cache.sqlite, documents, links, tags, <100ms 自愈)")]
     end
 
-    subgraph L3 ["3. 混合检索与图拓扑层 (k0maru::storage)"]
-        FTS5["SQLite FTS5 (documents_fts · BM25 词法全文排序)"]
-        Graph["WikiLinks Adjacency Graph (1-hop 邻居 · 反链 Backlinks)"]
+    subgraph L3 ["3. 混合检索与图拓扑层 (k0maru::storage & vector)"]
+        FTS5["SQLite FTS5 (documents_fts · BM25 词法全文检索)"]
+        Vec["sqlite-vec (vec0 虚表 · 384维 Cosine 相似度)"]
+        FastEmbed["FastEmbed (all-MiniLM-L6-v2 · 本地 ONNX CPU 推理)"]
+        RRF["RRF 混合融合 (k=60 · 权重平衡)"]
+        Graph["WikiLinks Adjacency Graph (1-hop 邻居 · 双链图升权)"]
     end
 
     subgraph L4 ["4. Agent 交互与协议层 (k0maru::cli & mcp)"]
         Loadout["k0maru loadout (<300 Token 背包 · --copy)"]
         Offload["k0maru offload & inspect (Mermaid 状态图 · 局部精细回溯)"]
+        Search["k0maru search (CLI 混合语义搜索 · --json)"]
         MCP["FastMCP Server (stdio 标准协议 · 零网络端口)"]
     end
 
     Obsidian & Generic --> Parser
     Parser --> Scanner
     Scanner --> Storage
-    Storage --> FTS5 & Graph
-    FTS5 & Graph --> Loadout
+    Storage --> FTS5 & Vec & Graph
+    FastEmbed --> Vec
+    FTS5 & Vec & Graph --> RRF
+    RRF --> Search
+    RRF --> MCP
     Loadout & Offload --> MCP
 ```
 
@@ -202,7 +232,7 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. 验证运行
 k0maru --version
-# 输出: k0maru 0.1.0
+# 输出: k0maru 0.3.0
 ```
 
 ### 挂载至 Claude Code / Cursor (FastMCP)

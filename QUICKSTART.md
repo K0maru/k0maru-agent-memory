@@ -17,7 +17,7 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.1.0
+# 输出: k0maru 0.3.0
 ```
 
 ---
@@ -123,6 +123,13 @@ k0maru inspect node_54697ed3
 | | `--copy` | 将装配好的背包直接写入系统剪贴板 |
 | | `--json` | 输出机器无损解析的 JSON 数据包 |
 | | `-l`, `--list` | 列出当前笔记库中的所有活跃工程项目 |
+| `k0maru search <query>` | `--vault <path>` | 指定笔记库根目录 |
+| | `--mode <hybrid\|bm25\|vector>` | 检索模式（默认 hybrid 混合融合） |
+| | `--limit <N>` | 结果返回上限（默认 5 篇） |
+| | `--json` | 输出机器结构化 JSON 检索结果 |
+| `k0maru sync` | `--vault <path>` | 增量扫描并刷新 SQLite 索引与双链拓扑 |
+| | `--vector` | 同步生成/增量刷新本地向量嵌入缓存 |
+| | `--json` | 输出增量同步统计状态 |
 | `k0maru offload` | `--threshold <N>` | 自定义截断行数阈值（默认 50 行） |
 | | `--task-id <id>` | 绑定任务标识（便于日志命名归档） |
 | `k0maru inspect <id>` | `<node_id>` | 提取被截断保存的长日志原文 |
