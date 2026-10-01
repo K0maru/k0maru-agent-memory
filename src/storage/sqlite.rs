@@ -193,6 +193,20 @@ impl SqliteStorage {
         }
     }
 
+    /// Returns the total count of stored vector embeddings in `vector_metadata`.
+    pub fn vector_count(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT count(*) FROM vector_metadata")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Returns true if there is at least one vector embedding in storage.
+    pub fn has_vectors(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(self.vector_count()? > 0)
+    }
+
     /// Retrieves a document by its relative path if present in cache.
     pub fn get_document(
         &self,

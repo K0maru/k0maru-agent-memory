@@ -8,6 +8,7 @@
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -16,13 +17,16 @@ use crate::core::traits::CacheStorage;
 use crate::loadout::LoadoutBuilder;
 use crate::offload::{inspect_node, OffloadEngine};
 use crate::scanner::IncrementalScanner;
+use crate::storage::hybrid::{HybridSearchEngine, SearchMode};
 use crate::storage::SqliteStorage;
+use crate::vector::{EmbeddingEngine, MockEmbeddingEngine};
 
 /// FastMCP stdio server running on top of JSON-RPC 2.0.
 pub struct McpServer {
     vault_path: PathBuf,
     refs_dir: PathBuf,
     storage: Option<SqliteStorage>,
+    embedder: Option<Arc<dyn EmbeddingEngine>>,
 }
 
 impl McpServer {
@@ -39,6 +43,7 @@ impl McpServer {
             vault_path,
             refs_dir,
             storage: None,
+            embedder: Some(Arc::new(MockEmbeddingEngine::new(384))),
         }
     }
 
@@ -51,6 +56,12 @@ impl McpServer {
     /// Pre-injects a configured [`SqliteStorage`].
     pub fn with_storage(mut self, storage: SqliteStorage) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Sets custom embedding engine for hybrid recall.
+    pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingEngine>) -> Self {
+        self.embedder = Some(embedder);
         self
     }
 
@@ -86,16 +97,29 @@ impl McpServer {
     fn sync_cache(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let is_obsidian = self.is_obsidian();
         let vault_path = self.vault_path.clone();
+        let embedder = self.embedder.clone();
         let storage = self.get_or_init_storage()?;
+
+        let has_vectors = storage.has_vectors().unwrap_or(false);
 
         if is_obsidian {
             let adapter = ObsidianAdapter::new(&vault_path);
             let mut scanner = IncrementalScanner::new(&adapter, storage);
             let _ = scanner.sync(false)?;
+            if has_vectors {
+                if let Some(ref emb) = embedder {
+                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+                }
+            }
         } else {
             let adapter = GenericWikiAdapter::new(&vault_path);
             let mut scanner = IncrementalScanner::new(&adapter, storage);
             let _ = scanner.sync(false)?;
+            if has_vectors {
+                if let Some(ref emb) = embedder {
+                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+                }
+            }
         }
         Ok(())
     }
@@ -151,30 +175,81 @@ impl McpServer {
             return Err(format!("Cache sync failed: {}", e));
         }
 
+        let embedder = self.embedder.clone();
         let storage = self
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
 
-        let docs = storage
-            .search_fts(query, limit)
-            .map_err(|e| format!("FTS search failed: {}", e))?;
+        let has_vectors = storage.has_vectors().unwrap_or(false);
 
-        if docs.is_empty() {
-            return Ok(format!("No memories found matching query: '{}'", query));
-        }
+        if has_vectors {
+            let engine = HybridSearchEngine::new(storage, embedder);
+            let results = engine
+                .search(query, SearchMode::Hybrid, limit)
+                .map_err(|e| format!("Hybrid search failed: {}", e))?;
 
-        let mut formatted = Vec::new();
-        for doc in &docs {
-            let mut item = format!("## {} ({})\n", doc.title, doc.path.display());
-            if !doc.tags.is_empty() {
-                item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+            if results.is_empty() {
+                return Ok(format!("No memories found matching query: '{}'", query));
             }
-            item.push_str(&format!("Hierarchy: {}\n\n", doc.hierarchy));
-            item.push_str(&doc.body);
-            formatted.push(item);
-        }
 
-        Ok(formatted.join("\n\n---\n\n"))
+            let mut formatted = Vec::new();
+            for res in &results {
+                let mut item = format!("## {} ({})\n", res.title, res.path);
+                item.push_str(&format!("Score: {:.4}\n", res.score));
+
+                let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
+                if !backlinks.is_empty() {
+                    let bl_strs: Vec<String> =
+                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
+                }
+
+                if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
+                    if !doc.tags.is_empty() {
+                        item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                    }
+                    item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
+                }
+
+                item.push_str(&format!("\n{}", res.snippet));
+                formatted.push(item);
+            }
+
+            Ok(formatted.join("\n\n---\n\n"))
+        } else {
+            let docs = storage
+                .search_fts(query, limit)
+                .map_err(|e| format!("FTS search failed: {}", e))?;
+
+            if docs.is_empty() {
+                return Ok(format!("No memories found matching query: '{}'", query));
+            }
+
+            let mut formatted = Vec::new();
+            for (i, doc) in docs.iter().enumerate() {
+                let rank = i + 1;
+                let score = 1.0 / (60.0 + rank as f32);
+                let path_str = doc.path.to_string_lossy();
+                let mut item = format!("## {} ({})\n", doc.title, doc.path.display());
+                item.push_str(&format!("Score: {:.4}\n", score));
+
+                let backlinks = retrieve_backlinks(storage, &doc.title, &path_str);
+                if !backlinks.is_empty() {
+                    let bl_strs: Vec<String> =
+                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
+                }
+
+                if !doc.tags.is_empty() {
+                    item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                }
+                item.push_str(&format!("Hierarchy: {}\n\n", doc.hierarchy));
+                item.push_str(&doc.body);
+                formatted.push(item);
+            }
+
+            Ok(formatted.join("\n\n---\n\n"))
+        }
     }
 
     fn call_offload_context(&self, arguments: &Value) -> Result<String, String> {
@@ -256,7 +331,7 @@ impl McpServer {
                     },
                     {
                         "name": "recall_memory",
-                        "description": "Search knowledge hub memories and notes using SQLite FTS5 BM25 ranking",
+                        "description": "Search knowledge hub memories and notes using hybrid RRF retrieval (BM25 full-text + vector embeddings + graph links)",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -309,7 +384,8 @@ impl McpServer {
         })
     }
 
-    fn handle_tool_call(&mut self, id: Value, params: &Value) -> Value {
+    /// Dispatches and executes an MCP tool call given request ID and tool parameters.
+    pub fn handle_tool_call(&mut self, id: Value, params: &Value) -> Value {
         let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let empty_args = Value::Object(serde_json::Map::new());
         let arguments = params.get("arguments").unwrap_or(&empty_args);
@@ -353,6 +429,11 @@ impl McpServer {
             "id": id,
             "result": Value::Object(result_obj)
         })
+    }
+
+    /// Alias for [`Self::handle_tool_call`].
+    pub fn handle_call_tool(&mut self, id: Value, params: &Value) -> Value {
+        self.handle_tool_call(id, params)
     }
 
     /// Handles a single incoming JSON-RPC 2.0 request or notification string.
@@ -506,4 +587,53 @@ impl McpServer {
         }
         Ok(())
     }
+}
+
+/// Helper function to retrieve all backlinks matching document title, file stem, or whitespace-normalized variants.
+fn retrieve_backlinks(storage: &SqliteStorage, title: &str, path_str: &str) -> Vec<String> {
+    let mut all = Vec::new();
+    if let Ok(bls) = storage.get_backlinks(title) {
+        for b in bls {
+            let s = b.to_string_lossy().to_string();
+            if !all.contains(&s) {
+                all.push(s);
+            }
+        }
+    }
+    if let Some(stem) = Path::new(path_str).file_stem().and_then(|s| s.to_str()) {
+        if stem != title {
+            if let Ok(bls) = storage.get_backlinks(stem) {
+                for b in bls {
+                    let s = b.to_string_lossy().to_string();
+                    if !all.contains(&s) {
+                        all.push(s);
+                    }
+                }
+            }
+        }
+    }
+    let under = title.replace(' ', "_");
+    if under != title {
+        if let Ok(bls) = storage.get_backlinks(&under) {
+            for b in bls {
+                let s = b.to_string_lossy().to_string();
+                if !all.contains(&s) {
+                    all.push(s);
+                }
+            }
+        }
+    }
+    let space = title.replace('_', " ");
+    if space != title {
+        if let Ok(bls) = storage.get_backlinks(&space) {
+            for b in bls {
+                let s = b.to_string_lossy().to_string();
+                if !all.contains(&s) {
+                    all.push(s);
+                }
+            }
+        }
+    }
+    all.sort();
+    all
 }

@@ -7,7 +7,8 @@ use k0maru::core::traits::VaultAdapter;
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::scanner::IncrementalScanner;
-use k0maru::storage::SqliteStorage;
+use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
+use k0maru::vector::MockEmbeddingEngine;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,6 +38,9 @@ enum Commands {
 
     /// Synchronize vault documents incrementally into disposable SQLite cache
     Sync(SyncArgs),
+
+    /// Search knowledge hub memories and notes using BM25, semantic vector, or hybrid retrieval
+    Search(SearchArgs),
 }
 
 #[derive(Args, Debug)]
@@ -112,6 +116,29 @@ pub struct SyncArgs {
     /// Generate vector embeddings for synchronized documents
     #[arg(long)]
     pub vector: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct SearchArgs {
+    /// Search query string
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Search execution mode: hybrid, bm25, or vector
+    #[arg(short, long, default_value = "hybrid")]
+    pub mode: String,
+
+    /// Maximum number of search results to return
+    #[arg(short, long, default_value = "5")]
+    pub limit: usize,
+
+    /// Output full machine-readable JSON array of search hits
+    #[arg(long)]
+    pub json: bool,
 }
 
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
@@ -387,6 +414,67 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let mode = match args.mode.to_lowercase().as_str() {
+        "hybrid" => SearchMode::Hybrid,
+        "bm25" => SearchMode::Bm25,
+        "vector" => SearchMode::Vector,
+        other => {
+            return Err(format!(
+                "Invalid search mode '{}'. Supported modes: hybrid, bm25, vector",
+                other
+            )
+            .into());
+        }
+    };
+
+    let vault_path = detect_vault_path(args.vault.clone());
+    if !vault_path.exists() {
+        return Err(format!("Vault path does not exist: {}", vault_path.display()).into());
+    }
+
+    let cache_dir = vault_path.join(".k0maru");
+    let cache_path = cache_dir.join("cache.sqlite");
+
+    let storage = SqliteStorage::open(&cache_path)?;
+    let embedder = std::sync::Arc::new(MockEmbeddingEngine::new(384));
+    let engine = HybridSearchEngine::new(&storage, Some(embedder));
+
+    let results = engine.search(&args.query, mode, args.limit)?;
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&results)?;
+        println!("{}", json_str);
+    } else {
+        if results.is_empty() {
+            println!("🔍 No results found matching query: '{}'", args.query);
+            return Ok(());
+        }
+
+        println!(
+            "🔍 Search Results for '{}' ({} results, mode: {}):",
+            args.query,
+            results.len(),
+            args.mode
+        );
+        println!("--------------------------------------------------");
+        for (i, r) in results.iter().enumerate() {
+            let rank = i + 1;
+            println!("#{:<2} [{:.4}] {} ({})", rank, r.score, r.title, r.path);
+            if !r.snippet.is_empty() {
+                println!("    {}", r.snippet);
+            }
+        }
+        println!("--------------------------------------------------");
+    }
+
+    Ok(())
+}
+
+fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    handle_search(args)
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -416,6 +504,12 @@ fn main() {
         }
         Some(Commands::Sync(args)) => {
             if let Err(e) = run_sync(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Search(args)) => {
+            if let Err(e) = run_search(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
