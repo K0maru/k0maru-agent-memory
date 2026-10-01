@@ -34,8 +34,8 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [17-reciprocal-rank-fusion-hybrid-search.md](issues/17-reciprocal-rank-fusion-hybrid-search.md) (Blocked by: 13, 14) ✅ **COMPLETED**
 - [x] [18-cli-search-command-and-mcp-hybrid-recall.md](issues/18-cli-search-command-and-mcp-hybrid-recall.md) (Blocked by: 16, 17) ✅ **COMPLETED (v0.3.0)**
 - [x] [19-dashboard-backend-routes-and-embedded-server.md](issues/19-dashboard-backend-routes-and-embedded-server.md) (Blocked by: None) ✅ **COMPLETED**
-- [ ] [20-dashboard-frontend-asset-pipeline-and-static-embed.md](issues/20-dashboard-frontend-asset-pipeline-and-static-embed.md) (Blocked by: 19) 🎯 **CURRENT FRONTIER**
-- [ ] [21-search-debugger-and-explainability-cockpit.md](issues/21-search-debugger-and-explainability-cockpit.md) (Blocked by: 20)
-- [ ] [22-wikilinks-graph-explorer-and-hierarchy-visualizer.md](issues/22-wikilinks-graph-explorer-and-hierarchy-visualizer.md) (Blocked by: 20)
+- [x] [20-dashboard-frontend-asset-pipeline-and-static-embed.md](issues/20-dashboard-frontend-asset-pipeline-and-static-embed.md) (Blocked by: 19) ✅ **COMPLETED**
+- [ ] [21-search-debugger-and-explainability-cockpit.md](issues/21-search-debugger-and-explainability-cockpit.md) (Blocked by: 20) 🎯 **CURRENT FRONTIER**
+- [ ] [22-wikilinks-graph-explorer-and-hierarchy-visualizer.md](issues/22-wikilinks-graph-explorer-and-hierarchy-visualizer.md) (Blocked by: 20) 🎯 **CURRENT FRONTIER**
 - [ ] [23-log-trace-inspector-and-token-scoreboard.md](issues/23-log-trace-inspector-and-token-scoreboard.md) (Blocked by: 21, 22)
 
