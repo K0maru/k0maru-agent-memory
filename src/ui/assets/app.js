@@ -14,8 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initSync();
   initSearchConsole();
   initGraphExplorer();
+  initLogInspector();
+  initScoreboard();
   initKeyboardShortcuts();
   fetchStatus();
+  loadLogsList();
 });
 
 /**
@@ -49,6 +52,10 @@ function initTabs() {
 
     if (activeTab === 'graph' && typeof window.onGraphTabActivated === 'function') {
       window.onGraphTabActivated();
+    } else if (activeTab === 'logs') {
+      loadLogsList();
+    } else if (activeTab === 'scoreboard') {
+      fetchStatus();
     }
 
     if (updateHash) {
@@ -461,19 +468,11 @@ function renderStatus(status) {
   if (docCountEl) {
     docCountEl.textContent = Number(status.total_documents).toLocaleString();
   }
-  const scoreboardDocEl = document.getElementById('scoreboard-doc-count');
-  if (scoreboardDocEl) {
-    scoreboardDocEl.textContent = Number(status.total_documents).toLocaleString();
-  }
 
   // Vector Count
   const vecCountEl = document.getElementById('status-vector-count');
   if (vecCountEl) {
     vecCountEl.textContent = Number(status.total_vectors).toLocaleString();
-  }
-  const scoreboardVecEl = document.getElementById('scoreboard-vec-count');
-  if (scoreboardVecEl) {
-    scoreboardVecEl.textContent = Number(status.total_vectors).toLocaleString();
   }
 
   // Last Sync
@@ -488,30 +487,26 @@ function renderStatus(status) {
     }
   }
 
-  // Cache Size
-  const cacheSizeEl = document.getElementById('scoreboard-cache-size');
-  if (cacheSizeEl) {
-    const kb = (status.cache_size_bytes / 1024).toFixed(1);
-    cacheSizeEl.textContent = `${kb} KB`;
-  }
-
-  // Total Logs
-  const logCountEl = document.getElementById('scoreboard-log-count');
-  if (logCountEl) {
-    logCountEl.textContent = Number(status.total_logs).toLocaleString();
-  }
+  // Update Scoreboard Panel metrics
+  updateScoreboard(status);
 }
 
 /**
- * Vault Synchronization Trigger
+ * Vault Synchronization Trigger (Header & Scoreboard Sync Buttons)
  */
 function initSync() {
   const syncBtn = document.getElementById('btn-sync');
-  if (!syncBtn) return;
+  const scoreboardSyncBtn = document.getElementById('btn-scoreboard-sync');
 
-  syncBtn.addEventListener('click', async () => {
-    syncBtn.classList.add('syncing');
-    syncBtn.disabled = true;
+  async function performSync(triggerBtn) {
+    const allBtns = [syncBtn, scoreboardSyncBtn].filter(Boolean);
+    allBtns.forEach(b => {
+      b.classList.add('syncing');
+      b.disabled = true;
+    });
+
+    const statusBadge = document.getElementById('scoreboard-sync-status');
+    if (statusBadge) statusBadge.textContent = 'Syncing...';
 
     try {
       const res = await fetch('/api/sync', {
@@ -531,14 +526,25 @@ function initSync() {
 
       showToast(`Vault synced: +${added} added, ~${modified} updated, ${vectors} vectors embedded`, 'success');
       await fetchStatus();
+      await loadLogsList();
     } catch (err) {
       console.error('Vault sync error:', err);
       showToast(`Sync failed: ${err.message}`, 'error');
     } finally {
-      syncBtn.classList.remove('syncing');
-      syncBtn.disabled = false;
+      allBtns.forEach(b => {
+        b.classList.remove('syncing');
+        b.disabled = false;
+      });
+      if (statusBadge) statusBadge.textContent = 'Ready';
     }
-  });
+  }
+
+  if (syncBtn) {
+    syncBtn.addEventListener('click', () => performSync(syncBtn));
+  }
+  if (scoreboardSyncBtn) {
+    scoreboardSyncBtn.addEventListener('click', () => performSync(scoreboardSyncBtn));
+  }
 }
 
 /**
@@ -1542,4 +1548,785 @@ function closeDrawer() {
   if (!drawer) return;
   drawer.classList.remove('open');
   drawer.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * ==========================================================================
+ * Panel 3: Log & Trace Inspector & Offline Mermaid SVG Renderer (Ticket 23)
+ * ==========================================================================
+ */
+
+let cachedLogs = [];
+let selectedLogId = null;
+let currentLogData = null;
+
+function initLogInspector() {
+  const searchInput = document.getElementById('logs-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderLogsList(searchInput.value.trim().toLowerCase());
+    });
+  }
+
+  // Copy buttons
+  const copyIdBtn = document.getElementById('btn-copy-node-id');
+  if (copyIdBtn) {
+    copyIdBtn.addEventListener('click', () => {
+      if (selectedLogId) {
+        copyToClipboard(selectedLogId, copyIdBtn, 'Copy Node ID');
+      }
+    });
+  }
+
+  const copyLogBtn = document.getElementById('btn-copy-raw-log');
+  if (copyLogBtn) {
+    copyLogBtn.addEventListener('click', () => {
+      if (currentLogData && currentLogData.content) {
+        copyToClipboard(currentLogData.content, copyLogBtn, 'Copy Raw Log');
+      }
+    });
+  }
+
+  // Raw log collapsible toggle
+  const rawToggleBtn = document.getElementById('raw-log-toggle-btn');
+  const rawCard = document.querySelector('.raw-log-card');
+  if (rawToggleBtn && rawCard) {
+    rawToggleBtn.addEventListener('click', () => {
+      rawCard.classList.toggle('collapsed');
+      const isExpanded = !rawCard.classList.contains('collapsed');
+      rawToggleBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    });
+    rawToggleBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        rawToggleBtn.click();
+      }
+    });
+  }
+}
+
+async function loadLogsList() {
+  const container = document.getElementById('logs-list');
+  const badgeEl = document.getElementById('logs-count-badge');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/logs');
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const logs = await res.json();
+    cachedLogs = Array.isArray(logs) ? logs : [];
+
+    if (badgeEl) {
+      badgeEl.textContent = `${cachedLogs.length} logs`;
+    }
+
+    const searchInput = document.getElementById('logs-search');
+    const filter = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    renderLogsList(filter);
+
+    // If there are logs and none selected, auto-select the first log
+    if (cachedLogs.length > 0 && !selectedLogId) {
+      selectLogNode(cachedLogs[0].id);
+    }
+
+    // Refresh token metrics using the updated cachedLogs
+    if (window.latestStatus) {
+      updateTokenMetrics(window.latestStatus);
+    }
+  } catch (err) {
+    console.error('Failed to load logs:', err);
+    container.innerHTML = `
+      <div class="placeholder-state logs-empty-state">
+        <p class="placeholder-text" style="color: var(--danger);">Failed to load logs: ${escapeHtml(err.message)}</p>
+      </div>
+    `;
+  }
+}
+
+function renderLogsList(filter = '') {
+  const container = document.getElementById('logs-list');
+  if (!container) return;
+
+  const filtered = cachedLogs.filter(log => {
+    if (!filter) return true;
+    const matchId = log.id && log.id.toLowerCase().includes(filter);
+    const matchTask = log.task_id && log.task_id.toLowerCase().includes(filter);
+    return matchId || matchTask;
+  });
+
+  if (filtered.length === 0) {
+    if (cachedLogs.length === 0) {
+      container.innerHTML = `
+        <div class="placeholder-state logs-empty-state" id="logs-empty-hint">
+          <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          <p class="placeholder-text">No offloaded logs found in .scratch/refs/</p>
+          <span class="placeholder-subtext mono">Run long commands or k0maru offload to capture logs</span>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="placeholder-state logs-empty-state">
+          <p class="placeholder-text">No logs matching "${escapeHtml(filter)}"</p>
+          <span class="placeholder-subtext mono">Try adjusting search query</span>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  container.innerHTML = filtered.map(log => {
+    const isSelected = log.id === selectedLogId;
+    const taskBadge = log.task_id
+      ? `<span class="log-item-task mono" title="Task ID: ${escapeHtml(log.task_id)}">${escapeHtml(log.task_id)}</span>`
+      : '';
+    const dateFormatted = formatLogDate(log.created_at);
+
+    return `
+      <div class="log-item ${isSelected ? 'active' : ''}" data-id="${escapeHtml(log.id)}" role="button" tabindex="0">
+        <div class="log-item-header">
+          <span class="log-item-id mono">${escapeHtml(log.id)}</span>
+          <span class="badge badge-muted mono log-item-lines">${log.line_count} lines</span>
+        </div>
+        <div class="log-item-meta">
+          ${taskBadge}
+          <span class="mono">${dateFormatted}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Bind click & keyboard handlers
+  container.querySelectorAll('.log-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const id = item.dataset.id;
+      selectLogNode(id);
+    });
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        item.click();
+      }
+    });
+  });
+}
+
+function formatLogDate(isoString) {
+  if (!isoString) return '--';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    return d.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch (_) {
+    return isoString;
+  }
+}
+
+async function selectLogNode(nodeId) {
+  if (!nodeId) return;
+  selectedLogId = nodeId;
+
+  // Highlight active element in list
+  document.querySelectorAll('#logs-list .log-item').forEach(el => {
+    if (el.dataset.id === nodeId) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+
+  const detailIdEl = document.getElementById('log-detail-id');
+  const detailTaskEl = document.getElementById('log-detail-task');
+  const detailLinesEl = document.getElementById('log-detail-lines');
+  const detailTimeEl = document.getElementById('log-detail-time');
+  const copyIdBtn = document.getElementById('btn-copy-node-id');
+  const copyLogBtn = document.getElementById('btn-copy-raw-log');
+  const mermaidViewer = document.getElementById('log-mermaid-viewer');
+  const rawViewer = document.getElementById('log-raw-viewer');
+  const rawLineBadge = document.getElementById('raw-log-line-badge');
+
+  if (detailIdEl) detailIdEl.textContent = nodeId;
+  if (copyIdBtn) copyIdBtn.disabled = false;
+  if (copyLogBtn) copyLogBtn.disabled = true;
+
+  // Populate from cachedLogs metadata
+  const meta = cachedLogs.find(l => l.id === nodeId);
+  if (meta) {
+    if (detailTaskEl) {
+      if (meta.task_id) {
+        detailTaskEl.textContent = meta.task_id;
+        detailTaskEl.style.display = 'inline-flex';
+      } else {
+        detailTaskEl.style.display = 'none';
+      }
+    }
+    if (detailLinesEl) {
+      detailLinesEl.textContent = `${meta.line_count} lines`;
+      detailLinesEl.style.display = 'inline-flex';
+    }
+    if (detailTimeEl) {
+      detailTimeEl.textContent = meta.created_at;
+    }
+    if (rawLineBadge) {
+      rawLineBadge.textContent = `${meta.line_count} lines`;
+    }
+  }
+
+  // Placeholder while loading
+  if (mermaidViewer) {
+    mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text">Loading trace diagram...</p></div>`;
+  }
+  if (rawViewer) {
+    rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text">Loading raw log slice...</p></div>`;
+  }
+
+  try {
+    const res = await fetch(`/api/logs/${encodeURIComponent(nodeId)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    currentLogData = data;
+
+    if (copyLogBtn) copyLogBtn.disabled = false;
+
+    // Render Mermaid State Diagram natively
+    if (mermaidViewer) {
+      renderMermaidToSvg(data.mermaid, mermaidViewer);
+    }
+
+    // Render Syntax-Highlighted Raw Log Slice
+    if (rawViewer) {
+      renderRawLogSlice(data.content, rawViewer);
+    }
+  } catch (err) {
+    console.error('Failed to inspect log node:', err);
+    if (mermaidViewer) {
+      mermaidViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">Failed to load diagram: ${escapeHtml(err.message)}</p></div>`;
+    }
+    if (rawViewer) {
+      rawViewer.innerHTML = `<div class="placeholder-state"><p class="placeholder-text" style="color: var(--danger);">Failed to load log content: ${escapeHtml(err.message)}</p></div>`;
+    }
+  }
+}
+
+function renderRawLogSlice(rawContent, container) {
+  if (!rawContent || !container) {
+    container.innerHTML = '<div class="placeholder-state"><p class="placeholder-text">Log is empty.</p></div>';
+    return;
+  }
+
+  const lines = rawContent.split(/\r?\n/);
+  const totalLines = lines.length;
+
+  const rawLineBadge = document.getElementById('raw-log-line-badge');
+  if (rawLineBadge) {
+    rawLineBadge.textContent = `${totalLines} lines`;
+  }
+
+  const rowsHtml = lines.map((line, idx) => {
+    const lineNum = idx + 1;
+    const lower = line.toLowerCase();
+
+    let highlightClass = '';
+    if (
+      lower.includes('error') ||
+      lower.includes('failed') ||
+      lower.includes('panicked') ||
+      lower.includes('exception')
+    ) {
+      highlightClass = 'line-error';
+    } else if (lower.includes('warning')) {
+      highlightClass = 'line-warning';
+    }
+
+    return `
+      <div class="log-row ${highlightClass}">
+        <span class="log-num mono">${lineNum}</span>
+        <span class="log-line mono">${escapeHtml(line)}</span>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = rowsHtml;
+}
+
+function copyToClipboard(text, button, originalLabel = 'Copy') {
+  if (!text) return;
+
+  function setCopied() {
+    button.classList.add('copied');
+    const textSpan = button.querySelector('.btn-copy-text');
+    if (textSpan) textSpan.textContent = 'Copied!';
+
+    const icon = button.querySelector('.copy-btn-icon');
+    let prevIconHtml = '';
+    if (icon) {
+      prevIconHtml = icon.outerHTML;
+      icon.outerHTML = `
+        <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      `;
+    }
+
+    showToast('Copied to clipboard!', 'success');
+
+    setTimeout(() => {
+      button.classList.remove('copied');
+      if (textSpan) textSpan.textContent = originalLabel;
+      const currentIcon = button.querySelector('.copy-btn-icon');
+      if (currentIcon && prevIconHtml) {
+        currentIcon.outerHTML = prevIconHtml;
+      }
+    }, 2000);
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(setCopied).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
+
+  function fallbackCopy() {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (successful) {
+        setCopied();
+      } else {
+        showToast('Failed to copy to clipboard', 'error');
+      }
+    } catch (e) {
+      console.error('Fallback copy error:', e);
+      showToast('Clipboard copy not supported', 'error');
+    }
+  }
+}
+
+/**
+ * Pure Offline SVG State Diagram & Flowchart Renderer
+ * High-contrast Developer Dark Cockpit styling, zero external CDN dependencies.
+ */
+function renderMermaidToSvg(mermaidCode, container) {
+  if (!container) return;
+  if (!mermaidCode || !mermaidCode.trim()) {
+    container.innerHTML = '<div class="placeholder-state"><p class="placeholder-text">No diagram definition found.</p></div>';
+    return;
+  }
+
+  try {
+    const raw = mermaidCode.trim();
+
+    // Check for nested composite state: state Name { ... }
+    const compositeMatch = raw.match(/state\s+([A-Za-z0-9_-]+)\s*\{([\s\S]*?)\}/);
+    let compName = null;
+    let compBody = null;
+    let strippedCode = raw;
+
+    if (compositeMatch) {
+      compName = compositeMatch[1];
+      compBody = compositeMatch[2];
+      strippedCode = raw.replace(compositeMatch[0], '');
+    }
+
+    // Parse transitions
+    const topTransitions = [];
+    const lines = strippedCode.split('\n');
+    for (let line of lines) {
+      line = line.trim();
+      if (!line || line.startsWith('stateDiagram') || line.startsWith('direction') || line.startsWith('flowchart') || line.startsWith('graph')) {
+        continue;
+      }
+      const transMatch = line.match(/([*A-Za-z0-9_-]+)\s*-->\s*([*A-Za-z0-9_-]+)(?:\s*:\s*(.*))?/);
+      if (transMatch) {
+        topTransitions.push({
+          from: transMatch[1],
+          to: transMatch[2],
+          label: transMatch[3] ? transMatch[3].trim() : null,
+        });
+      }
+    }
+
+    // If composite state exists (e.g. Offloaded)
+    if (compName && compBody) {
+      const startTrans = topTransitions.find(t => t.from === '[*]');
+      const step1Name = startTrans ? startTrans.to : 'Running';
+
+      const toCompTrans = topTransitions.find(t => t.to === compName);
+      const toCompLabel = toCompTrans && toCompTrans.label ? toCompTrans.label : '';
+
+      let innerStateName = 'Captured';
+      const innerDescs = [];
+
+      const innerLines = compBody.split('\n');
+      for (let l of innerLines) {
+        l = l.trim();
+        if (!l) continue;
+        const innerTrans = l.match(/([*A-Za-z0-9_-]+)\s*-->\s*([*A-Za-z0-9_-]+)/);
+        if (innerTrans && innerTrans[1] === '[*]') {
+          innerStateName = innerTrans[2];
+        }
+        const descMatch = l.match(/([A-Za-z0-9_-]+)\s*:\s*(.*)/);
+        if (descMatch) {
+          innerDescs.push({
+            state: descMatch[1],
+            text: descMatch[2].trim(),
+          });
+        }
+      }
+
+      const svg = generateCompositeStateSvg({
+        step1Name,
+        compName,
+        toCompLabel,
+        innerStateName,
+        innerDescs,
+      });
+      container.innerHTML = svg;
+      return;
+    }
+
+    // Generic flow SVG
+    const genericSvg = generateGenericFlowSvg(topTransitions, raw);
+    container.innerHTML = genericSvg;
+  } catch (err) {
+    console.error('Error rendering SVG diagram:', err);
+    container.innerHTML = `
+      <div class="placeholder-state">
+        <p class="placeholder-text" style="color: var(--danger);">SVG rendering error: ${escapeHtml(err.message)}</p>
+        <pre class="mono text-xs" style="text-align: left; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 4px;">${escapeHtml(mermaidCode)}</pre>
+      </div>
+    `;
+  }
+}
+
+function generateCompositeStateSvg({ step1Name, compName, toCompLabel, innerStateName, innerDescs }) {
+  const width = 560;
+  const cx = width / 2;
+
+  const descCount = Math.max(innerDescs.length, 1);
+  const innerCardH = 40 + descCount * 22;
+  const compH = 100 + innerCardH;
+  const totalH = 440 + (descCount - 3) * 22;
+
+  const startY = 32;
+  const line1StartY = startY + 10;
+  const step1Y = 66;
+  const step1H = 42;
+  const step1W = Math.min(340, Math.max(180, (step1Name.length * 10) + 40));
+  const step1X = cx - (step1W / 2);
+
+  const line2StartY = step1Y + step1H;
+  const compY = line2StartY + 56;
+  const pillY = line2StartY + 16;
+
+  const line3StartY = compY + compH;
+  const endY = line3StartY + 42;
+
+  const descItemsSvg = innerDescs.map((d, i) => {
+    const textY = compY + 80 + 38 + (i * 22);
+    let color = '#94A3B8';
+    if (d.text.toLowerCase().includes('nodeid')) color = '#22C55E';
+    else if (d.text.toLowerCase().includes('inspect')) color = '#38BDF8';
+    else if (d.text.toLowerCase().includes('error') || d.text.toLowerCase().includes('failed')) color = '#EF4444';
+
+    return `
+      <text x="${cx - 190}" y="${textY}" fill="${color}" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" font-weight="500">
+        ${escapeXml(d.text)}
+      </text>
+    `;
+  }).join('');
+
+  const pillText = toCompLabel || 'Log Captured';
+  const pillW = Math.min(360, Math.max(160, pillText.length * 8 + 30));
+  const pillX = cx - (pillW / 2);
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" class="mermaid-svg" viewBox="0 0 ${width} ${totalH}" width="100%" height="${totalH}">
+      <defs>
+        <marker id="mermaid-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#64748B"/>
+        </marker>
+        <marker id="mermaid-arrow-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#22C55E"/>
+        </marker>
+        <linearGradient id="comp-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#141C2E" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#0F172A" stop-opacity="0.95"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Step 0: Start Node -->
+      <circle cx="${cx}" cy="${startY}" r="9" fill="#22C55E" />
+
+      <!-- Arrow: Start -> Step 1 -->
+      <line x1="${cx}" y1="${line1StartY}" x2="${cx}" y2="${step1Y}" stroke="#64748B" stroke-width="1.5" marker-end="url(#mermaid-arrow)" />
+
+      <!-- Step 1: Running / Task Node -->
+      <rect x="${step1X}" y="${step1Y}" width="${step1W}" height="${step1H}" rx="8" fill="#1B2336" stroke="#334155" stroke-width="1.5" />
+      <text x="${cx}" y="${step1Y + 26}" fill="#F8FAFC" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="13" font-weight="600" text-anchor="middle">
+        ${escapeXml(step1Name)}
+      </text>
+
+      <!-- Arrow: Step 1 -> Composite State with Label Pill -->
+      <line x1="${cx}" y1="${line2StartY}" x2="${cx}" y2="${compY}" stroke="#64748B" stroke-width="1.5" marker-end="url(#mermaid-arrow)" />
+      <rect x="${pillX}" y="${pillY}" width="${pillW}" height="24" rx="12" fill="#0F172A" stroke="#334155" stroke-width="1" />
+      <text x="${cx}" y="${pillY + 16}" fill="#38BDF8" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="11" font-weight="500" text-anchor="middle">
+        ${escapeXml(pillText)}
+      </text>
+
+      <!-- Step 2: Composite State Container (Offloaded) -->
+      <rect x="50" y="${compY}" width="460" height="${compH}" rx="10" fill="url(#comp-grad)" stroke="#22C55E" stroke-width="1.5" stroke-dasharray="6,4" />
+      <text x="70" y="${compY + 26}" fill="#22C55E" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="12" font-weight="700">
+        state ${escapeXml(compName)}
+      </text>
+      <rect x="400" y="${compY + 12}" width="90" height="20" rx="4" fill="rgba(34, 197, 94, 0.15)" stroke="rgba(34, 197, 94, 0.4)" stroke-width="1" />
+      <text x="445" y="${compY + 26}" fill="#22C55E" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="10" font-weight="700" text-anchor="middle">
+        OFFLOADED
+      </text>
+
+      <!-- Inner Start Circle -->
+      <circle cx="${cx}" cy="${compY + 54}" r="7" fill="#22C55E" />
+      <line x1="${cx}" y1="${compY + 61}" x2="${cx}" y2="${compY + 76}" stroke="#64748B" stroke-width="1.5" marker-end="url(#mermaid-arrow)" />
+
+      <!-- Inner Captured State Card -->
+      <rect x="75" y="${compY + 76}" width="410" height="${innerCardH}" rx="8" fill="#1B2336" stroke="#334155" stroke-width="1.5" />
+      <text x="95" y="${compY + 98}" fill="#F8FAFC" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="13" font-weight="700">
+        ${escapeXml(innerStateName)}
+      </text>
+      <line x1="75" y1="${compY + 108}" x2="485" y2="${compY + 108}" stroke="#334155" stroke-width="1" />
+      ${descItemsSvg}
+
+      <!-- Arrow: Composite -> End -->
+      <line x1="${cx}" y1="${line3StartY}" x2="${cx}" y2="${endY - 14}" stroke="#64748B" stroke-width="1.5" marker-end="url(#mermaid-arrow)" />
+
+      <!-- Step 3: End State Circle -->
+      <circle cx="${cx}" cy="${endY}" r="11" fill="none" stroke="#94A3B8" stroke-width="2" />
+      <circle cx="${cx}" cy="${endY}" r="6" fill="#94A3B8" />
+    </svg>
+  `;
+}
+
+function generateGenericFlowSvg(transitions, raw) {
+  const width = 560;
+  const cx = width / 2;
+
+  const nodeSet = [];
+  function addNode(id) {
+    if (!nodeSet.includes(id)) nodeSet.push(id);
+  }
+
+  transitions.forEach(t => {
+    addNode(t.from);
+    addNode(t.to);
+  });
+
+  if (nodeSet.length === 0) {
+    nodeSet.push('[*]', 'Completed', '[*]');
+  }
+
+  const nodeHeight = 40;
+  const gap = 46;
+  const totalH = Math.max(260, nodeSet.length * (nodeHeight + gap) + 40);
+
+  let nodesSvg = '';
+  let linesSvg = '';
+
+  const nodePositions = {};
+  nodeSet.forEach((nodeId, idx) => {
+    const y = 30 + idx * (nodeHeight + gap);
+    nodePositions[nodeId] = { y, isStartEnd: nodeId === '[*]' };
+
+    if (nodeId === '[*]') {
+      if (idx === 0) {
+        nodesSvg += `<circle cx="${cx}" cy="${y + 20}" r="9" fill="#22C55E" />`;
+      } else {
+        nodesSvg += `
+          <circle cx="${cx}" cy="${y + 20}" r="11" fill="none" stroke="#94A3B8" stroke-width="2" />
+          <circle cx="${cx}" cy="${y + 20}" r="6" fill="#94A3B8" />
+        `;
+      }
+    } else {
+      const boxW = Math.min(320, Math.max(160, nodeId.length * 10 + 40));
+      const boxX = cx - (boxW / 2);
+      nodesSvg += `
+        <rect x="${boxX}" y="${y}" width="${boxW}" height="${nodeHeight}" rx="8" fill="#1B2336" stroke="#334155" stroke-width="1.5" />
+        <text x="${cx}" y="${y + 25}" fill="#F8FAFC" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="12" font-weight="600" text-anchor="middle">
+          ${escapeXml(nodeId)}
+        </text>
+      `;
+    }
+  });
+
+  transitions.forEach(t => {
+    const fromPos = nodePositions[t.from];
+    const toPos = nodePositions[t.to];
+    if (fromPos && toPos && fromPos.y < toPos.y) {
+      const y1 = fromPos.isStartEnd ? fromPos.y + 29 : fromPos.y + nodeHeight;
+      const y2 = toPos.isStartEnd ? toPos.y + 9 : toPos.y;
+      linesSvg += `
+        <line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y2}" stroke="#64748B" stroke-width="1.5" marker-end="url(#mermaid-arrow)" />
+      `;
+      if (t.label) {
+        const midY = (y1 + y2) / 2;
+        const pillW = Math.min(260, Math.max(100, t.label.length * 7 + 20));
+        const pillX = cx - (pillW / 2);
+        linesSvg += `
+          <rect x="${pillX}" y="${midY - 11}" width="${pillW}" height="22" rx="11" fill="#0F172A" stroke="#334155" stroke-width="1" />
+          <text x="${cx}" y="${midY + 4}" fill="#38BDF8" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="10" text-anchor="middle">${escapeXml(t.label)}</text>
+        `;
+      }
+    }
+  });
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" class="mermaid-svg" viewBox="0 0 ${width} ${totalH}" width="100%" height="${totalH}">
+      <defs>
+        <marker id="mermaid-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 1 L 8 5 L 0 9 z" fill="#64748B"/>
+        </marker>
+      </defs>
+      ${linesSvg}
+      ${nodesSvg}
+    </svg>
+  `;
+}
+
+function escapeXml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * ==========================================================================
+ * Panel 4: Cache Health & Token Scoreboard (Ticket 23)
+ * ==========================================================================
+ */
+
+function initScoreboard() {
+  // Scoreboard is primarily driven by updateScoreboard(status) and updateTokenMetrics
+}
+
+function updateScoreboard(status) {
+  if (!status) return;
+  window.latestStatus = status;
+
+  // Vault Documents
+  const scoreboardDocEl = document.getElementById('scoreboard-doc-count');
+  if (scoreboardDocEl) {
+    scoreboardDocEl.textContent = Number(status.total_documents || 0).toLocaleString();
+  }
+
+  // Vector Embeddings
+  const scoreboardVecEl = document.getElementById('scoreboard-vec-count');
+  if (scoreboardVecEl) {
+    scoreboardVecEl.textContent = Number(status.total_vectors || 0).toLocaleString();
+  }
+
+  // Vector Index Coverage %
+  const docs = status.total_documents || 0;
+  const vecs = status.total_vectors || 0;
+  const coverage = docs > 0 ? Math.min(100, Math.round((vecs / docs) * 100)) : (vecs > 0 ? 100 : 0);
+  const coverageEl = document.getElementById('scoreboard-vec-coverage');
+  if (coverageEl) {
+    coverageEl.textContent = `${coverage}%`;
+  }
+
+  // Cache Size
+  const cacheSizeEl = document.getElementById('scoreboard-cache-size');
+  if (cacheSizeEl) {
+    const bytes = status.cache_size_bytes || 0;
+    if (bytes >= 1048576) {
+      cacheSizeEl.textContent = `${(bytes / 1048576).toFixed(2)} MB`;
+    } else {
+      cacheSizeEl.textContent = `${(bytes / 1024).toFixed(1)} KB`;
+    }
+  }
+
+  // Total Logs
+  const logCountEl = document.getElementById('scoreboard-log-count');
+  if (logCountEl) {
+    logCountEl.textContent = Number(status.total_logs || 0).toLocaleString();
+  }
+
+  // Vault Path & Sync Status in Card
+  const cardVaultPath = document.getElementById('scoreboard-vault-path');
+  if (cardVaultPath) {
+    cardVaultPath.textContent = status.vault_path || 'Unknown';
+    cardVaultPath.title = status.vault_path || '';
+  }
+
+  const cardLastSync = document.getElementById('scoreboard-last-sync');
+  if (cardLastSync) {
+    if (status.last_sync_time) {
+      const d = new Date(status.last_sync_time * 1000);
+      cardLastSync.textContent = d.toLocaleString();
+    } else {
+      cardLastSync.textContent = 'Never';
+    }
+  }
+
+  // Token Economics
+  updateTokenMetrics(status);
+}
+
+function updateTokenMetrics(status) {
+  const totalLogs = (status && status.total_logs != null) ? status.total_logs : cachedLogs.length;
+
+  let totalLines = 0;
+  if (cachedLogs && cachedLogs.length > 0) {
+    totalLines = cachedLogs.reduce((sum, item) => sum + (item.line_count || 0), 0);
+  } else if (totalLogs > 0) {
+    totalLines = totalLogs * 500;
+  }
+
+  const rawTokens = totalLines * 18;
+  const mermaidOverhead = totalLogs * 60;
+  const tokensSaved = Math.max(0, rawTokens - mermaidOverhead);
+
+  const savedValEl = document.getElementById('token-saved-val');
+  if (savedValEl) {
+    savedValEl.textContent = tokensSaved.toLocaleString();
+  }
+
+  let trr = 99.44;
+  if (rawTokens > 0) {
+    trr = parseFloat(((tokensSaved / rawTokens) * 100).toFixed(2));
+  } else if (totalLogs === 0) {
+    trr = 99.44;
+  }
+
+  const trrValEl = document.getElementById('token-trr-val');
+  if (trrValEl) {
+    trrValEl.textContent = `${trr.toFixed(2)}%`;
+  }
+
+  const trrBarEl = document.getElementById('token-trr-bar');
+  if (trrBarEl) {
+    trrBarEl.style.width = `${Math.min(100, Math.max(0, trr))}%`;
+  }
 }

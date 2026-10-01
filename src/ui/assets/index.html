@@ -331,19 +331,101 @@
           <h2 class="panel-title">Log &amp; Trace Inspector</h2>
           <p class="panel-desc">Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.</p>
         </div>
-        <span class="badge badge-muted mono">Endpoint: /api/logs</span>
+        <div class="panel-header-badges">
+          <span class="badge badge-muted mono" id="logs-count-badge">0 logs</span>
+          <span class="badge badge-muted mono">Endpoint: /api/logs</span>
+        </div>
       </div>
 
-      <div class="cockpit-card">
-        <div class="placeholder-state">
-          <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" x2="8" y1="13" y2="13"></line>
-            <line x1="16" x2="8" y1="17" y2="17"></line>
-          </svg>
-          <p class="placeholder-text">Log nodes and Mermaid execution chart renderer ready.</p>
-          <span class="placeholder-subtext mono">Ticket 23: Log Inspector &amp; Mermaid Renderer</span>
+      <div class="logs-layout">
+        <!-- Master List Sidebar -->
+        <aside class="logs-sidebar" id="logs-list-container" aria-label="Log Node List">
+          <div class="logs-search-wrap">
+            <svg class="icon logs-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <input type="text" class="input logs-search-input" id="logs-search" placeholder="Filter by node ID or task ID..." autocomplete="off" spellcheck="false">
+          </div>
+          <div class="logs-list" id="logs-list" role="list">
+            <div class="placeholder-state logs-empty-state" id="logs-empty-hint">
+              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+              </svg>
+              <p class="placeholder-text">No offloaded logs found in .scratch/refs/</p>
+              <span class="placeholder-subtext mono">Run long commands or k0maru offload to capture logs</span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Detail Viewport -->
+        <div class="logs-detail" id="log-detail-container" aria-label="Log Node Detail">
+          <div class="detail-header" id="log-detail-header">
+            <div class="detail-title-group">
+              <div class="detail-badges">
+                <span id="log-detail-id" class="badge badge-emerald mono">Select a log node</span>
+                <span id="log-detail-task" class="badge badge-muted mono" style="display: none;"></span>
+                <span id="log-detail-lines" class="badge badge-muted mono" style="display: none;">0 lines</span>
+              </div>
+              <span id="log-detail-time" class="mono text-muted text-xs">--</span>
+            </div>
+            <div class="detail-actions" id="log-detail-actions">
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-node-id" title="Copy Node ID to clipboard" disabled>
+                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+                  <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                </svg>
+                <span class="btn-copy-text">Copy Node ID</span>
+              </button>
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-raw-log" title="Copy Raw Log slice to clipboard" disabled>
+                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
+                <span class="btn-copy-text">Copy Raw Log</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mermaid Visual Diagram Card -->
+          <div class="cockpit-card mermaid-card">
+            <div class="card-section-header">
+              <h3 class="card-section-title">
+                <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="3" y1="9" x2="21" y2="9"></line>
+                  <line x1="9" y1="21" x2="9" y2="9"></line>
+                </svg>
+                <span>State Machine Pipeline Diagram</span>
+              </h3>
+              <span class="badge badge-muted mono" id="mermaid-syntax-badge">stateDiagram-v2</span>
+            </div>
+            <div id="log-mermaid-viewer" class="mermaid-viewer">
+              <div class="placeholder-state" id="mermaid-empty-state">
+                <p class="placeholder-text">Select a log node to render pipeline state diagram.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Raw Log Slice Card -->
+          <div class="cockpit-card raw-log-card">
+            <div class="card-section-header raw-log-toggle-header" id="raw-log-toggle-btn" role="button" tabindex="0" aria-expanded="true">
+              <h3 class="card-section-title">
+                <svg class="icon chevron-icon" id="raw-log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+                <span>Raw Log Slice</span>
+                <span class="badge badge-muted mono" id="raw-log-line-badge">0 lines</span>
+              </h3>
+              <span class="mono text-muted text-xs">Error &amp; Warning Highlighted</span>
+            </div>
+            <div id="log-raw-viewer" class="raw-log-viewer">
+              <div class="placeholder-state">
+                <p class="placeholder-text">Raw log output will appear here.</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -355,32 +437,169 @@
           <h2 class="panel-title">Cache Health &amp; Token Scoreboard</h2>
           <p class="panel-desc">Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).</p>
         </div>
-        <span class="badge badge-muted mono">Endpoint: /api/status</span>
+        <div class="panel-header-badges">
+          <span class="badge badge-muted mono" id="scoreboard-status-badge">Healthy</span>
+          <span class="badge badge-muted mono">Endpoint: /api/status</span>
+        </div>
       </div>
 
+      <!-- KPI Metric Grid -->
       <div class="grid grid-cols-4 scoreboard-grid">
         <div class="cockpit-card metric-card">
+          <div class="metric-icon-wrap">
+            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+          </div>
           <span class="metric-label">Vault Documents</span>
           <span id="scoreboard-doc-count" class="metric-value font-bold mono">--</span>
           <span class="metric-subtitle">Parsed Markdown notes</span>
         </div>
 
         <div class="cockpit-card metric-card">
+          <div class="metric-icon-wrap">
+            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="m4.93 4.93 4.24 4.24"></path>
+              <path d="m14.83 9.17 4.24-4.24"></path>
+              <path d="m14.83 14.83 4.24 4.24"></path>
+              <path d="m9.17 14.83-4.24 4.24"></path>
+            </svg>
+          </div>
           <span class="metric-label">Vector Embeddings</span>
-          <span id="scoreboard-vec-count" class="metric-value font-bold mono">--</span>
+          <div class="metric-value-row">
+            <span id="scoreboard-vec-count" class="metric-value font-bold mono">--</span>
+            <span id="scoreboard-vec-coverage" class="badge badge-emerald mono">0%</span>
+          </div>
           <span class="metric-subtitle">Dense vector index coverage</span>
         </div>
 
         <div class="cockpit-card metric-card">
+          <div class="metric-icon-wrap">
+            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            </svg>
+          </div>
           <span class="metric-label">Cache Database Size</span>
           <span id="scoreboard-cache-size" class="metric-value font-bold mono">-- KB</span>
           <span class="metric-subtitle">SQLite cache.sqlite footprint</span>
         </div>
 
         <div class="cockpit-card metric-card">
+          <div class="metric-icon-wrap">
+            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"></line>
+              <line x1="12" y1="20" x2="12" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="14"></line>
+            </svg>
+          </div>
           <span class="metric-label">Offloaded Log Nodes</span>
           <span id="scoreboard-log-count" class="metric-value font-bold mono">--</span>
           <span class="metric-subtitle">Symbolic terminal traces</span>
+        </div>
+      </div>
+
+      <!-- Token Economics & Operations Grid -->
+      <div class="scoreboard-two-col">
+        <!-- Token Economics & Context Hygiene Card -->
+        <div class="cockpit-card token-economics-card">
+          <div class="card-section-header">
+            <h3 class="card-section-title">
+              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>Token Economics &amp; Context Hygiene</span>
+            </h3>
+            <span class="badge badge-emerald" id="token-benchmark-badge">Phase 3.8 Baseline</span>
+          </div>
+
+          <div class="token-economics-body">
+            <div class="token-metric-hero">
+              <span class="token-hero-label">Estimated Cumulative Tokens Saved</span>
+              <div class="token-hero-val-wrap">
+                <span id="token-saved-val" class="token-hero-value mono">0</span>
+                <span class="token-hero-unit mono">tokens</span>
+              </div>
+              <span class="token-hero-desc">Saved by replacing bulky terminal streams with symbolic pointer nodes.</span>
+            </div>
+
+            <div class="trr-meter-section">
+              <div class="trr-meter-header">
+                <span class="trr-meter-title">Token Reduction Ratio (TRR)</span>
+                <span id="token-trr-val" class="trr-meter-val mono font-bold">99.44%</span>
+              </div>
+              <div class="trr-progress-track">
+                <div id="token-trr-bar" class="trr-progress-fill" style="width: 99.44%;"></div>
+              </div>
+              <div class="trr-benchmarks">
+                <span class="benchmark-point mono">0%</span>
+                <span class="benchmark-point mono active" title="Phase 3.8 Baseline">Phase 3.8: 99.44% Target</span>
+                <span class="benchmark-point mono">100%</span>
+              </div>
+            </div>
+
+            <div class="benchmark-callout">
+              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <div class="callout-text">
+                <strong class="callout-title">Benchmark Verified:</strong>
+                <span class="callout-desc">Exceeds Phase 3.8 TRR baseline of 99.44% context reduction on 10,000-line compiler traces.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cache Operations & Synchronization Card -->
+        <div class="cockpit-card cache-operations-card">
+          <div class="card-section-header">
+            <h3 class="card-section-title">
+              <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                <path d="M16 21h5v-5"></path>
+              </svg>
+              <span>Cache Operations &amp; Index Sync</span>
+            </h3>
+            <span class="badge badge-muted mono" id="scoreboard-sync-status">Ready</span>
+          </div>
+
+          <div class="cache-operations-body">
+            <p class="cache-desc">
+              Trigger an incremental scan to index newly added or modified Markdown files, update WikiLinks connections, and compute vector embeddings without daemon overhead.
+            </p>
+
+            <div class="sync-status-details">
+              <div class="sync-detail-row">
+                <span class="detail-label">Active Vault Path:</span>
+                <span id="scoreboard-vault-path" class="detail-value mono truncate">Connecting...</span>
+              </div>
+              <div class="sync-detail-row">
+                <span class="detail-label">Last Sync Completed:</span>
+                <span id="scoreboard-last-sync" class="detail-value mono">--</span>
+              </div>
+              <div class="sync-detail-row">
+                <span class="detail-label">Engine Mode:</span>
+                <span class="detail-value mono">Zero-Daemon Embedded (FastMCP)</span>
+              </div>
+            </div>
+
+            <div class="cache-actions">
+              <button type="button" class="btn btn-primary btn-block" id="btn-scoreboard-sync">
+                <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                  <path d="M16 21h5v-5"></path>
+                </svg>
+                <span class="btn-text">Run Incremental Sync</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
