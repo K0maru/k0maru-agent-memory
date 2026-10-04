@@ -77,7 +77,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 4);
+    assert_eq!(tools.len(), 5);
 
     let tool_names: Vec<&str> = tools
         .iter()
@@ -88,6 +88,7 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"recall_memory"));
     assert!(tool_names.contains(&"offload_context"));
     assert!(tool_names.contains(&"inspect_log_node"));
+    assert!(tool_names.contains(&"flush_session"));
 
     // Verify schemas
     for tool in tools {
@@ -107,6 +108,10 @@ fn test_mcp_tools_list() {
             }
             "inspect_log_node" => {
                 assert!(required.iter().any(|r| r == "node_id"));
+            }
+            "flush_session" => {
+                assert!(required.iter().any(|r| r == "title"));
+                assert!(required.iter().any(|r| r == "content"));
             }
             _ => panic!("Unexpected tool: {}", name),
         }

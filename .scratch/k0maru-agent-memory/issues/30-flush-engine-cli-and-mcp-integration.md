@@ -1,7 +1,7 @@
 # 30 — Flush Engine, CLI & FastMCP Integration
 
 **Type:** task  
-**Status:** open  
+**Status:** resolved  
 **Blocked by:** 29  
 
 ## Context

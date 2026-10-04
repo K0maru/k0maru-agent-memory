@@ -21,8 +21,8 @@ pub mod vector;
 
 pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
 pub use convention::{
-    generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushRequest, FlushResult,
-    NamingStyle, NoteCategory, VaultConvention,
+    generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
+    FlushResult, NamingStyle, NoteCategory, VaultConvention,
 };
 pub use doctor::{
     format_report, run_diagnostics, DiagnosticItem, DoctorReport, DoctorSummary, StatusLevel,

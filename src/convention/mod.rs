@@ -3,9 +3,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub mod flush;
 pub mod sniffer;
 pub mod synthesizer;
 
+pub use flush::FlushEngine;
 pub use sniffer::{generate_filename, slugify, ConventionSniffer};
 pub use synthesizer::synthesize_markdown;
 

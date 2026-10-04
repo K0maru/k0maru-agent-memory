@@ -1,10 +1,11 @@
 //! Zero-daemon FastMCP stdio server implementing JSON-RPC 2.0.
 //!
-//! Exposes four lean agent memory tools:
+//! Exposes five lean agent memory tools:
 //! 1. `get_project_loadout`: Generates sub-300-token context pack
 //! 2. `recall_memory`: Fast FTS5 BM25 search over notes and memories
 //! 3. `offload_context`: Truncates long command logs into Mermaid state diagram and disk reference
 //! 4. `inspect_log_node`: Retrieves full raw log by node ID
+//! 5. `flush_session`: Crystallizes memory notes into the target vault according to conventions
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -292,6 +293,100 @@ impl McpServer {
             .map_err(|e| format!("Inspection failed for node '{}': {}", node_id, e))
     }
 
+    fn call_flush_session(&mut self, arguments: &Value) -> Result<String, String> {
+        let title = arguments
+            .get("title")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'title'".to_string())?;
+
+        let content = arguments
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
+
+        let summary = arguments
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let category = arguments
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("log")
+            .to_string();
+
+        let tags: Vec<String> = arguments
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let related_notes: Vec<String> = arguments
+            .get("related_notes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let engine = crate::convention::FlushEngine::new(&self.vault_path)
+            .map_err(|e| format!("FlushEngine initialization failed: {}", e))?;
+
+        let request = crate::convention::FlushRequest {
+            title: title.to_string(),
+            summary,
+            content: content.to_string(),
+            category,
+            tags,
+            related_notes: related_notes.clone(),
+            dry_run: false,
+        };
+
+        let result = engine
+            .flush(request)
+            .map_err(|e| format!("Flush failed: {}", e))?;
+
+        let _ = self.sync_cache();
+
+        let links_str = if related_notes.is_empty() {
+            "None".to_string()
+        } else {
+            related_notes
+                .iter()
+                .map(|r| {
+                    let t = r.trim();
+                    if t.starts_with("[[") && t.ends_with("]]") {
+                        t.to_string()
+                    } else {
+                        format!("[[{}]]", t)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        if !result.created {
+            Ok(format!(
+                "Note already up to date with identical content.\nPath: {}\nCategory: {}",
+                result.relative_path.display(),
+                result.category
+            ))
+        } else {
+            Ok(format!(
+                "✓ Crystallized note into vault.\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                result.relative_path.display(),
+                result.category,
+                links_str
+            ))
+        }
+    }
+
     fn handle_initialize(&self, id: Value) -> Value {
         json!({
             "jsonrpc": "2.0",
@@ -378,6 +473,42 @@ impl McpServer {
                             },
                             "required": ["node_id"]
                         }
+                    },
+                    {
+                        "name": "flush_session",
+                        "description": "Crystallize learnings, architectural decisions, or task summaries back into the Markdown knowledge base according to the vault's conventions",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "title": {
+                                    "type": "string",
+                                    "description": "Title of the decision or log note"
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Detailed Markdown content"
+                                },
+                                "summary": {
+                                    "type": "string",
+                                    "description": "Brief one-line summary or executive conclusion"
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Associated tags"
+                                },
+                                "related_notes": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Related existing notes to link via WikiLinks"
+                                }
+                            },
+                            "required": ["title", "content"]
+                        }
                     }
                 ]
             }
@@ -404,6 +535,10 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "inspect_log_node" => match self.call_inspect_log_node(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "flush_session" => match self.call_flush_session(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },
