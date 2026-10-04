@@ -126,7 +126,9 @@ k0maru doctor
 - *“数据库超时建议怎么配？”* 或 *“查下关于 JWT 刷新的笔记”*  
   👉 AI 自动调用 `k0maru-memory/recall_memory` 翻阅你的知识库（向量语义泛化，用词不完全一致也能搜到）；
 - *“刚才编译报了 300 多行错，看看具体堆栈”*  
-  👉 AI 自动调用 `k0maru-memory/inspect_log_node` 定向提取错误切片。
+  👉 AI 自动调用 `k0maru-memory/inspect_log_node` 定向提取错误切片；
+- *“我们搞完了 RRF 混合检索落地并敲定了参数 k=60，把这个决策记录沉淀下来”*  
+  👉 AI 自动调用 `k0maru-memory/flush_session`，自适应生成符合知识库风格的 ADR 笔记并安全落盘。
 
 > 💡 **进阶：让 AI 100% 主动翻阅**：在项目根目录 `AGENTS.md` 中添加一句：  
 > `在编写核心逻辑或排障前，优先调用 k0maru-memory 翻阅本地笔记库以对齐架构规约。`  
@@ -157,6 +159,23 @@ k0maru ui --vault ~/wiki --open
 
 ---
 
+## ✍️ 第六步：研发经验自动反向沉淀 (`flush`)
+
+当你在完成一次重要重构、技术选型或排障后，可以直接在终端中将决策沉淀入库：
+
+```bash
+# 1. 安全预览（查看推断出的目标路径与 Markdown 结构，不落盘）
+k0maru flush --title "缓存层迁移至 SQLite-Vec" --category decision --dry-run
+
+# 2. 正式沉淀写入并自动更新索引
+k0maru flush --title "缓存层迁移至 SQLite-Vec" \
+  --summary "采用 C 原生 vec0 虚表替代原有的内存浮点扫描" \
+  --category decision \
+  --tags "rust,sqlite,vectors"
+```
+
+---
+
 ## 📖 CLI 常用指令速查手册
 
 | 命令 | 关键参数 | 功能说明 |
@@ -183,4 +202,12 @@ k0maru ui --vault ~/wiki --open
 | `k0maru offload` | `--threshold <N>` | 自定义截断行数阈值（默认 50 行） |
 | | `--task-id <id>` | 绑定任务标识（便于日志命名归档） |
 | `k0maru inspect <id>` | `<node_id>` | 提取被截断保存的长日志原文 |
+| `k0maru flush` | `--vault <path>` | 根据知识库规约自适应沉淀关键决策或研发心得 |
+| | `--title <title>` | 待沉淀笔记的主题/标题 |
+| | `--category <cat>` | 笔记类别 (`decision`, `log`, `concept` 或自定义) |
+| | `--summary <text>` | 一句话总结与结论 |
+| | `--tags <t1,t2>` | 关联标签（英文逗号分隔） |
+| | `--related <r1,r2>`| 关联笔记标题（自动编织为 `[[WikiLinks]]` 双链） |
+| | `--dry-run` | 仅在终端预览生成结果与路径，不实际落盘 |
+| | `--json` | 输出机器可读的结构化结果 |
 | `k0maru mcp` | `--vault <path>` | 启动标准 stdio MCP 服务，供 IDE 无缝挂载 |
