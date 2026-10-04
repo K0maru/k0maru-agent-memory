@@ -7,7 +7,7 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue.svg)]()
+[![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-blue.svg)]()
 [![Tests: 195 passed](https://img.shields.io/badge/Tests-195_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
@@ -308,7 +308,7 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. 验证运行
 k0maru --version
-# 输出: k0maru 0.5.0
+# 输出: k0maru 0.6.0
 
 # 4. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault

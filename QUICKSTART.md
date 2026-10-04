@@ -20,7 +20,7 @@ rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign 
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.5.0
+# 输出: k0maru 0.6.0
 ```
 
 ---
