@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue.svg)]()
-[![Tests: 179 passed](https://img.shields.io/badge/Tests-179_passed-brightgreen.svg)]()
+[![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-blue.svg)]()
+[![Tests: 195 passed](https://img.shields.io/badge/Tests-195_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -95,7 +95,8 @@ k0maru ui --vault ~/wiki --open
 - `get_project_loadout`：获取项目紧凑型读档提示词包（严格受控预算 <300 Token）；
 - `recall_memory`：基于 FTS5 BM25 + `sqlite-vec` + RRF + 双链图拓扑加速的混合语义记忆检索（自动附加反链拓扑与精准上下文摘要）；
 - `offload_context`：提供字符串级的长文本符号化卸载；
-- `inspect_log_node`：检索已卸载的局部日志切片。
+- `inspect_log_node`：检索已卸载的局部日志切片；
+- `flush_session`：根据知识库自身规约与模板，将关键决策（ADR）、研发心得与会话总结自适应写回知识库中。
 
 #### 💡 自然语言意图驱动（无需任何特定关键词）
 很多用户会问：*“我必须说某些特定口令或关键词才能触发吗？”*  
@@ -106,6 +107,7 @@ k0maru ui --vault ~/wiki --open
 | *“准备开发新任务，先熟悉一下项目背景”*<br/>*“我们仓库有什么必须遵守的架构铁律吗？”* | `get_project_loadout` | 模型识别出「需要读档与对齐项目背景」意图，自动加载核心常青卡片与近期日志 |
 | *“数据库超时我们一般建议怎么配？”*<br/>*“看看我们以前有没有讨论过 JWT 刷新的笔记”*<br/>*“这块代码感觉容易死锁，查查知识库最佳实践”* | `recall_memory` | 模型识别出「需要查阅私有知识库」意图，自动提取概念关键词进行混合语义检索 |
 | *“刚才跑单测报了 300 多行错，看看失败的具体堆栈”* | `inspect_log_node` | 模型识别出「需要调取已截断报错切片」意图，按 ID 精准提取局部原始日志 |
+| *“我们搞完了 RRF 混合检索落地并敲定了参数 k=60，把这个决策记录沉淀下来”* | `flush_session` | 模型识别出「需要沉淀关键决策」意图，自动按知识库规约生成 ADR 笔记并写入 |
 
 > 🌟 **检索免字面精确匹配**：由于底层采用了 **Hybrid 混合检索（向量 ONNX + BM25 + 双链升权）**，哪怕您提问的用词与笔记标题不完全一样（例如搜“库存超卖”，笔记叫“防重放扣减”），向量模型也会自动泛化识别并成功召回。
 
@@ -141,6 +143,25 @@ k0maru install --target claude --dry-run
 # 全面体检二进制环境、文档层级、SQLite/向量索引与客户端挂载状态
 k0maru doctor
 ```
+
+### 8. 自适应经验写回与决策结晶（`k0maru flush` & `flush_session`）
+彻底摆脱对特定文件夹的死板假定，让记忆生命周期形成真正闭环。`k0maru` 会动态嗅探目标知识库的显式规则（`AGENTS.md`、`RULES.md`、`templates/`）或统计推断其目录习惯（如 `decisions/`、`logs/`）、文件名命名法（如 `YYYY-MM-DD-*`）与 Frontmatter 风格，进行安全写回：
+
+```bash
+# 仅预览推断出的目标路径与 Markdown 结构，不触碰磁盘
+k0maru flush --title "缓存层迁移至 SQLite-Vec" --category decision --dry-run
+
+# 正式写入决策笔记，并自动触发增量索引同步
+k0maru flush --title "缓存层迁移至 SQLite-Vec" \
+  --summary "采用 C 原生 vec0 虚表替代原有的内存浮点扫描" \
+  --category decision \
+  --tags rust,sqlite,vectors
+
+# 支持管道输入 (Stdin)
+cat milestone_summary.md | k0maru flush --title "阶段里程碑总结" --category log
+```
+
+> 🛡️ **防碰撞与即时同步**：若目标路径已存在同名笔记且内容不同，系统自动追加递增版本后缀（如 `-v2.md`），绝不静默覆盖；写入后自动增量刷新 SQLite FTS5 与向量索引，下一轮会话立即可被检索。
 
 ---
 
@@ -287,7 +308,7 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. 验证运行
 k0maru --version
-# 输出: k0maru 0.5.0
+# 输出: k0maru 0.6.0
 
 # 4. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
@@ -337,6 +358,14 @@ k0maru doctor
 | `k0maru offload` | `--threshold <N>` | 触发符号化卸载的日志行数阈值（默认 50 行） |
 | | `--task-id <id>` | 绑定任务标识符以便归档追踪 |
 | `k0maru inspect <id>` | `<node_id>` | 根据 Node ID 调取已卸载的原始报错堆栈切片 |
+| `k0maru flush` | `--vault <path>` | 根据知识库规约自适应沉淀关键决策或研发心得 |
+| | `--title <title>` | 待沉淀笔记的主题/标题 |
+| | `--category <cat>` | 笔记类别 (`decision`, `log`, `concept` 或自定义) |
+| | `--summary <text>` | 一句话总结与结论 |
+| | `--tags <t1,t2>` | 关联标签（英文逗号分隔） |
+| | `--related <r1,r2>`| 关联笔记标题（自动编织为 `[[WikiLinks]]` 双链） |
+| | `--dry-run` | 仅在终端预览生成结果与路径，不实际落盘 |
+| | `--json` | 输出机器可读的结构化结果 |
 | `k0maru mcp` | `--vault <path>` | 启动标准 stdio MCP 服务，供智能体或 IDE 挂载 |
 
 ---

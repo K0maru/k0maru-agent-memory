@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-blue.svg)]()
-[![Tests: 179 passed](https://img.shields.io/badge/Tests-179_passed-brightgreen.svg)]()
+[![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-blue.svg)]()
+[![Tests: 195 passed](https://img.shields.io/badge/Tests-195_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -95,6 +95,7 @@ Connect your agents without running any background HTTP servers. Exposes the Mod
 - `recall_memory`: Executes hybrid semantic retrieval combining BM25, `sqlite-vec`, RRF, and WikiLinks graph topology (with backlinks and contextual summaries).
 - `offload_context`: Ingests and symbolically offloads long text blocks.
 - `inspect_log_node`: Retrieves persisted log slices by node ID.
+- `flush_session`: Crystallizes engineering learnings, architectural decisions, and task summaries back into the target vault according to the vault's conventions.
 
 #### 💡 Natural Language Intent-Driven (No Rigid Magic Words)
 Users often ask: *“Do I need to memorize specific commands or keywords to trigger MCP tools?”*  
@@ -105,6 +106,7 @@ Users often ask: *“Do I need to memorize specific commands or keywords to trig
 | *"Starting a new feature on my-project, get me up to speed."*<br/>*"What are our repo's non-negotiable architectural rules?"* | `get_project_loadout` | Model identifies the need to align on project background, loading evergreen guidelines and recent logs. |
 | *"What timeout do we recommend for DB connection pools?"*<br/>*"Check if we have previous notes on JWT refresh rotation."*<br/>*"This looks deadlock-prone, check our knowledge base."* | `recall_memory` | Model identifies the need to consult the private knowledge base, extracting semantic keywords for hybrid search. |
 | *"Test failed with 300+ lines of output, check the root cause."* | `inspect_log_node` | Model identifies the need to inspect an offloaded error slice, retrieving the raw stack trace by ID. |
+| *"We finished implementing RRF hybrid retrieval and settled on k=60, document this decision."* | `flush_session` | Model identifies the milestone completion, distilling ADR into the vault according to local conventions. |
 
 > 🌟 **Vocabulary-Independent Retrieval**: Because the engine runs **Hybrid Retrieval (Local ONNX + BM25 + Graph Boost)**, queries succeed even when your exact terms differ from note headings (e.g. searching *"prevent overselling"* successfully retrieves *"idempotent balance rollback"*).
 
@@ -139,6 +141,25 @@ k0maru install --target claude --dry-run
 # Run full health check on binary, vault documents, SQLite indices, and client mounts
 k0maru doctor
 ```
+
+### 8. Adaptive Experience Flush & Write-Back (`k0maru flush` & `flush_session`)
+Complete the memory compounding loop without rigid folder assumptions. `k0maru` dynamically reads your vault's explicit rules (`AGENTS.md`, `RULES.md`, `templates/`) or statistically infers your directory structure (e.g. `decisions/`, `logs/`), filename naming styles, and YAML frontmatter conventions to write back notes safely:
+
+```bash
+# Preview note creation and destination path without writing to disk
+k0maru flush --title "Migrate Cache to SQLite-Vec" --category decision --dry-run
+
+# Write ADR or dev log and immediately refresh search index
+k0maru flush --title "Migrate Cache to SQLite-Vec" \
+  --summary "Replaced raw float blob scans with C-native vec0 virtual tables" \
+  --category decision \
+  --tags rust,sqlite,vectors
+
+# Pipe shell output or summary from stdin
+cat report.md | k0maru flush --title "Weekly Architecture Review" --category log
+```
+
+> 🛡️ **Anti-Collision & Auto-Sync**: If a file with the same title already exists with different content, `k0maru` automatically appends version suffixes (e.g. `-v2.md`) to prevent data loss. Upon writing, it immediately triggers incremental cache indexing so the new knowledge is searchable on the next turn.
 
 ---
 
@@ -264,7 +285,7 @@ cp target/release/k0maru ~/.local/bin/
 
 # 3. Verify installation
 k0maru --version
-# Output: k0maru 0.5.0
+# Output: k0maru 0.6.0
 
 # 4. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
@@ -315,6 +336,14 @@ If you prefer manual setup, add `k0maru` to your client's MCP configuration file
 | `k0maru offload` | `--threshold <N>` | Line threshold before offloading (default: 50 lines) |
 | | `--task-id <id>` | Bind task identifier for structured log archiving |
 | `k0maru inspect <id>` | `<node_id>` | Retrieve offloaded raw stack trace slice by node ID |
+| `k0maru flush` | `--vault <path>` | Crystallize decisions or dev logs back into the Markdown vault |
+| | `--title <title>` | Title of the note to write |
+| | `--category <cat>` | Note category (`decision`, `log`, `concept`, or custom) |
+| | `--summary <text>` | One-line executive summary |
+| | `--tags <t1,t2>` | Comma-separated tags |
+| | `--related <r1,r2>`| Comma-separated related note titles to link via `[[WikiLinks]]` |
+| | `--dry-run` | Preview synthesized Markdown and path without writing to disk |
+| | `--json` | Output structured JSON flush outcome |
 | `k0maru mcp` | `--vault <path>` | Launch standard stdio MCP server for agent/IDE integration |
 
 ---

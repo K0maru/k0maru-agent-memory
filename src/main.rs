@@ -1,8 +1,10 @@
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
 use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::core::traits::VaultAdapter;
 use k0maru::doctor::{format_report, run_diagnostics};
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
@@ -49,6 +51,9 @@ enum Commands {
 
     /// Automatically configure k0maru-memory MCP server in AI coding agents (Claude, Cursor, etc.)
     Install(InstallArgs),
+
+    /// Flush crystallized memory or notes into the target vault according to conventions
+    Flush(FlushArgs),
 
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
@@ -192,6 +197,45 @@ pub struct InstallArgs {
     pub dry_run: bool,
 
     /// Output structured JSON instead of human-readable text
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct FlushArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Title of the decision or log note
+    #[arg(short, long)]
+    pub title: String,
+
+    /// Summary or executive conclusion
+    #[arg(short, long)]
+    pub summary: Option<String>,
+
+    /// Detailed Markdown content (can also be piped from stdin)
+    #[arg(short, long)]
+    pub content: Option<String>,
+
+    /// Category: decision, log, concept, etc.
+    #[arg(long, default_value = "log")]
+    pub category: String,
+
+    /// Comma-separated tags
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+
+    /// Comma-separated titles of related notes to link
+    #[arg(long, value_delimiter = ',')]
+    pub related: Vec<String>,
+
+    /// Preview the generated note and destination path without writing to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output structured JSON result
     #[arg(long)]
     pub json: bool,
 }
@@ -587,6 +631,63 @@ fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+fn run_flush(args: FlushArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault);
+
+    let content = if let Some(c) = args.content {
+        c
+    } else if !std::io::stdin().is_terminal() {
+        let mut buffer = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buffer)?;
+        buffer
+    } else {
+        String::new()
+    };
+
+    let engine = FlushEngine::new(vault_path).map_err(|e| e as Box<dyn std::error::Error>)?;
+
+    let request = FlushRequest {
+        title: args.title,
+        summary: args.summary,
+        content,
+        category: args.category,
+        tags: args.tags,
+        related_notes: args.related,
+        dry_run: args.dry_run,
+    };
+
+    let result = engine
+        .flush(request)
+        .map_err(|e| e as Box<dyn std::error::Error>)?;
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&result)?;
+        println!("{}", json_str);
+    } else if result.dry_run {
+        println!("🔍 [Dry Run] Note preview (no file written):");
+        println!("Path: {}", result.file_path.display());
+        println!("Relative: {}", result.relative_path.display());
+        println!("Category: {}", result.category);
+        println!("--------------------------------------------------");
+        println!("{}", result.content_preview);
+        println!("--------------------------------------------------");
+    } else if !result.created {
+        println!(
+            "ℹ️  Note content identical to existing file; no write needed: {}",
+            result.relative_path.display()
+        );
+    } else {
+        println!(
+            "✓ Crystallized note successfully into: {}",
+            result.relative_path.display()
+        );
+        println!("Path: {}", result.file_path.display());
+        println!("Category: {}", result.category);
+    }
+
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -634,6 +735,12 @@ fn main() {
         }
         Some(Commands::Install(args)) => {
             if let Err(e) = run_install_cmd(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Flush(args)) => {
+            if let Err(e) = run_flush(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
