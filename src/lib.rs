@@ -5,6 +5,7 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod adapters;
+pub mod convention;
 pub mod core;
 pub mod doctor;
 pub mod ecosystem;
@@ -19,6 +20,10 @@ pub mod ui;
 pub mod vector;
 
 pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
+pub use convention::{
+    generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushRequest, FlushResult,
+    NamingStyle, NoteCategory, VaultConvention,
+};
 pub use doctor::{
     format_report, run_diagnostics, DiagnosticItem, DoctorReport, DoctorSummary, StatusLevel,
 };
