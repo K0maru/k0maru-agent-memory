@@ -77,4 +77,20 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - **严禁擅自向 main 提发布 PR、合并或打 Tag**：每次开发完一个新特性或完成工单后，**必须先停下来向人类汇报**开发成果、测试报告与本地实测指南；
    - **人类主动体验与验收机制**：新特性先停留在 `dev`（或特性分支）供人类开发者在本地环境进行实测验证、交互体验；
    - **人类明确确认后方可合入 main**：只有在人类亲自体验并明确指示（如“可以合入 main”、“提 PR 发版”、“确认发版”）后，方可启动向 `main` 合并、打 Release Tag 与推送发布流程。
+5. **Co-Authored 协作署名规范与 Bot 身份模式**：
+   - 为保护人类工程师主贡献图并透明记录机器协同，AI 代理在提交前应检查本地 git 配置：
+     ```bash
+     git config --get agent.coauthor
+     ```
+   - **核心细节（Bot User ID vs App ID）**：
+     - GitHub App 虚拟用户包含两个不同 ID：`App ID`（仅用于头像 URL，如 `<bot_app_id>`）与 `Bot User ID`（Git 数据库绑定的真正用户 ID，如 `<bot_user_id>`）；
+     - 邮箱必须使用真正的 **Bot User ID**：`<bot_user_id>+<bot-name>[bot]@users.noreply.github.com`，否则 GitHub 无法识别并会导致双头像角标丢失。
+   - **双模式支持**：
+     - **模式 A（默认：人类为主作者，Bot 共同署名）**：Git Author 为开发者个人邮箱，Commit Message 末尾空一行追加该署名 trailer（例如 `Co-authored-by: <bot-name>[bot] <id+<bot-name>[bot]@users.noreply.github.com>`）。GitHub 将展示双头像重叠角标；
+     - **模式 B（子智能体独立作业：Bot 作为第一主作者）**：在完全自主派发的子代理任务中，若人类希望直接以 Bot 作为主头像，提交时显式声明 `--author`：
+       ```bash
+       git commit --author="<bot-name>[bot] <id+<bot-name>[bot]@users.noreply.github.com>" -m "..."
+       ```
+   - **若未配置**：按当前本地开发者身份正常提交，不强加任何第三方机器人署名。
+
 
