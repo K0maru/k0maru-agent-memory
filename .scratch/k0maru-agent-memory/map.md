@@ -43,5 +43,5 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [27-doctor-command-and-health-diagnostics.md](issues/27-doctor-command-and-health-diagnostics.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [28-install-command-and-mcp-client-configurator.md](issues/28-install-command-and-mcp-client-configurator.md) (Blocked by: 27) ✅ **COMPLETED (v0.5.0)**
 - [x] [29-adaptive-vault-convention-sniffer.md](issues/29-adaptive-vault-convention-sniffer.md) (Blocked by: None) ✅ **COMPLETED**
-- [ ] [30-flush-engine-cli-and-mcp-integration.md](issues/30-flush-engine-cli-and-mcp-integration.md) (Blocked by: 29)
+- [x] [30-flush-engine-cli-and-mcp-integration.md](issues/30-flush-engine-cli-and-mcp-integration.md) (Blocked by: 29) ✅ **COMPLETED**
 
