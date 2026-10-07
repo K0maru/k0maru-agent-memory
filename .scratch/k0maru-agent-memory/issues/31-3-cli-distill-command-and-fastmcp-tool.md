@@ -38,7 +38,7 @@ Expose the Trace-to-Skill capability via the public interfaces: the `k0maru dist
    - `cargo fmt --check` zero diffs.
 
 ## Acceptance Criteria
-- [ ] `k0maru distill` CLI functions with stdin, `--node`, and `--file`;
-- [ ] FastMCP `distill_session_skill` callable over JSON-RPC 2.0;
-- [ ] Immediate recallability verified (write -> auto-sync -> recall);
-- [ ] 100% test pass rate and clean lints.
+- [x] `k0maru distill` CLI functions with stdin, `--node`, and `--file`;
+- [x] FastMCP `distill_session_skill` callable over JSON-RPC 2.0;
+- [x] Immediate recallability verified (write -> auto-sync -> recall);
+- [x] 100% test pass rate and clean lints.
