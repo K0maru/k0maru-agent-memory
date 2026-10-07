@@ -46,6 +46,6 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [29-adaptive-vault-convention-sniffer.md](issues/29-adaptive-vault-convention-sniffer.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [30-flush-engine-cli-and-mcp-integration.md](issues/30-flush-engine-cli-and-mcp-integration.md) (Blocked by: 29) ✅ **COMPLETED (v0.6.0)**
 - [x] [31-1-distill-domain-models-and-parser.md](issues/31-1-distill-domain-models-and-parser.md) (Blocked by: None) ✅ **COMPLETED**
-- [ ] [31-2-distill-engine-and-flush-integration.md](issues/31-2-distill-engine-and-flush-integration.md) (Blocked by: 31-1)
+- [x] [31-2-distill-engine-and-flush-integration.md](issues/31-2-distill-engine-and-flush-integration.md) (Blocked by: 31-1) ✅ **COMPLETED**
 - [ ] [31-3-cli-distill-command-and-fastmcp-tool.md](issues/31-3-cli-distill-command-and-fastmcp-tool.md) (Blocked by: 31-2)
 

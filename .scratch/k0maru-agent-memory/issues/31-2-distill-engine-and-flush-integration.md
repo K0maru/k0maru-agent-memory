@@ -37,7 +37,7 @@ Connect the extraction layer with `FlushEngine` to provide a complete pipeline: 
    - Test dry run mode.
 
 ## Acceptance Criteria
-- [ ] `DistillEngine` reads from text, node, or file seamlessly;
-- [ ] Safe write-back creates correctly named markdown file in convention directory;
-- [ ] Vector & FTS5 cache auto-syncs after write;
-- [ ] All tests pass.
+- [x] `DistillEngine` reads from text, node, or file seamlessly;
+- [x] Safe write-back creates correctly named markdown file in convention directory;
+- [x] Vector & FTS5 cache auto-syncs after write;
+- [x] All tests pass.
