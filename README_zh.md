@@ -299,21 +299,36 @@ K0maru-Agent-Memory 的设计直接吸收了开源社区与前沿研究的优秀
 
 详细步骤见 [QUICKSTART.md](QUICKSTART.md)。
 
+### 方式一：官方一键安装脚本（macOS & Linux - 推荐）
+无需配置 Rust 编译环境。脚本会自动识别您的操作系统与芯片架构，校验 SHA-256 签名并安装预编译二进制：
 ```bash
-# 1. 编译生成单静态二进制 (全量测试验证)
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+```
+
+### 方式二：Homebrew（macOS & Linux）
+```bash
+brew install K0maru/tap/k0maru
+```
+
+### 方式三：源码编译安装 (Cargo)
+```bash
+# 从 Git 直接安装
+cargo install --git https://github.com/K0maru/k0maru-agent-memory
+
+# 或本地克隆编译
+git clone https://github.com/K0maru/k0maru-agent-memory.git
+cd k0maru-agent-memory
 cargo build --release
-
-# 2. 安装至系统环境
 cp target/release/k0maru ~/.local/bin/
+```
 
-# 3. 验证运行
-k0maru --version
-# 输出: k0maru 0.6.0
-
-# 4. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+### 一键接入生态智能体
+安装完成后，只需一条指令即可将 K0maru 接入您常用的编码智能体并完成自检：
+```bash
+# 1. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
 
-# 5. 全面体检系统与生态环境
+# 2. 全面体检系统与生态环境
 k0maru doctor
 ```
 

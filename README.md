@@ -276,21 +276,36 @@ Measured over 100 cold-start iterations and full index rebuilds of 500 Markdown 
 
 For detailed step-by-step instructions, see [QUICKSTART.md](QUICKSTART.md).
 
+### Option A: One-Line Script (macOS & Linux - Recommended)
+No Rust toolchain required. Automatically detects OS and chip architecture, verifies SHA-256 checksums, and installs the standalone binary:
 ```bash
-# 1. Compile single static release binary
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+```
+
+### Option B: Homebrew (macOS & Linux)
+```bash
+brew install K0maru/tap/k0maru
+```
+
+### Option C: Build from Source via Cargo
+```bash
+# Install directly from git
+cargo install --git https://github.com/K0maru/k0maru-agent-memory
+
+# Or clone and compile locally
+git clone https://github.com/K0maru/k0maru-agent-memory.git
+cd k0maru-agent-memory
 cargo build --release
-
-# 2. Install to your system PATH
 cp target/release/k0maru ~/.local/bin/
+```
 
-# 3. Verify installation
-k0maru --version
-# Output: k0maru 0.6.0
-
-# 4. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+### Configure Your Ecosystem in One Click
+Once installed, connect K0maru to your coding agents and verify health:
+```bash
+# 1. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
 
-# 5. Verify system & client integration health
+# 2. Verify system & client integration health
 k0maru doctor
 ```
 
