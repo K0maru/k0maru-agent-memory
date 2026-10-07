@@ -36,6 +36,6 @@ None
    - Test `NoteCategory::Skill` sniffing.
 
 ## Acceptance Criteria
-- [ ] `NoteCategory::Skill` serializes and maps to `"skill"`, and sniffs `skills/` directory;
-- [ ] `SkillExtractor` extracts 4 core sections from varied logs;
-- [ ] Unit tests pass 100% with `cargo test`.
+- [x] `NoteCategory::Skill` serializes and maps to `"skill"`, and sniffs `skills/` directory;
+- [x] `SkillExtractor` extracts 4 core sections from varied logs;
+- [x] Unit tests pass 100% with `cargo test`.
