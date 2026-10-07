@@ -284,9 +284,11 @@ Final note link: [[CardThree/Subcard.md]].
     }
     let elapsed = start.elapsed();
     println!("Parsed 1,000 documents in {:?}", elapsed);
+    let threshold_ms = if cfg!(debug_assertions) { 150 } else { 50 };
     assert!(
-        elapsed.as_millis() < 50,
-        "Parsing 1,000 documents must complete in <50ms, took {:?}",
+        elapsed.as_millis() < threshold_ms,
+        "Parsing 1,000 documents must complete in <{}ms, took {:?}",
+        threshold_ms,
         elapsed
     );
 }
