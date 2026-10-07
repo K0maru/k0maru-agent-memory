@@ -6,16 +6,26 @@
 
 ---
 
-## 🛠️ 第一步：一键编译与安装
+## 🛠️ 第一步：极速安装
 
-`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6MB，无须配置 Python 虚拟环境或安装外部数据库。
+`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6MB，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
 
+### 推荐方式：官方一键安装脚本（macOS & Linux）
+```bash
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+```
+
+### 方式二：Homebrew（macOS & Linux）
+```bash
+brew install K0maru/tap/k0maru
+```
+
+### 方式三：源码编译安装
 ```bash
 # 1. 在仓库根目录下编译优化版本
 cargo build --release
 
 # 2. 安装至你的 PATH 路径（例如 ~/.local/bin 或 /usr/local/bin）
-# macOS 建议先移除旧文件再拷贝签名，避免 inode 代码页缓存冲突：
 rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign -s - --force ~/.local/bin/k0maru
 
 # 3. 验证安装
