@@ -6,6 +6,7 @@ use clap::{Args, Parser, Subcommand};
 use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
 use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::core::traits::VaultAdapter;
+use k0maru::distill::{DistillEngine, DistillOptions};
 use k0maru::doctor::{format_report, run_diagnostics};
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
@@ -54,6 +55,9 @@ enum Commands {
 
     /// Flush crystallized memory or notes into the target vault according to conventions
     Flush(FlushArgs),
+
+    /// Distill troubleshooting traces or execution logs into reusable skills
+    Distill(DistillArgs),
 
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
@@ -232,6 +236,53 @@ pub struct FlushArgs {
     pub related: Vec<String>,
 
     /// Preview the generated note and destination path without writing to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output structured JSON result
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DistillArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Offloaded node ID to distill from refs
+    #[arg(long, value_name = "NODE_ID")]
+    pub node: Option<String>,
+
+    /// Path to a log/trace file to distill
+    #[arg(short, long, value_name = "PATH")]
+    pub file: Option<PathBuf>,
+
+    /// Explicit skill note title (auto-inferred if omitted)
+    #[arg(short, long)]
+    pub title: Option<String>,
+
+    /// Context hint or prompt explaining the troubleshooting trace
+    #[arg(short = 'c', long)]
+    pub context: Option<String>,
+
+    /// Category: skill, playbook, recipe, etc.
+    #[arg(long, default_value = "skill")]
+    pub category: String,
+
+    /// Comma-separated tags
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+
+    /// Comma-separated titles of related notes to link
+    #[arg(long, value_delimiter = ',')]
+    pub related: Vec<String>,
+
+    /// Directory where offloaded references are stored
+    #[arg(short = 'r', long, value_name = "PATH")]
+    pub refs_dir: Option<PathBuf>,
+
+    /// Preview the generated skill note without writing to disk
     #[arg(long)]
     pub dry_run: bool,
 
@@ -688,6 +739,70 @@ fn run_flush(args: FlushArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault);
+    let refs_dir = detect_refs_dir(args.refs_dir);
+
+    let engine = DistillEngine::new(&vault_path, &refs_dir);
+    let opts = DistillOptions {
+        title: args.title,
+        context_hint: args.context,
+        category: Some(args.category),
+        tags: args.tags,
+        related_notes: args.related,
+        dry_run: args.dry_run,
+    };
+
+    let result = if let Some(ref nid) = args.node {
+        engine
+            .distill_node(nid, opts)
+            .map_err(|e| e as Box<dyn std::error::Error>)?
+    } else if let Some(ref fpath) = args.file {
+        engine
+            .distill_file(fpath, opts)
+            .map_err(|e| e as Box<dyn std::error::Error>)?
+    } else {
+        use std::io::Read;
+        let mut raw_trace = String::new();
+        std::io::stdin().read_to_string(&mut raw_trace)?;
+        if raw_trace.trim().is_empty() {
+            return Err("No trace input provided via stdin, --node, or --file".into());
+        }
+        engine
+            .distill_text(&raw_trace, opts)
+            .map_err(|e| e as Box<dyn std::error::Error>)?
+    };
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&result)?;
+        println!("{}", json_str);
+    } else if result.flush_result.dry_run {
+        println!("🔍 [Dry Run] Distilled skill preview (no file written):");
+        println!("Title: {}", result.skill.title);
+        println!("Path: {}", result.flush_result.file_path.display());
+        println!("Relative: {}", result.flush_result.relative_path.display());
+        println!("Category: {}", result.flush_result.category);
+        println!("--------------------------------------------------");
+        println!("{}", result.preview_markdown);
+        println!("--------------------------------------------------");
+    } else if !result.flush_result.created {
+        println!(
+            "ℹ️  Skill content identical to existing note; no write needed: {}",
+            result.flush_result.relative_path.display()
+        );
+    } else {
+        println!(
+            "✓ Crystallized skill note successfully into: {}",
+            result.flush_result.relative_path.display()
+        );
+        println!("Title: {}", result.skill.title);
+        println!("Path: {}", result.flush_result.file_path.display());
+        println!("Category: {}", result.flush_result.category);
+    }
+
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -741,6 +856,12 @@ fn main() {
         }
         Some(Commands::Flush(args)) => {
             if let Err(e) = run_flush(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Distill(args)) => {
+            if let Err(e) = run_distill(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }

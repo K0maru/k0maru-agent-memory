@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-blue.svg)]()
-[![Tests: 195 passed](https://img.shields.io/badge/Tests-195_passed-brightgreen.svg)]()
+[![Version: 0.7.0](https://img.shields.io/badge/Version-0.7.0-blue.svg)]()
+[![Tests: 213 passed](https://img.shields.io/badge/Tests-213_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -96,6 +96,7 @@ Connect your agents without running any background HTTP servers. Exposes the Mod
 - `offload_context`: Ingests and symbolically offloads long text blocks.
 - `inspect_log_node`: Retrieves persisted log slices by node ID.
 - `flush_session`: Crystallizes engineering learnings, architectural decisions, and task summaries back into the target vault according to the vault's conventions.
+- `distill_session_skill`: Distills raw execution traces, compiler diagnostics, or offloaded log nodes into structured, reusable skills (Trigger Context, Error Signatures, Remediation Commands, Prevention Rules) and writes them to the vault with instant index sync.
 
 #### 💡 Natural Language Intent-Driven (No Rigid Magic Words)
 Users often ask: *“Do I need to memorize specific commands or keywords to trigger MCP tools?”*  
@@ -107,6 +108,7 @@ Users often ask: *“Do I need to memorize specific commands or keywords to trig
 | *"What timeout do we recommend for DB connection pools?"*<br/>*"Check if we have previous notes on JWT refresh rotation."*<br/>*"This looks deadlock-prone, check our knowledge base."* | `recall_memory` | Model identifies the need to consult the private knowledge base, extracting semantic keywords for hybrid search. |
 | *"Test failed with 300+ lines of output, check the root cause."* | `inspect_log_node` | Model identifies the need to inspect an offloaded error slice, retrieving the raw stack trace by ID. |
 | *"We finished implementing RRF hybrid retrieval and settled on k=60, document this decision."* | `flush_session` | Model identifies the milestone completion, distilling ADR into the vault according to local conventions. |
+| *"The compiler threw borrow checker errors and here is how we fixed it, crystallize this as a reusable playbook."* | `distill_session_skill` | Model extracts failure patterns and remediation steps, crystallizing a reusable skill card into the vault. |
 
 > 🌟 **Vocabulary-Independent Retrieval**: Because the engine runs **Hybrid Retrieval (Local ONNX + BM25 + Graph Boost)**, queries succeed even when your exact terms differ from note headings (e.g. searching *"prevent overselling"* successfully retrieves *"idempotent balance rollback"*).
 
@@ -161,17 +163,36 @@ cat report.md | k0maru flush --title "Weekly Architecture Review" --category log
 
 > 🛡️ **Anti-Collision & Auto-Sync**: If a file with the same title already exists with different content, `k0maru` automatically appends version suffixes (e.g. `-v2.md`) to prevent data loss. Upon writing, it immediately triggers incremental cache indexing so the new knowledge is searchable on the next turn.
 
+### 9. Dynamic Experience Distillation: Trace-to-Skill (`k0maru distill` & `distill_session_skill`)
+Turn transient troubleshooting failures into permanent, reusable skills. Inspired by Nous Research Hermes Agent dynamic skills and LLM-Wiki crystallization, `k0maru distill` parses verbose build diagnostics, stack traces, and command trails, extracting four core components: **Trigger Context**, **Root Cause & Error Signatures**, **Remediation Commands**, and **Evergreen Prevention Rules**:
+
+```bash
+# Distill directly from standard input (stdin pipe) with dry-run preview
+echo "error[E0382]: use of moved value: 'data'\nfix: clone or borrow" | \
+  k0maru distill --dry-run
+
+# Distill from an offloaded symbolic log node and flush to skills/
+k0maru distill --node 0b7d8d2 --title "Resolve SQLite-Vec Dynamic Linking Failure"
+
+# Distill from a log file with custom context hint and tags
+k0maru distill --file build.log --title "Fix CMake OpenSSL Missing" --tags build,c,openssl
+```
+
+- **Zero-Friction Flush & Sync**: Automatically routes into `skills/` (or `playbooks/`, `recipes/`, `troubleshooting/` depending on your vault conventions) and immediately re-indexes into FTS5 and vector tables for sub-millisecond retrieval in future sessions.
+
 ---
 
 ## 🔄 Memory Lifecycle: The LLM-Wiki Closed Loop
 
-A sustainable knowledge base compounds value over time through a bidirectional feedback loop. The system adheres to the rule: **"Only crystallize upon deliverable completion or explicit decision points"**, keeping daily scratchpad noise out of long-term memory:
+A sustainable knowledge base compounds value over time through a bidirectional feedback loop. The system adheres to the rule: **"Only crystallize upon deliverable completion, troubleshooting success, or explicit decision points"**, keeping daily scratchpad noise out of long-term memory:
 
 ```mermaid
 flowchart LR
     L0["1. Session Loadout<br/>&lt;300 Token Budget Pack"] --> L1["2. Runtime Offload<br/>Pipe Log Filter to Mermaid"]
-    L1 --> L2["3. Session Flush<br/>Commit logs/YYYY-MM-DD-*.md"]
-    L2 --> L3["4. Periodic Consolidation<br/>Crystallize concepts/ Evergreen Cards"]
+    L1 --> L15["2.5 Trace-to-Skill<br/>Distill Failure Traces"]
+    L1 --> L2["3. Session Flush<br/>Commit logs/ & decisions/"]
+    L15 --> L3["4. Reusable Skills<br/>skills/*.md Playbooks"]
+    L2 --> L3
     L3 -.->|"Continuously Enriches Graph"| L0
 ```
 
@@ -276,21 +297,36 @@ Measured over 100 cold-start iterations and full index rebuilds of 500 Markdown 
 
 For detailed step-by-step instructions, see [QUICKSTART.md](QUICKSTART.md).
 
+### Option A: One-Line Script (macOS & Linux - Recommended)
+No Rust toolchain required. Automatically detects OS and chip architecture, verifies SHA-256 checksums, and installs the standalone binary:
 ```bash
-# 1. Compile single static release binary
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+```
+
+### Option B: Homebrew (macOS & Linux)
+```bash
+brew install K0maru/tap/k0maru
+```
+
+### Option C: Build from Source via Cargo
+```bash
+# Install directly from git
+cargo install --git https://github.com/K0maru/k0maru-agent-memory
+
+# Or clone and compile locally
+git clone https://github.com/K0maru/k0maru-agent-memory.git
+cd k0maru-agent-memory
 cargo build --release
-
-# 2. Install to your system PATH
 cp target/release/k0maru ~/.local/bin/
+```
 
-# 3. Verify installation
-k0maru --version
-# Output: k0maru 0.6.0
-
-# 4. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+### Configure Your Ecosystem in One Click
+Once installed, connect K0maru to your coding agents and verify health:
+```bash
+# 1. One-click install to your AI agent clients (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
 
-# 5. Verify system & client integration health
+# 2. Verify system & client integration health
 k0maru doctor
 ```
 

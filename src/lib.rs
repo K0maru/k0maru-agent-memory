@@ -7,6 +7,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod adapters;
 pub mod convention;
 pub mod core;
+pub mod distill;
 pub mod doctor;
 pub mod ecosystem;
 pub mod install;
@@ -24,6 +25,7 @@ pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
 };
+pub use distill::{DistillEngine, DistillOptions, DistillResult, DistilledSkill, SkillExtractor};
 pub use doctor::{
     format_report, run_diagnostics, DiagnosticItem, DoctorReport, DoctorSummary, StatusLevel,
 };

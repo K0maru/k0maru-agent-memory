@@ -31,6 +31,7 @@ pub enum NoteCategory {
     Decision,
     Log,
     Concept,
+    Skill,
     Generic,
 }
 
@@ -40,6 +41,7 @@ impl NoteCategory {
             NoteCategory::Decision => "decision",
             NoteCategory::Log => "log",
             NoteCategory::Concept => "concept",
+            NoteCategory::Skill => "skill",
             NoteCategory::Generic => "generic",
         }
     }
@@ -50,6 +52,8 @@ impl NoteCategory {
             "decision" | "decisions" | "adr" => NoteCategory::Decision,
             "log" | "logs" | "journal" | "daily" | "records" => NoteCategory::Log,
             "concept" | "concepts" | "wiki" | "card" | "cards" => NoteCategory::Concept,
+            "skill" | "skills" | "playbook" | "playbooks" | "recipe" | "recipes"
+            | "troubleshooting" => NoteCategory::Skill,
             _ => NoteCategory::Generic,
         }
     }

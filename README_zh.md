@@ -7,8 +7,8 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-blue.svg)]()
-[![Tests: 195 passed](https://img.shields.io/badge/Tests-195_passed-brightgreen.svg)]()
+[![Version: 0.7.0](https://img.shields.io/badge/Version-0.7.0-blue.svg)]()
+[![Tests: 213 passed](https://img.shields.io/badge/Tests-213_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
@@ -96,7 +96,8 @@ k0maru ui --vault ~/wiki --open
 - `recall_memory`：基于 FTS5 BM25 + `sqlite-vec` + RRF + 双链图拓扑加速的混合语义记忆检索（自动附加反链拓扑与精准上下文摘要）；
 - `offload_context`：提供字符串级的长文本符号化卸载；
 - `inspect_log_node`：检索已卸载的局部日志切片；
-- `flush_session`：根据知识库自身规约与模板，将关键决策（ADR）、研发心得与会话总结自适应写回知识库中。
+- `flush_session`：根据知识库自身规约与模板，将关键决策（ADR）、研发心得与会话总结自适应写回知识库中；
+- `distill_session_skill`：自动从调试报错日志、编译诊断或已卸载切片中提炼结构化常青技能卡片（触发上下文、故障根因、修复命令、防范规约），落盘并瞬时刷新索引。
 
 #### 💡 自然语言意图驱动（无需任何特定关键词）
 很多用户会问：*“我必须说某些特定口令或关键词才能触发吗？”*  
@@ -108,6 +109,7 @@ k0maru ui --vault ~/wiki --open
 | *“数据库超时我们一般建议怎么配？”*<br/>*“看看我们以前有没有讨论过 JWT 刷新的笔记”*<br/>*“这块代码感觉容易死锁，查查知识库最佳实践”* | `recall_memory` | 模型识别出「需要查阅私有知识库」意图，自动提取概念关键词进行混合语义检索 |
 | *“刚才跑单测报了 300 多行错，看看失败的具体堆栈”* | `inspect_log_node` | 模型识别出「需要调取已截断报错切片」意图，按 ID 精准提取局部原始日志 |
 | *“我们搞完了 RRF 混合检索落地并敲定了参数 k=60，把这个决策记录沉淀下来”* | `flush_session` | 模型识别出「需要沉淀关键决策」意图，自动按知识库规约生成 ADR 笔记并写入 |
+| *“刚才排查 Rust 借用检查报错弄好了，把这个排障命令和防范规约沉淀成技能”* | `distill_session_skill` | 模型提取错误特征与修复命令，按规约在 skills/ 生成结构化经验卡片 |
 
 > 🌟 **检索免字面精确匹配**：由于底层采用了 **Hybrid 混合检索（向量 ONNX + BM25 + 双链升权）**，哪怕您提问的用词与笔记标题不完全一样（例如搜“库存超卖”，笔记叫“防重放扣减”），向量模型也会自动泛化识别并成功召回。
 
@@ -163,17 +165,36 @@ cat milestone_summary.md | k0maru flush --title "阶段里程碑总结" --catego
 
 > 🛡️ **防碰撞与即时同步**：若目标路径已存在同名笔记且内容不同，系统自动追加递增版本后缀（如 `-v2.md`），绝不静默覆盖；写入后自动增量刷新 SQLite FTS5 与向量索引，下一轮会话立即可被检索。
 
+### 9. 动态经验提炼引擎：Trace-to-Skill（`k0maru distill` 与 `distill_session_skill`）
+将排障报错与终端执行痕迹直接转化为可复用技能。受 Nous Research Hermes Agent 动态 Skill 体系与 LLM-Wiki 闭环启发，`k0maru distill` 自动解析冗长的编译错误诊断、堆栈切片与命令日志，抽取四大核心要素：**触发上下文**、**故障根因与错误特征**、**修复策略与执行命令**、**防范规约与常青法则**：
+
+```bash
+# 管道化提炼（支持 Stdin），并提供 --dry-run 安全预览
+echo "error[E0382]: use of moved value: 'data'\nfix: clone or borrow" | \
+  k0maru distill --dry-run
+
+# 从已有 Offload 符号化日志节点精准提炼并落盘至 skills/
+k0maru distill --node 0b7d8d2 --title "解决 SQLite-Vec 动态链接缺失"
+
+# 从指定日志文件提炼，附加提示与标签
+k0maru distill --file build.log --title "修复 CMake 缺少 OpenSSL" --tags build,c,openssl
+```
+
+- **规约归档与即时闭环**：自适应路由至 `skills/`（或 `playbooks/`、`recipes/`、`troubleshooting/`），落盘后立即触发 FTS5 与向量增量索引同步，后续会话与搜索即刻可查。
+
 ---
 
 ## 🔄 记忆生命周期：LLM-Wiki 的双向闭环与经验结晶
 
-知识库与智能体之间应当形成可持续复利的双向反馈回路。系统遵循**「仅在产生阶段交付或明确决策点时才沉淀」**的原则，防止琐碎会话毒化长期记忆：
+知识库与智能体之间应当形成可持续复利的双向反馈回路。系统遵循**「仅在产生阶段交付、排障成功或明确决策点时才沉淀」**的原则，防止琐碎会话毒化长期记忆：
 
 ```mermaid
 flowchart LR
     L0["1. 会话读档 (Loadout)<br/>&lt;300 Token 紧凑背包"] --> L1["2. 运行过滤 (Offload)<br/>长日志管道化转存 Mermaid"]
-    L1 --> L2["3. 交付自动沉淀 (Session Flush)<br/>生成 logs/YYYY-MM-DD-*.md"]
-    L2 --> L3["4. 知识定期结晶 (Consolidation)<br/>提炼 concepts/ 原则卡片"]
+    L1 --> L15["2.5 经验提炼 (Distill)<br/>萃取 Trace 为常青技能"]
+    L1 --> L2["3. 交付自动沉淀 (Flush)<br/>生成 logs/ 与 decisions/"]
+    L15 --> L3["4. 可复用技能 (Skills)<br/>skills/*.md 行动指南"]
+    L2 --> L3
     L3 -.->|"持续更新知识图谱"| L0
 ```
 
@@ -299,21 +320,36 @@ K0maru-Agent-Memory 的设计直接吸收了开源社区与前沿研究的优秀
 
 详细步骤见 [QUICKSTART.md](QUICKSTART.md)。
 
+### 方式一：官方一键安装脚本（macOS & Linux - 推荐）
+无需配置 Rust 编译环境。脚本会自动识别您的操作系统与芯片架构，校验 SHA-256 签名并安装预编译二进制：
 ```bash
-# 1. 编译生成单静态二进制 (全量测试验证)
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+```
+
+### 方式二：Homebrew（macOS & Linux）
+```bash
+brew install K0maru/tap/k0maru
+```
+
+### 方式三：源码编译安装 (Cargo)
+```bash
+# 从 Git 直接安装
+cargo install --git https://github.com/K0maru/k0maru-agent-memory
+
+# 或本地克隆编译
+git clone https://github.com/K0maru/k0maru-agent-memory.git
+cd k0maru-agent-memory
 cargo build --release
-
-# 2. 安装至系统环境
 cp target/release/k0maru ~/.local/bin/
+```
 
-# 3. 验证运行
-k0maru --version
-# 输出: k0maru 0.6.0
-
-# 4. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
+### 一键接入生态智能体
+安装完成后，只需一条指令即可将 K0maru 接入您常用的编码智能体并完成自检：
+```bash
+# 1. 一键挂载至已安装的 AI 智能体客户端 (Claude Code, Cursor, Gemini CLI, Windsurf, Cline)
 k0maru install --vault ~/Documents/MyVault
 
-# 5. 全面体检系统与生态环境
+# 2. 全面体检系统与生态环境
 k0maru doctor
 ```
 

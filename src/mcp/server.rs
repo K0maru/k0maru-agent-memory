@@ -387,6 +387,124 @@ impl McpServer {
         }
     }
 
+    fn call_distill_session_skill(&mut self, arguments: &Value) -> Result<String, String> {
+        let raw_trace = arguments.get("raw_trace").and_then(|v| v.as_str());
+        let node_id = arguments.get("node_id").and_then(|v| v.as_str());
+
+        if raw_trace.is_none() && node_id.is_none() {
+            return Err("Either 'raw_trace' or 'node_id' must be provided".to_string());
+        }
+
+        let title = arguments
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let context_hint = arguments
+            .get("context_hint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let category = arguments
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("skill")
+            .to_string();
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let tags: Vec<String> = arguments
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let related_notes: Vec<String> = arguments
+            .get("related_notes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let engine = crate::distill::DistillEngine::new(&self.vault_path, &self.refs_dir);
+        let opts = crate::distill::DistillOptions {
+            title,
+            context_hint,
+            category: Some(category),
+            tags,
+            related_notes: related_notes.clone(),
+            dry_run,
+        };
+
+        let result = if let Some(trace) = raw_trace {
+            engine
+                .distill_text(trace, opts)
+                .map_err(|e| format!("Distill failed: {}", e))?
+        } else if let Some(nid) = node_id {
+            engine
+                .distill_node(nid, opts)
+                .map_err(|e| format!("Distill failed: {}", e))?
+        } else {
+            unreachable!();
+        };
+
+        if !dry_run {
+            let _ = self.sync_cache();
+        }
+
+        let links_str = if related_notes.is_empty() {
+            "None".to_string()
+        } else {
+            related_notes
+                .iter()
+                .map(|r| {
+                    let t = r.trim();
+                    if t.starts_with("[[") && t.ends_with("]]") {
+                        t.to_string()
+                    } else {
+                        format!("[[{}]]", t)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        if dry_run {
+            Ok(format!(
+                "[Dry Run] Generated skill preview:\n\nTitle: {}\nCategory: {}\nRelative Path: {}\nWikiLinks: {}\n\n---\n{}",
+                result.skill.title,
+                result.flush_result.category,
+                result.flush_result.relative_path.display(),
+                links_str,
+                result.preview_markdown
+            ))
+        } else if !result.flush_result.created {
+            Ok(format!(
+                "Skill note already up to date with identical content.\nPath: {}\nCategory: {}",
+                result.flush_result.relative_path.display(),
+                result.flush_result.category
+            ))
+        } else {
+            Ok(format!(
+                "✓ Crystallized skill note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                result.skill.title,
+                result.flush_result.relative_path.display(),
+                result.flush_result.category,
+                links_str
+            ))
+        }
+    }
+
     fn handle_initialize(&self, id: Value) -> Value {
         json!({
             "jsonrpc": "2.0",
@@ -509,6 +627,49 @@ impl McpServer {
                             },
                             "required": ["title", "content"]
                         }
+                    },
+                    {
+                        "name": "distill_session_skill",
+                        "description": "Distill an execution trace, error log, or troubleshooting session into a reusable skill note and crystallize it into the vault.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "raw_trace": {
+                                    "type": "string",
+                                    "description": "Raw execution log, error stack trace, or debugging terminal output"
+                                },
+                                "node_id": {
+                                    "type": "string",
+                                    "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
+                                },
+                                "title": {
+                                    "type": "string",
+                                    "description": "Optional explicit skill title (auto-inferred if omitted)"
+                                },
+                                "context_hint": {
+                                    "type": "string",
+                                    "description": "Optional context hint or explanation describing what was happening"
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Target category (defaults to 'skill')"
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
+                                },
+                                "related_notes": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Optional related notes or WikiLinks array"
+                                },
+                                "dry_run": {
+                                    "type": "boolean",
+                                    "description": "If true, simulates distillation and returns preview without writing to vault"
+                                }
+                            }
+                        }
                     }
                 ]
             }
@@ -539,6 +700,10 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "flush_session" => match self.call_flush_session(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "distill_session_skill" => match self.call_distill_session_skill(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },

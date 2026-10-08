@@ -77,7 +77,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 6);
 
     let tool_names: Vec<&str> = tools
         .iter()
@@ -89,29 +89,37 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"offload_context"));
     assert!(tool_names.contains(&"inspect_log_node"));
     assert!(tool_names.contains(&"flush_session"));
+    assert!(tool_names.contains(&"distill_session_skill"));
 
     // Verify schemas
     for tool in tools {
         let name = tool["name"].as_str().unwrap();
         let schema = &tool["inputSchema"];
         assert_eq!(schema["type"], "object");
-        let required = schema["required"].as_array().expect("required array");
         match name {
             "get_project_loadout" => {
+                let required = schema["required"].as_array().expect("required array");
                 assert!(required.iter().any(|r| r == "project_name"));
             }
             "recall_memory" => {
+                let required = schema["required"].as_array().expect("required array");
                 assert!(required.iter().any(|r| r == "query"));
             }
             "offload_context" => {
+                let required = schema["required"].as_array().expect("required array");
                 assert!(required.iter().any(|r| r == "raw_text"));
             }
             "inspect_log_node" => {
+                let required = schema["required"].as_array().expect("required array");
                 assert!(required.iter().any(|r| r == "node_id"));
             }
             "flush_session" => {
+                let required = schema["required"].as_array().expect("required array");
                 assert!(required.iter().any(|r| r == "title"));
                 assert!(required.iter().any(|r| r == "content"));
+            }
+            "distill_session_skill" => {
+                assert!(schema["properties"]["raw_trace"].is_object());
             }
             _ => panic!("Unexpected tool: {}", name),
         }

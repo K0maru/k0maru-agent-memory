@@ -279,6 +279,29 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
         );
     }
 
+    // Skill candidates
+    if !target_subdirs.contains_key("skill") {
+        let skill_candidates = [
+            "skills",
+            "playbooks",
+            "recipes",
+            "troubleshooting",
+            "cards",
+            "20_Cards",
+        ];
+        let mut found = None;
+        for cand in skill_candidates {
+            if vault_root.join(cand).is_dir() {
+                found = Some(PathBuf::from(cand));
+                break;
+            }
+        }
+        target_subdirs.insert(
+            "skill".to_string(),
+            found.unwrap_or_else(|| PathBuf::from("")),
+        );
+    }
+
     // Generic defaults to vault root
     target_subdirs
         .entry("generic".to_string())
