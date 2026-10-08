@@ -20,6 +20,8 @@ pub enum InstallTarget {
     Gemini,
     Windsurf,
     Cline,
+    Hermes,
+    OpenClaw,
 }
 
 impl InstallTarget {
@@ -32,6 +34,8 @@ impl InstallTarget {
             Self::Gemini => vec![McpClient::Gemini],
             Self::Windsurf => vec![McpClient::Windsurf],
             Self::Cline => vec![McpClient::Cline],
+            Self::Hermes => vec![McpClient::Hermes],
+            Self::OpenClaw => vec![McpClient::OpenClaw],
         }
     }
 }
@@ -47,8 +51,10 @@ impl std::str::FromStr for InstallTarget {
             "gemini" | "antigravity" => Ok(Self::Gemini),
             "windsurf" => Ok(Self::Windsurf),
             "cline" | "roo" | "roo-cline" => Ok(Self::Cline),
+            "hermes" | "hermes-agent" => Ok(Self::Hermes),
+            "openclaw" | "claw" => Ok(Self::OpenClaw),
             other => Err(format!(
-                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, windsurf, cline",
+                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw",
                 other
             )),
         }
@@ -64,6 +70,8 @@ impl std::fmt::Display for InstallTarget {
             Self::Gemini => write!(f, "gemini"),
             Self::Windsurf => write!(f, "windsurf"),
             Self::Cline => write!(f, "cline"),
+            Self::Hermes => write!(f, "hermes"),
+            Self::OpenClaw => write!(f, "openclaw"),
         }
     }
 }

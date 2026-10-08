@@ -52,18 +52,36 @@ fn test_install_target_from_str() {
         InstallTarget::from_str("roo-cline").unwrap(),
         InstallTarget::Cline
     );
+    assert_eq!(
+        InstallTarget::from_str("hermes").unwrap(),
+        InstallTarget::Hermes
+    );
+    assert_eq!(
+        InstallTarget::from_str("hermes-agent").unwrap(),
+        InstallTarget::Hermes
+    );
+    assert_eq!(
+        InstallTarget::from_str("openclaw").unwrap(),
+        InstallTarget::OpenClaw
+    );
+    assert_eq!(
+        InstallTarget::from_str("claw").unwrap(),
+        InstallTarget::OpenClaw
+    );
 
     assert!(InstallTarget::from_str("invalid-client").is_err());
 }
 
 #[test]
 fn test_install_target_clients() {
-    assert_eq!(InstallTarget::All.clients().len(), 5);
+    assert_eq!(InstallTarget::All.clients().len(), 7);
     assert_eq!(InstallTarget::Claude.clients(), vec![McpClient::Claude]);
     assert_eq!(InstallTarget::Cursor.clients(), vec![McpClient::Cursor]);
     assert_eq!(InstallTarget::Gemini.clients(), vec![McpClient::Gemini]);
     assert_eq!(InstallTarget::Windsurf.clients(), vec![McpClient::Windsurf]);
     assert_eq!(InstallTarget::Cline.clients(), vec![McpClient::Cline]);
+    assert_eq!(InstallTarget::Hermes.clients(), vec![McpClient::Hermes]);
+    assert_eq!(InstallTarget::OpenClaw.clients(), vec![McpClient::OpenClaw]);
 }
 
 #[test]
@@ -168,7 +186,7 @@ fn test_run_install_dry_run() {
 
     let report = run_install(options).expect("dry run should succeed");
     assert!(report.dry_run);
-    assert_eq!(report.outcomes.len(), 5);
+    assert_eq!(report.outcomes.len(), 7);
 
     for outcome in &report.outcomes {
         assert!(outcome.dry_run);
@@ -195,7 +213,7 @@ fn test_run_install_live_all_clients() {
 
     let report = run_install(options).expect("install should succeed");
     assert!(!report.dry_run);
-    assert_eq!(report.outcomes.len(), 5);
+    assert_eq!(report.outcomes.len(), 7);
 
     for outcome in &report.outcomes {
         assert!(outcome.updated);
@@ -231,6 +249,62 @@ fn test_run_install_selective_client() {
     // Claude should not have been created
     let claude_cfg = home.join(".claude.json");
     assert!(!claude_cfg.exists());
+}
+
+#[test]
+fn test_run_install_hermes_client() {
+    let temp_home = tempdir().expect("tempdir");
+    let home = temp_home.path();
+    let temp_vault = tempdir().expect("tempdir");
+    let vault = temp_vault.path();
+
+    let options = InstallOptions {
+        vault_path: vault.to_path_buf(),
+        target: InstallTarget::Hermes,
+        dry_run: false,
+        home_override: Some(home.to_path_buf()),
+    };
+
+    let report = run_install(options).expect("install hermes should succeed");
+    assert_eq!(report.outcomes.len(), 1);
+    assert_eq!(report.outcomes[0].client, McpClient::Hermes);
+    assert!(report.outcomes[0].config_path.exists());
+    assert_eq!(
+        report.outcomes[0].config_path,
+        home.join(".hermes").join("mcp.json")
+    );
+
+    let content = fs::read_to_string(&report.outcomes[0].config_path).expect("read file");
+    let val: serde_json::Value = serde_json::from_str(&content).expect("valid json");
+    assert_eq!(val["mcpServers"]["k0maru-memory"]["command"], "k0maru");
+}
+
+#[test]
+fn test_run_install_openclaw_client() {
+    let temp_home = tempdir().expect("tempdir");
+    let home = temp_home.path();
+    let temp_vault = tempdir().expect("tempdir");
+    let vault = temp_vault.path();
+
+    let options = InstallOptions {
+        vault_path: vault.to_path_buf(),
+        target: InstallTarget::OpenClaw,
+        dry_run: false,
+        home_override: Some(home.to_path_buf()),
+    };
+
+    let report = run_install(options).expect("install openclaw should succeed");
+    assert_eq!(report.outcomes.len(), 1);
+    assert_eq!(report.outcomes[0].client, McpClient::OpenClaw);
+    assert!(report.outcomes[0].config_path.exists());
+    assert_eq!(
+        report.outcomes[0].config_path,
+        home.join(".openclaw").join("config.json")
+    );
+
+    let content = fs::read_to_string(&report.outcomes[0].config_path).expect("read file");
+    let val: serde_json::Value = serde_json::from_str(&content).expect("valid json");
+    assert_eq!(val["mcpServers"]["k0maru-memory"]["command"], "k0maru");
 }
 
 #[test]

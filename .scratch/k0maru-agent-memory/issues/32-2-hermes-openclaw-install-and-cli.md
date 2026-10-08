@@ -20,7 +20,7 @@ Enable users to configure `k0maru-memory` into Hermes Agent and OpenClaw via `k0
    - Add CLI test via `assert_cmd` executing `k0maru install --target hermes --dry-run --json`.
 
 ## Acceptance Criteria
-- [ ] `k0maru install --target hermes` injects `k0maru-memory` into `~/.hermes/mcp.json`;
-- [ ] `k0maru install --target openclaw` injects `k0maru-memory` into `~/.openclaw/config.json`;
-- [ ] Dry-run preview displays correctly;
-- [ ] All tests pass with zero warnings (`cargo clippy --all-targets -- -D warnings`).
+- [x] `k0maru install --target hermes` injects `k0maru-memory` into `~/.hermes/mcp.json`;
+- [x] `k0maru install --target openclaw` injects `k0maru-memory` into `~/.openclaw/config.json`;
+- [x] Dry-run preview displays correctly;
+- [x] All tests pass with zero warnings (`cargo clippy --all-targets -- -D warnings`).

@@ -48,6 +48,6 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [31-1-distill-domain-models-and-parser.md](issues/31-1-distill-domain-models-and-parser.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [31-2-distill-engine-and-flush-integration.md](issues/31-2-distill-engine-and-flush-integration.md) (Blocked by: 31-1) ✅ **COMPLETED**
 - [x] [31-3-cli-distill-command-and-fastmcp-tool.md](issues/31-3-cli-distill-command-and-fastmcp-tool.md) (Blocked by: 31-2) ✅ **COMPLETED (v0.7.0)**
-- [ ] [32-1-hermes-openclaw-models-and-detector.md](issues/32-1-hermes-openclaw-models-and-detector.md) (Blocked by: None)
-- [ ] [32-2-hermes-openclaw-install-and-cli.md](issues/32-2-hermes-openclaw-install-and-cli.md) (Blocked by: 32-1)
+- [x] [32-1-hermes-openclaw-models-and-detector.md](issues/32-1-hermes-openclaw-models-and-detector.md) (Blocked by: None) ✅ **COMPLETED**
+- [x] [32-2-hermes-openclaw-install-and-cli.md](issues/32-2-hermes-openclaw-install-and-cli.md) (Blocked by: 32-1) ✅ **COMPLETED**
 

@@ -192,7 +192,7 @@ pub struct InstallArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline
+    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw
     #[arg(short, long, default_value = "all")]
     pub target: String,
 

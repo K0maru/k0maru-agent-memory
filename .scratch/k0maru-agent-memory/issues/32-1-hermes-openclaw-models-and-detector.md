@@ -32,8 +32,8 @@ None
    - Test `InstallTarget::from_str` for `"hermes"` and `"openclaw"`.
 
 ## Acceptance Criteria
-- [ ] `McpClient::all().len() == 7`;
-- [ ] `InstallTarget::from_str` parses `hermes` and `openclaw` case-insensitively;
-- [ ] Config path resolution honors `$HERMES_HOME` and `$OPENCLAW_HOME`;
-- [ ] `k0maru doctor` inspects Hermes and OpenClaw alongside other clients;
-- [ ] All unit and integration tests pass cleanly with `cargo test`.
+- [x] `McpClient::all().len() == 7`;
+- [x] `InstallTarget::from_str` parses `hermes` and `openclaw` case-insensitively;
+- [x] Config path resolution honors `$HERMES_HOME` and `$OPENCLAW_HOME`;
+- [x] `k0maru doctor` inspects Hermes and OpenClaw alongside other clients;
+- [x] All unit and integration tests pass cleanly with `cargo test`.

@@ -569,6 +569,8 @@ fn target_flag_name(client: McpClient) -> &'static str {
         McpClient::Gemini => "gemini",
         McpClient::Windsurf => "windsurf",
         McpClient::Cline => "cline",
+        McpClient::Hermes => "hermes",
+        McpClient::OpenClaw => "openclaw",
     }
 }
 
