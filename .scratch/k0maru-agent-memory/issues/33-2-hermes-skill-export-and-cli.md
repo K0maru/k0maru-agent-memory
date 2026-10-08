@@ -25,7 +25,7 @@ Expose Hermes skill alignment through the public user interfaces: the `k0maru di
    - FastMCP test calling `distill_session_skill` with `target: "hermes"`.
 
 ## Acceptance Criteria
-- [ ] `k0maru distill --target hermes --dry-run` emits Hermes-compliant skill card;
-- [ ] `k0maru distill --export-hermes` writes into Hermes skills directory respecting `--home`;
-- [ ] FastMCP `distill_session_skill` supports `target: "hermes"`;
-- [ ] Full test suite passes cleanly with zero warnings.
+- [x] `k0maru distill --target hermes --dry-run` emits Hermes-compliant skill card;
+- [x] `k0maru distill --export-hermes` writes into Hermes skills directory respecting `--home`;
+- [x] FastMCP `distill_session_skill` supports `target: "hermes"`;
+- [x] Full test suite passes cleanly with zero warnings.

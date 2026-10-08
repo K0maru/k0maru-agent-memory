@@ -37,6 +37,6 @@ None
    - Verify non-empty sections and valid markdown syntax.
 
 ## Acceptance Criteria
-- [ ] `DistillTarget::Hermes` produces YAML frontmatter containing required Hermes fields;
-- [ ] `DistillEngine` respects `target: DistillTarget::Hermes`;
-- [ ] Unit tests pass 100% with `cargo test`.
+- [x] `DistillTarget::Hermes` produces YAML frontmatter containing required Hermes fields;
+- [x] `DistillEngine` respects `target: DistillTarget::Hermes`;
+- [x] Unit tests pass 100% with `cargo test`.

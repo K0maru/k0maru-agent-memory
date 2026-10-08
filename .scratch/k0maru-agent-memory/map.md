@@ -52,6 +52,6 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [32-2-hermes-openclaw-install-and-cli.md](issues/32-2-hermes-openclaw-install-and-cli.md) (Blocked by: 32-1) ✅ **COMPLETED**
 - [x] [32-3-cli-home-override-and-mcp-pipe-conformance.md](issues/32-3-cli-home-override-and-mcp-pipe-conformance.md) (Blocked by: 32-2) ✅ **COMPLETED**
 - [x] [32-4-hermes-docker-e2e-and-mock-llm.md](issues/32-4-hermes-docker-e2e-and-mock-llm.md) (Blocked by: 32-3) ✅ **COMPLETED**
-- [ ] [33-1-hermes-skill-schema-and-formatter.md](issues/33-1-hermes-skill-schema-and-formatter.md) (Blocked by: None)
-- [ ] [33-2-hermes-skill-export-and-cli.md](issues/33-2-hermes-skill-export-and-cli.md) (Blocked by: 33-1)
+- [x] [33-1-hermes-skill-schema-and-formatter.md](issues/33-1-hermes-skill-schema-and-formatter.md) (Blocked by: None) ✅ **COMPLETED**
+- [x] [33-2-hermes-skill-export-and-cli.md](issues/33-2-hermes-skill-export-and-cli.md) (Blocked by: 33-1) ✅ **COMPLETED**
 
