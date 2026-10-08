@@ -436,6 +436,16 @@ impl McpServer {
             })
             .unwrap_or_default();
 
+        let target = arguments
+            .get("target")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                std::str::FromStr::from_str(s)
+                    .map_err(|e: String| format!("Invalid target parameter: {}", e))
+            })
+            .transpose()?
+            .unwrap_or(crate::distill::DistillTarget::Default);
+
         let engine = crate::distill::DistillEngine::new(&self.vault_path, &self.refs_dir);
         let opts = crate::distill::DistillOptions {
             title,
@@ -444,6 +454,7 @@ impl McpServer {
             tags,
             related_notes: related_notes.clone(),
             dry_run,
+            target,
         };
 
         let result = if let Some(trace) = raw_trace {
@@ -667,6 +678,11 @@ impl McpServer {
                                 "dry_run": {
                                     "type": "boolean",
                                     "description": "If true, simulates distillation and returns preview without writing to vault"
+                                },
+                                "target": {
+                                    "type": "string",
+                                    "enum": ["default", "hermes"],
+                                    "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
                                 }
                             }
                         }

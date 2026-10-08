@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::convention::{FlushEngine, FlushRequest, FlushResult};
 use crate::distill::extractor::SkillExtractor;
-use crate::distill::model::DistilledSkill;
+use crate::distill::model::{DistillTarget, DistilledSkill};
 use crate::offload::inspect_node;
 
 /// Options for parameterizing the distillation of traces into a skill card.
@@ -23,6 +23,8 @@ pub struct DistillOptions {
     pub related_notes: Vec<String>,
     /// Preview only, do not write to vault.
     pub dry_run: bool,
+    /// Target schema format (e.g. Default or Hermes).
+    pub target: DistillTarget,
 }
 
 /// Result of distilling an execution trace into a crystallized skill.
@@ -34,6 +36,9 @@ pub struct DistillResult {
     pub flush_result: FlushResult,
     /// Full synthesized Markdown content.
     pub preview_markdown: String,
+    /// Optional external ecosystem export path (e.g. ~/.hermes/skills/<slug>.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_path: Option<PathBuf>,
 }
 
 /// The core distillation engine bridging raw traces and crystallized vault skills.
@@ -93,7 +98,10 @@ impl DistillEngine {
         }
 
         // 2. Synthesize markdown representation
-        let markdown = skill.to_markdown();
+        let markdown = match opts.target {
+            DistillTarget::Default => skill.to_markdown(),
+            DistillTarget::Hermes => skill.to_hermes_markdown(),
+        };
 
         // 3. Delegate to FlushEngine for safe write-back and auto-indexing
         let flush_engine = FlushEngine::new(&self.vault_root)?;
@@ -115,6 +123,7 @@ impl DistillEngine {
             skill,
             flush_result,
             preview_markdown: markdown,
+            export_path: None,
         })
     }
 

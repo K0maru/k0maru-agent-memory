@@ -39,6 +39,7 @@ $ cargo build --release
         tags: vec!["topic/rust".to_string()],
         related_notes: vec!["Modular Architecture".to_string()],
         dry_run: false,
+        ..Default::default()
     };
 
     let result = engine.distill_text(trace, opts).unwrap();
@@ -81,6 +82,7 @@ fn test_distill_dry_run_does_not_write_to_disk() {
         tags: vec![],
         related_notes: vec![],
         dry_run: true,
+        ..Default::default()
     };
 
     let result = engine.distill_text(trace, opts).unwrap();
@@ -120,6 +122,7 @@ fn test_distill_node_from_offload_refs() {
         tags: vec!["topic/build".to_string()],
         related_notes: vec![],
         dry_run: false,
+        ..Default::default()
     };
 
     let result = distill_engine.distill_node(&node_id, opts).unwrap();
@@ -154,6 +157,7 @@ fn test_distill_file_from_disk() {
         tags: vec![],
         related_notes: vec![],
         dry_run: false,
+        ..Default::default()
     };
 
     let result = engine.distill_file(&trace_file, opts).unwrap();
@@ -190,6 +194,7 @@ fn test_distill_instant_cache_synchronization() {
         tags: vec!["topic/network".to_string()],
         related_notes: vec![],
         dry_run: false,
+        ..Default::default()
     };
 
     let result = engine.distill_text(trace, opts).unwrap();

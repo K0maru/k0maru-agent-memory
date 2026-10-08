@@ -4,6 +4,11 @@ use super::{FlushRequest, VaultConvention};
 
 /// Synthesizes complete Markdown note content based on the flush request and detected vault convention.
 pub fn synthesize_markdown(request: &FlushRequest, convention: &VaultConvention) -> String {
+    // If request.content already starts with YAML frontmatter delimiter, preserve it intact
+    if request.content.trim_start().starts_with("---") {
+        return request.content.clone();
+    }
+
     let today_str = Local::now().date_naive().format("%Y-%m-%d").to_string();
 
     if let Some(ref tmpl) = convention.template {
