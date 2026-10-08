@@ -437,3 +437,29 @@ fn test_cli_install_invalid_target() {
         .assert()
         .failure();
 }
+
+#[test]
+fn test_cli_install_with_home_override() {
+    let temp_home = tempdir().expect("tempdir");
+    let home = temp_home.path();
+    let temp_vault = tempdir().expect("tempdir");
+    let vault = temp_vault.path();
+
+    let mut cmd = Command::cargo_bin("k0maru").expect("binary k0maru should exist");
+    cmd.args([
+        "install",
+        "--target",
+        "hermes",
+        "--home",
+        home.to_str().unwrap(),
+        "--vault",
+        vault.to_str().unwrap(),
+    ])
+    .assert()
+    .success();
+
+    let hermes_cfg = home.join(".hermes").join("mcp.json");
+    assert!(hermes_cfg.exists());
+    let content = fs::read_to_string(&hermes_cfg).unwrap();
+    assert!(content.contains("k0maru-memory"));
+}

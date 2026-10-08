@@ -50,4 +50,6 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [31-3-cli-distill-command-and-fastmcp-tool.md](issues/31-3-cli-distill-command-and-fastmcp-tool.md) (Blocked by: 31-2) ✅ **COMPLETED (v0.7.0)**
 - [x] [32-1-hermes-openclaw-models-and-detector.md](issues/32-1-hermes-openclaw-models-and-detector.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [32-2-hermes-openclaw-install-and-cli.md](issues/32-2-hermes-openclaw-install-and-cli.md) (Blocked by: 32-1) ✅ **COMPLETED**
+- [x] [32-3-cli-home-override-and-mcp-pipe-conformance.md](issues/32-3-cli-home-override-and-mcp-pipe-conformance.md) (Blocked by: 32-2) ✅ **COMPLETED**
+- [x] [32-4-hermes-docker-e2e-and-mock-llm.md](issues/32-4-hermes-docker-e2e-and-mock-llm.md) (Blocked by: 32-3) ✅ **COMPLETED**
 

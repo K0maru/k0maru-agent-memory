@@ -181,6 +181,10 @@ pub struct DoctorArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
+    /// Home directory override for inspecting client configs (defaults to system user home)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
     /// Output structured JSON instead of human-readable report
     #[arg(long)]
     pub json: bool,
@@ -195,6 +199,10 @@ pub struct InstallArgs {
     /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw
     #[arg(short, long, default_value = "all")]
     pub target: String,
+
+    /// Home directory override for installing client configs (defaults to system user home)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
 
     /// Preview configuration changes without writing to disk
     #[arg(long)]
@@ -643,7 +651,7 @@ fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_doctor(args: DoctorArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let report = run_diagnostics(&vault_path, None);
+    let report = run_diagnostics(&vault_path, args.home.as_deref());
 
     if args.json {
         let json_str = serde_json::to_string_pretty(&report)?;
@@ -667,7 +675,7 @@ fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> 
         vault_path,
         target,
         dry_run: args.dry_run,
-        home_override: None,
+        home_override: args.home,
     };
 
     let report = run_install(options).map_err(|e| e as Box<dyn std::error::Error>)?;
