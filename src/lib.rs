@@ -25,7 +25,9 @@ pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
 };
-pub use distill::{DistillEngine, DistillOptions, DistillResult, DistilledSkill, SkillExtractor};
+pub use distill::{
+    DistillEngine, DistillOptions, DistillResult, DistillTarget, DistilledSkill, SkillExtractor,
+};
 pub use doctor::{
     format_report, run_diagnostics, DiagnosticItem, DoctorReport, DoctorSummary, StatusLevel,
 };

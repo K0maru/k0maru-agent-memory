@@ -11,4 +11,4 @@ pub mod model;
 
 pub use engine::{DistillEngine, DistillOptions, DistillResult};
 pub use extractor::SkillExtractor;
-pub use model::DistilledSkill;
+pub use model::{DistillTarget, DistilledSkill};
