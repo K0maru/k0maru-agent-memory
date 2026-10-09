@@ -7,6 +7,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.8.1] - 2026-10-09
+
+### 🚀 What's Changed (English)
+
+#### Key Highlights & New Capabilities
+- **Publication-Grade VitePress Documentation Engine**:
+  - Launched official bilingual documentation website powered by VitePress with a tailored Developer Dark Cockpit theme (`#0F172A` background, `#22C55E` emerald accent, `#1B2336` cards, `JetBrains Mono` code blocks);
+  - Implemented 100% symmetrical chapter parity between English (`docs/en/`) and Chinese (`docs/zh/`) with instant language switching;
+  - Built-in zero-SaaS, offline-first Minisearch local search indexing both English and Chinese content in <2ms;
+  - Comprehensive documentation covering: Product Philosophy & BYOM, 10-dimensional Competitor Matrices, Step-by-Step Installation & Quickstart, 4-Layer Decoupled Architecture & L0-L3 Memory Hierarchy, 8 Key Implementation Deep Dives, Ecosystem FastMCP Integration (Claude Code, Cursor, Windsurf, Hermes Agent, OpenClaw), Industrial Production Scenarios, Exhaustive CLI & MCP Schemas Reference, and Empirical A100 Benchmarks;
+  - Automated GitHub Pages deployment pipeline via `.github/workflows/deploy-docs.yml`.
+- **Editorial & Style Standards Compliance**:
+  - English documentation strictly complies with the **Google Developer Documentation Style Guide** (second-person "you", active voice, present tense, descriptive headings, parallel list items);
+  - Chinese documentation strictly complies with **阮一峰《中文技术文档写作规范》** and **《中文文案排版指北》** (Pangu spacing between Chinese and English/numbers, full-width punctuation, standard proper noun casing).
+
+#### Quality & Test Metrics
+- VitePress static build verified in 1.42s with 0 broken links and 0 errors.
+- 232 / 232 unit and integration tests passing with 100% green rate.
+- Zero warnings under `cargo clippy --all-targets -- -D warnings`.
+- Codebase formatted cleanly under `cargo fmt --check`.
+
+---
+
+### 🚀 详细更新日志（简体中文）
+
+#### 核心亮点与新特性
+- **发表级 VitePress 双语技术文档系统上线**:
+  - 正式上线基于 VitePress 构建的官方双语技术文档站点，定制极客暗黑主题（Developer Dark Cockpit，采用 `#0F172A` 底色、`#22C55E` 翡翠绿重音、`#1B2336` 卡片表面及 `JetBrains Mono` 等宽字体，与项目内嵌控制台美学高度契合）；
+  - 达成英文版（`docs/en/`）与中文版（`docs/zh/`）100% 章节严格对称与顶栏无缝一键切换；
+  - 内置零 SaaS 依赖、离线优先的本地 Minisearch 全文检索引擎，实现中英文关键词毫秒级精准定位与高亮跳转；
+  - 完整覆盖 11 大核心板块：产品哲学与 BYOM 原则、10 维度竞品全景对比矩阵、5 大安装路径与 3 分钟极速上手、四层解耦架构模型与 L0~L3 知识分级、8 大核心实现技术剖析、全生态 Agent 挂载（Claude Code, Cursor, Windsurf, Hermes, OpenClaw 等）、工业级生产场景实战复盘、CLI 与 FastMCP 协议接口详尽规范、NVIDIA A100 实测看板与 Token 经济学；
+  - 配置自动化 GitHub Pages 部署流水线（`.github/workflows/deploy-docs.yml`）。
+- **专业排版与写作规范合规**:
+  - 英文文档严格遵循 **Google Developer Documentation Style Guide**（第二人称 "you"、主动语态、现在时、动作导向标题与平行列表结构）；
+  - 中文文档严格遵循 **阮一峰《中文技术文档写作规范》** 与 **《中文文案排版指北》**（中英文与数字间保留半角空格盘古之白、全角中文标点、官方专有名词严格大小写、代码块语言全标注）。
+
+#### 质量与测试指标
+- VitePress 静态构建在 1.42 秒内完成，0 死链、0 警告。
+- 232 / 232 单元与集成测试全部通过，通过率 100%。
+- `cargo clippy --all-targets -- -D warnings` 零警告。
+- `cargo fmt --check` 代码格式规范验证通过。
+
+---
 
 ## [0.8.0] - 2026-10-09
 
