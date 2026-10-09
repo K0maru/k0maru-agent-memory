@@ -1,5 +1,40 @@
 use serde::{Deserialize, Serialize};
 
+/// Target ecosystem / agent format for crystallized skill cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DistillTarget {
+    /// Default Obsidian/SecondBrain note format with standard frontmatter.
+    #[default]
+    Default,
+    /// Nous Research Hermes Agent dynamic skill format with actionable schema frontmatter.
+    Hermes,
+}
+
+impl std::str::FromStr for DistillTarget {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "default" => Ok(DistillTarget::Default),
+            "hermes" => Ok(DistillTarget::Hermes),
+            other => Err(format!(
+                "Unknown distill target '{}'. Supported targets: default, hermes",
+                other
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for DistillTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DistillTarget::Default => write!(f, "default"),
+            DistillTarget::Hermes => write!(f, "hermes"),
+        }
+    }
+}
+
 /// Structured representation of a distilled skill extracted from execution traces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DistilledSkill {
@@ -47,6 +82,68 @@ impl DistilledSkill {
             }
         }
         md.push_str("---\n\n");
+
+        md.push_str(&self.render_body());
+        md
+    }
+
+    /// Format the distilled skill into Nous Research Hermes Agent dynamic skill Markdown format.
+    ///
+    /// Produces YAML frontmatter containing `name`, `description`, `trigger`, `tags`,
+    /// and `parameters`, enabling Hermes to treat the note as an actionable skill.
+    pub fn to_hermes_markdown(&self) -> String {
+        let mut md = String::new();
+
+        let raw_slug = crate::convention::slugify(&self.title);
+        let name = if raw_slug.is_empty() {
+            "distilled-skill".to_string()
+        } else {
+            raw_slug
+        };
+
+        let description = if self.title.trim().is_empty() {
+            "Distilled skill".to_string()
+        } else {
+            self.title.trim().replace('\n', " ")
+        };
+
+        let trigger = if self.trigger_context.trim().is_empty() {
+            "常规排障与环境初始化".to_string()
+        } else {
+            self.trigger_context.trim().replace('\n', " ")
+        };
+
+        let mut tags = self.tags.clone();
+        if !tags.iter().any(|t| t == "type/skill" || t == "#type/skill") {
+            tags.insert(0, "type/skill".to_string());
+        }
+
+        md.push_str("---\n");
+        md.push_str(&format!("name: {}\n", name));
+        md.push_str(&format!("description: {}\n", description));
+        md.push_str(&format!("trigger: {}\n", trigger));
+        md.push_str("parameters:\n  type: object\n  properties: {}\n");
+
+        let clean_tags: Vec<String> = tags
+            .iter()
+            .map(|t| t.trim_start_matches('#').to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if !clean_tags.is_empty() {
+            md.push_str("tags:\n");
+            for tag in clean_tags {
+                md.push_str(&format!("  - {}\n", tag));
+            }
+        }
+        md.push_str("---\n\n");
+
+        md.push_str(&self.render_body());
+        md
+    }
+
+    /// Render core content sections (Trigger, Root Cause, Remediation, Prevention Rules, WikiLinks).
+    pub fn render_body(&self) -> String {
+        let mut md = String::new();
 
         // Title heading
         md.push_str(&format!("# {}\n\n", self.title));

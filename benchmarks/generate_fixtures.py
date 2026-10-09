@@ -139,7 +139,7 @@ def generate_cargo_build_log(target_lines=500):
             "    = note: required because it appears within the type `RequestContext`\n"
             "    = note: required for `tokio::task::JoinHandle<()>` to implement `Send`\n"
             "note: required by a bound in `tokio::spawn`\n"
-            "   --> /Users/k0maru3/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21\n"
+            "   --> /home/developer/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.38.0/src/task/spawn.rs:166:21\n"
             "    |\n"
             "166 |         T: Future + Send + 'static,\n"
             "    |                     ^^^^ required by this bound in `spawn`"
@@ -183,7 +183,7 @@ def generate_pytest_log(target_lines=800):
     lines = [
         "============================= test session starts ==============================",
         "platform darwin -- Python 3.11.8, pytest-8.1.1, pluggy-1.4.0",
-        "rootdir: /Users/k0maru3/workspace/k0maru-agent-memory",
+        "rootdir: /workspace/k0maru-agent-memory",
         "configfile: pyproject.toml",
         "testpaths: tests",
         "plugins: anyio-4.3.0, asyncio-0.23.6, cov-5.0.0, mock-3.14.0, xdist-3.5.0",
@@ -215,7 +215,7 @@ def generate_pytest_log(target_lines=800):
             "[WARN] Lock acquisition waited 5000ms before timeout\n"
             "----------------------------- Captured stderr call -----------------------------\n"
             "Traceback (most recent call last):\n"
-            "  File \"/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py\", line 88, in execute_batch\n"
+            "  File \"/workspace/k0maru-agent-memory/src/storage/sqlite.py\", line 88, in execute_batch\n"
             "    with self.conn.transaction():\n"
             "LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite"
         ),
@@ -300,7 +300,7 @@ def generate_jest_log(target_lines=1200):
     lines = [
         "$ jest --colors --maxWorkers=4 --verbose",
         "  console.log",
-        "    [INFO] Starting Jest Test Runner in workspace /Users/k0maru3/workspace/frontend-hub",
+        "    [INFO] Starting Jest Test Runner in workspace /workspace/frontend-hub",
         "",
         "  console.warn",
         "    [WARN] React.createFactory() is deprecated and will be removed in next major release.",

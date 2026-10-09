@@ -1,6 +1,6 @@
 $ jest --colors --maxWorkers=4 --verbose
   console.log
-    [INFO] Starting Jest Test Runner in workspace /Users/k0maru3/workspace/frontend-hub
+    [INFO] Starting Jest Test Runner in workspace /workspace/frontend-hub
 
   console.warn
     [WARN] React.createFactory() is deprecated and will be removed in next major release.

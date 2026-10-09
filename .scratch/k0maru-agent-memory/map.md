@@ -47,5 +47,11 @@ Standalone, cleanroom, single-static-binary, zero-daemon agent memory hub mounti
 - [x] [30-flush-engine-cli-and-mcp-integration.md](issues/30-flush-engine-cli-and-mcp-integration.md) (Blocked by: 29) ✅ **COMPLETED (v0.6.0)**
 - [x] [31-1-distill-domain-models-and-parser.md](issues/31-1-distill-domain-models-and-parser.md) (Blocked by: None) ✅ **COMPLETED**
 - [x] [31-2-distill-engine-and-flush-integration.md](issues/31-2-distill-engine-and-flush-integration.md) (Blocked by: 31-1) ✅ **COMPLETED**
-- [x] [31-3-cli-distill-command-and-fastmcp-tool.md](issues/31-3-cli-distill-command-and-fastmcp-tool.md) (Blocked by: 31-2) ✅ **COMPLETED**
+- [x] [31-3-cli-distill-command-and-fastmcp-tool.md](issues/31-3-cli-distill-command-and-fastmcp-tool.md) (Blocked by: 31-2) ✅ **COMPLETED (v0.7.0)**
+- [x] [32-1-hermes-openclaw-models-and-detector.md](issues/32-1-hermes-openclaw-models-and-detector.md) (Blocked by: None) ✅ **COMPLETED**
+- [x] [32-2-hermes-openclaw-install-and-cli.md](issues/32-2-hermes-openclaw-install-and-cli.md) (Blocked by: 32-1) ✅ **COMPLETED**
+- [x] [32-3-cli-home-override-and-mcp-pipe-conformance.md](issues/32-3-cli-home-override-and-mcp-pipe-conformance.md) (Blocked by: 32-2) ✅ **COMPLETED**
+- [x] [32-4-hermes-docker-e2e-and-mock-llm.md](issues/32-4-hermes-docker-e2e-and-mock-llm.md) (Blocked by: 32-3) ✅ **COMPLETED**
+- [x] [33-1-hermes-skill-schema-and-formatter.md](issues/33-1-hermes-skill-schema-and-formatter.md) (Blocked by: None) ✅ **COMPLETED**
+- [x] [33-2-hermes-skill-export-and-cli.md](issues/33-2-hermes-skill-export-and-cli.md) (Blocked by: 33-1) ✅ **COMPLETED**
 

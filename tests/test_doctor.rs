@@ -19,8 +19,10 @@ fn test_mcp_client_metadata() {
     assert_eq!(McpClient::Gemini.name(), "Antigravity / Gemini CLI");
     assert_eq!(McpClient::Windsurf.name(), "Windsurf");
     assert_eq!(McpClient::Cline.name(), "Cline / Roo Code");
+    assert_eq!(McpClient::Hermes.name(), "Hermes Agent");
+    assert_eq!(McpClient::OpenClaw.name(), "OpenClaw");
 
-    assert_eq!(McpClient::all().len(), 5);
+    assert_eq!(McpClient::all().len(), 7);
 }
 
 #[test]
@@ -43,6 +45,14 @@ fn test_mcp_client_config_path_resolution() {
                 .join("windsurf")
                 .join("mcp_config.json")
         )
+    );
+    assert_eq!(
+        McpClient::Hermes.config_path(Some(home)),
+        Some(home.join(".hermes").join("mcp.json"))
+    );
+    assert_eq!(
+        McpClient::OpenClaw.config_path(Some(home)),
+        Some(home.join(".openclaw").join("config.json"))
     );
 
     // Default Gemini should be .gemini/config/mcp_config.json
@@ -141,7 +151,7 @@ fn test_inspect_all_clients() {
     let home = temp_home.path();
 
     let statuses = inspect_all_clients(Some(home));
-    assert_eq!(statuses.len(), 5);
+    assert_eq!(statuses.len(), 7);
 }
 
 #[test]

@@ -26,6 +26,10 @@ __pycache__/
 *.tmp
 tmp/
 
+# Maintainer Internal & Colab Foundry Tooling (Isolated from End Users)
+.internal/
+*.ipynb
+
 # Environment Variables & Secrets
 .env
 .env.*

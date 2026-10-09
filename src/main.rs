@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
 use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::core::traits::VaultAdapter;
-use k0maru::distill::{DistillEngine, DistillOptions};
+use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget};
 use k0maru::doctor::{format_report, run_diagnostics};
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
@@ -181,6 +181,10 @@ pub struct DoctorArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
+    /// Home directory override for inspecting client configs (defaults to system user home)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
     /// Output structured JSON instead of human-readable report
     #[arg(long)]
     pub json: bool,
@@ -192,9 +196,13 @@ pub struct InstallArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline
+    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw
     #[arg(short, long, default_value = "all")]
     pub target: String,
+
+    /// Home directory override for installing client configs (defaults to system user home)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
 
     /// Preview configuration changes without writing to disk
     #[arg(long)]
@@ -282,6 +290,18 @@ pub struct DistillArgs {
     #[arg(short = 'r', long, value_name = "PATH")]
     pub refs_dir: Option<PathBuf>,
 
+    /// Override user home directory for configuration discovery (sandbox testing)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
+    /// Target ecosystem schema: default, hermes
+    #[arg(long, default_value = "default")]
+    pub target: String,
+
+    /// Export crystallized dynamic skill directly to Hermes skill directory
+    #[arg(long)]
+    pub export_hermes: bool,
+
     /// Preview the generated skill note without writing to disk
     #[arg(long)]
     pub dry_run: bool,
@@ -336,6 +356,19 @@ fn detect_refs_dir(explicit: Option<PathBuf>) -> PathBuf {
         }
     }
     PathBuf::from(".scratch/refs")
+}
+
+fn detect_hermes_dir(home_override: Option<&Path>) -> PathBuf {
+    if let Some(h) = home_override {
+        return h.to_path_buf();
+    }
+    if let Ok(hermes_home) = std::env::var("HERMES_HOME") {
+        return PathBuf::from(hermes_home);
+    }
+    if let Some(user_home) = dirs::home_dir() {
+        return user_home.join(".hermes");
+    }
+    PathBuf::from(".hermes")
 }
 
 fn copy_and_notify(text: &str) {
@@ -643,7 +676,7 @@ fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_doctor(args: DoctorArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let report = run_diagnostics(&vault_path, None);
+    let report = run_diagnostics(&vault_path, args.home.as_deref());
 
     if args.json {
         let json_str = serde_json::to_string_pretty(&report)?;
@@ -667,7 +700,7 @@ fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> 
         vault_path,
         target,
         dry_run: args.dry_run,
-        home_override: None,
+        home_override: args.home,
     };
 
     let report = run_install(options).map_err(|e| e as Box<dyn std::error::Error>)?;
@@ -743,6 +776,12 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
     let refs_dir = detect_refs_dir(args.refs_dir);
 
+    let target = if args.export_hermes && args.target == "default" {
+        DistillTarget::Hermes
+    } else {
+        std::str::FromStr::from_str(&args.target)?
+    };
+
     let engine = DistillEngine::new(&vault_path, &refs_dir);
     let opts = DistillOptions {
         title: args.title,
@@ -751,9 +790,10 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
         tags: args.tags,
         related_notes: args.related,
         dry_run: args.dry_run,
+        target,
     };
 
-    let result = if let Some(ref nid) = args.node {
+    let mut result = if let Some(ref nid) = args.node {
         engine
             .distill_node(nid, opts)
             .map_err(|e| e as Box<dyn std::error::Error>)?
@@ -773,15 +813,41 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| e as Box<dyn std::error::Error>)?
     };
 
+    if args.export_hermes {
+        let hermes_dir = detect_hermes_dir(args.home.as_deref());
+        let skills_dir = hermes_dir.join("skills");
+        let slug = k0maru::convention::slugify(&result.skill.title);
+        let filename = format!(
+            "{}.md",
+            if slug.is_empty() {
+                "distilled-skill"
+            } else {
+                &slug
+            }
+        );
+        let dest = skills_dir.join(&filename);
+
+        if !args.dry_run {
+            std::fs::create_dir_all(&skills_dir)?;
+            let hermes_md = result.skill.to_hermes_markdown();
+            std::fs::write(&dest, hermes_md)?;
+        }
+        result.export_path = Some(dest);
+    }
+
     if args.json {
         let json_str = serde_json::to_string_pretty(&result)?;
         println!("{}", json_str);
     } else if result.flush_result.dry_run {
         println!("🔍 [Dry Run] Distilled skill preview (no file written):");
         println!("Title: {}", result.skill.title);
+        println!("Target: {}", target);
         println!("Path: {}", result.flush_result.file_path.display());
         println!("Relative: {}", result.flush_result.relative_path.display());
         println!("Category: {}", result.flush_result.category);
+        if let Some(ref ep) = result.export_path {
+            println!("Hermes Export: {} (simulated)", ep.display());
+        }
         println!("--------------------------------------------------");
         println!("{}", result.preview_markdown);
         println!("--------------------------------------------------");
@@ -790,14 +856,21 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
             "ℹ️  Skill content identical to existing note; no write needed: {}",
             result.flush_result.relative_path.display()
         );
+        if let Some(ref ep) = result.export_path {
+            println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+        }
     } else {
         println!(
             "✓ Crystallized skill note successfully into: {}",
             result.flush_result.relative_path.display()
         );
         println!("Title: {}", result.skill.title);
+        println!("Target: {}", target);
         println!("Path: {}", result.flush_result.file_path.display());
         println!("Category: {}", result.flush_result.category);
+        if let Some(ref ep) = result.export_path {
+            println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+        }
     }
 
     Ok(())

@@ -15,6 +15,8 @@ pub enum McpClient {
     Gemini,
     Windsurf,
     Cline,
+    Hermes,
+    OpenClaw,
 }
 
 impl McpClient {
@@ -26,6 +28,8 @@ impl McpClient {
             Self::Gemini => "Antigravity / Gemini CLI",
             Self::Windsurf => "Windsurf",
             Self::Cline => "Cline / Roo Code",
+            Self::Hermes => "Hermes Agent",
+            Self::OpenClaw => "OpenClaw",
         }
     }
 
@@ -37,6 +41,8 @@ impl McpClient {
             Self::Gemini,
             Self::Windsurf,
             Self::Cline,
+            Self::Hermes,
+            Self::OpenClaw,
         ]
     }
 
@@ -152,6 +158,50 @@ impl McpClient {
                             .join("settings")
                             .join("cline_mcp_settings.json"),
                     )
+                }
+            }
+            Self::Hermes => {
+                if home_override.is_none() {
+                    if let Ok(hermes_home) = std::env::var("HERMES_HOME") {
+                        let env_path = PathBuf::from(hermes_home);
+                        let mcp_json = env_path.join("mcp.json");
+                        let cfg_json = env_path.join("config.json");
+                        return if cfg_json.exists() && !mcp_json.exists() {
+                            Some(cfg_json)
+                        } else {
+                            Some(mcp_json)
+                        };
+                    }
+                }
+                let hermes_dir = home.join(".hermes");
+                let mcp_json = hermes_dir.join("mcp.json");
+                let cfg_json = hermes_dir.join("config.json");
+                if cfg_json.exists() && !mcp_json.exists() {
+                    Some(cfg_json)
+                } else {
+                    Some(mcp_json)
+                }
+            }
+            Self::OpenClaw => {
+                if home_override.is_none() {
+                    if let Ok(openclaw_home) = std::env::var("OPENCLAW_HOME") {
+                        let env_path = PathBuf::from(openclaw_home);
+                        let mcp_json = env_path.join("mcp.json");
+                        let cfg_json = env_path.join("config.json");
+                        return if mcp_json.exists() && !cfg_json.exists() {
+                            Some(mcp_json)
+                        } else {
+                            Some(cfg_json)
+                        };
+                    }
+                }
+                let openclaw_dir = home.join(".openclaw");
+                let mcp_json = openclaw_dir.join("mcp.json");
+                let cfg_json = openclaw_dir.join("config.json");
+                if mcp_json.exists() && !cfg_json.exists() {
+                    Some(mcp_json)
+                } else {
+                    Some(cfg_json)
                 }
             }
         }
@@ -275,6 +325,10 @@ fn check_installed(client: McpClient, config_path: &Path, home: Option<&Path>) -
                 dir.join("saoudrizwan.claude-dev").exists()
                     || dir.join("rooveterinaryinc.roo-cline").exists()
             })
+        }
+        McpClient::Hermes => home.join(".hermes").exists() || std::env::var("HERMES_HOME").is_ok(),
+        McpClient::OpenClaw => {
+            home.join(".openclaw").exists() || std::env::var("OPENCLAW_HOME").is_ok()
         }
     }
 }

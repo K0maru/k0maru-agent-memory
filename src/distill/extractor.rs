@@ -33,6 +33,10 @@ impl SkillExtractor {
             || raw_trace.contains("clang")
             || raw_trace.contains("gcc")
             || raw_trace.contains("undefined reference");
+        let has_go = raw_trace.contains("fatal error: all goroutines are asleep")
+            || raw_trace.contains("goroutine ")
+            || raw_trace.contains("go test")
+            || raw_trace.contains("go run");
 
         if has_rust {
             tags.push("topic/rust".to_string());
@@ -45,6 +49,9 @@ impl SkillExtractor {
         }
         if has_c {
             tags.push("topic/c-cpp".to_string());
+        }
+        if has_go {
+            tags.push("topic/go".to_string());
         }
 
         // 2. Extract command history
@@ -115,10 +122,18 @@ impl SkillExtractor {
                 if error_summary.is_empty() {
                     error_summary = "Python Traceback Exception".to_string();
                 }
-            } else if trimmed.contains("command not found") {
+            } else if trimmed.contains("command not found")
+                || trimmed.starts_with("fatal error:")
+                || trimmed.starts_with("panic:")
+            {
                 in_error_block = true;
                 if error_summary.is_empty() {
                     error_summary = trimmed.to_string();
+                }
+            } else if trimmed.contains("Invalid hook call") {
+                in_error_block = true;
+                if error_summary.is_empty() {
+                    error_summary = "React Invalid hook call".to_string();
                 }
             } else if (trimmed.contains("exit status") || trimmed.contains("exit code"))
                 && error_summary.is_empty()
