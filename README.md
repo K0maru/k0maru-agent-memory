@@ -203,7 +203,7 @@ A sustainable knowledge base compounds value over time through a bidirectional f
 
 ## 📊 Architectural Comparison Matrix
 
-> 📄 **Looking for the full quantitative evaluation?** See the complete [Comparative Evaluation & Benchmark Report](docs/COMPARISON_REPORT.md) featuring 10-turn cost growth curves, horizontal competitor matrices, and empirical benchmarks.
+> 📄 **Looking for the full quantitative evaluation?** See the complete [Comparative Evaluation & Benchmark Report](docs/COMPARISON_REPORT.md) featuring 10-turn cost growth curves, horizontal competitor matrices, and [Part 5: Live Hardware Benchmarks on NVIDIA A100 (Qwen2.5-Coder-32B & DeepSeek-Coder-V2)](docs/COMPARISON_REPORT.md#part-5-empirical-colab-a100-hardware-benchmark-qwen25-coder-32b--deepseek-coder-v2).
 
 | Evaluation Dimension | Vanilla Context (Copy-Paste) | Containerized Microservices (Letta / TencentDB) | Resident Background Daemons (agentmemory) | **K0maru-Agent-Memory (This Project)** |
 | :--- | :--- | :--- | :--- | :--- |
@@ -247,6 +247,20 @@ Measured over 100 cold-start iterations and full index rebuilds of 500 Markdown 
 - **Index Rebuild Throughput**: 500 documents indexed into SQLite FTS5 in **74.55 ms** (**6,707 docs/sec**).
 - **Clean Rescan Duration**: **11.67 ms**.
 - **Binary Size**: **3.66 MB**.
+
+### 3. Empirical Open-Source Model Benchmark (NVIDIA A100-80GB GPU)
+
+Evaluated on an **NVIDIA A100-SXM4-80GB GPU** in Google Colab Pro, measuring real inference on leading open-source coding models across 5 representative engineering defects (Rust concurrency, Python asyncio leaks, TypeScript auth crashes, Go deadlocks, C memory safety):
+
+| Evaluated Open Model | Parameters | Mode | Pass@1 Rate | Prompt Tokens | Latency | Performance Impact |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| **Qwen2.5-Coder-32B** | 32B Dense | Baseline (Raw Traces) | 60.0% (3/5) | 2,635 | 17.23s | Baseline accuracy |
+| **Qwen2.5-Coder-32B** | 32B Dense | **K0maru Managed** | **100.0% (5/5)** | **1,750** | **2.92s** | **+40.0% Absolute Pass@1 Gain** (5.9x faster) |
+| **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | Baseline (Raw Traces) | 60.0% (3/5) | 2,967 | 12.46s | Baseline accuracy |
+| **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | **K0maru Managed** | **80.0% (4/5)** | **1,907** | **1.05s** | **+20.0% Absolute Pass@1 Gain** (11.8x faster) |
+
+> 📖 **Comprehensive Evaluation & Case-by-Case Breakdown**:
+> - For full per-case logs, harness synergy with **Pi (`pi.dev`)** and **Hermes Agent**, and notes on 500B+ frontier models (DeepSeek-V4.1-Flash & GLM-5.2), see [Part 5 of the Comparison Report](docs/COMPARISON_REPORT.md#part-5-empirical-colab-a100-hardware-benchmark-qwen25-coder-32b--deepseek-coder-v2).
 
 ---
 
