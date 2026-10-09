@@ -51,15 +51,17 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 
 ### Empirical Open-Source Model Benchmark (NVIDIA A100-80GB GPU)
 
-Evaluated on an **NVIDIA A100-SXM4-80GB GPU** in Google Colab Pro, showcasing the frontier **Qwen3.8-27B** (Dual-Stage Reasoning) model across 5 representative industrial engineering defects (Rust concurrency, Python asyncio leaks, TypeScript auth crashes, Go deadlocks, C memory safety):
+Evaluated on an **NVIDIA A100-SXM4-80GB GPU** in Google Colab Pro, measuring real local inference across leading open-source models on 5 representative industrial defects (Rust concurrency, Python asyncio leaks, TypeScript auth crashes, Go deadlocks, C memory safety):
 
-| Evaluated Open Model | Architecture | Mode | Pass@1 Rate | Prompt Tokens | Latency | Performance Impact |
-| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Qwen3.8-27B** | 27B Dense (Dual-Stage Reasoning) | Baseline (Raw Traces) | **100.0% (5/5)** | 923 | 14.97s | Baseline accuracy (requires model to read and reason through raw compiler dumps) |
-| **Qwen3.8-27B** | 27B Dense (Dual-Stage Reasoning) | **K0maru Managed** | **100.0% (5/5)** | **709** | **14.97s** | **23.2% Prompt Token Reduction (923 -> 709)**; halved Rust turnaround (21.2s -> 11.1s) |
+| Evaluated Open Model | Architecture | Baseline (Raw Traces) | **K0maru Managed** | Breakthrough & Performance Impact |
+| :--- | :--- | :---: | :---: | :--- |
+| **Qwen2.5-Coder-32B** | 32B Dense Code Model | Pass@1: 60.0%<br>Latency: 17.23s | **Pass@1: 100.0% (+40%)**<br>**Latency: 2.92s (5.90x faster)** | **100% Full Pass Rate**; Mermaid diagrams eliminated trace noise, solving async deadlocks and null checks |
+| **DeepSeek-R1-32B** | 32B Full Reasoning Distill | Latency: 27.14s<br>Tokens: 817 | **Latency: 14.07s (1.93x faster)**<br>**Tokens: 652 (-20.2%)** | **Reasoning Latency Cut in Half (-48.2%)**; streamlined reflection chain, Rust turnaround dropped from 39.2s to 11.5s (3.4x) |
+| **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | Pass@1: 60.0%<br>Latency: 12.46s | **Pass@1: 80.0% (+20%)**<br>**Latency: 1.05s (11.86x faster)** | **Sub-Second Extreme Throughput**; cured Python async leak with 1.05s turnaround |
+| **Qwen3.8-27B** | 27B Dense (Dual-Stage Reasoning) | Tokens: 923<br>Rust Latency: 21.2s | **Tokens: 709 (-23.2%)**<br>**Rust Latency: 11.1s (2x faster)** | **Flawless 100% Pass Baseline**; 23.2% Prompt Token reduction, halved Rust turnaround |
 
-> 📖 **Comprehensive Multi-Model Benchmark Suite**:
-> - For the full empirical comparison matrix (featuring **DeepSeek-R1-32B** 1.93x latency speedup, **Qwen2.5-Coder-32B** 5.9x speedup, **DeepSeek-Coder-V2** 1.05s response), per-case breakdowns, and harness synergies with **Pi (`pi.dev`)** and **Hermes Agent**, see [Part 5 of the Comparison Report](docs/COMPARISON_REPORT.md#part-5-empirical-colab-a100-hardware-benchmark-multi-model-evaluation-matrix).
+> 📖 **Comprehensive Case Breakdown & Dual-Harness Synergy**:  
+> For the complete per-case logs, harness synergy with **Pi (`pi.dev`)** and **Hermes Agent**, and 500B+ frontier models notes, see [Part 5 of the Comparison Report](docs/COMPARISON_REPORT.md#part-5-empirical-colab-a100-hardware-benchmark-multi-model-evaluation-matrix).
 
 ---
 
