@@ -7,7 +7,7 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.7.0](https://img.shields.io/badge/Version-0.7.0-blue.svg)]()
+[![Version: 0.8.0](https://img.shields.io/badge/Version-0.8.0-blue.svg)]()
 [![Tests: 213 passed](https://img.shields.io/badge/Tests-213_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
