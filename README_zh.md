@@ -188,15 +188,7 @@ k0maru distill --file build.log --title "修复 CMake 缺少 OpenSSL" --tags bui
 
 知识库与智能体之间应当形成可持续复利的双向反馈回路。系统遵循**「仅在产生阶段交付、排障成功或明确决策点时才沉淀」**的原则，防止琐碎会话毒化长期记忆：
 
-```mermaid
-flowchart LR
-    L0["1. 会话读档 (Loadout)<br/>&lt;300 Token 紧凑背包"] --> L1["2. 运行过滤 (Offload)<br/>长日志管道化转存 Mermaid"]
-    L1 --> L15["2.5 经验提炼 (Distill)<br/>萃取 Trace 为常青技能"]
-    L1 --> L2["3. 交付自动沉淀 (Flush)<br/>生成 logs/ 与 decisions/"]
-    L15 --> L3["4. 可复用技能 (Skills)<br/>skills/*.md 行动指南"]
-    L2 --> L3
-    L3 -.->|"持续更新知识图谱"| L0
-```
+![记忆生命周期：LLM-Wiki 的双向闭环与经验结晶](docs/images/memory_lifecycle.png)
 
 1. **唤醒与读档（Loadout）**：每次开启新任务时，动态注入精简的项目愿景、关联设计原则与最新日志。
 2. **运行与过滤（Offload）**：长耗时命令通过管道过滤，将冗长堆栈转储为外部切片，主上下文仅维护拓扑图。
@@ -207,44 +199,7 @@ flowchart LR
 
 ## 🏗️ 架构设计：四层解耦引擎
 
-```mermaid
-graph TD
-    subgraph L1 ["1. 存储与 Wiki 适配层 (k0maru::adapters)"]
-        Obsidian["ObsidianAdapter (目录语义映射 · Frontmatter · WikiLinks)"]
-        Generic["GenericWikiAdapter (Karpathy 平铺 LLM-Wiki 适配)"]
-        Parser["pulldown-cmark AST 解析器 (代码块过滤 · 裸/别名双链提取)"]
-    end
-
-    subgraph L2 ["2. 增量感知与瞬态缓存层 (k0maru::scanner & storage)"]
-        Scanner["IncrementalScanner (mtime + xxh3 脏检查 · 零变动重扫 <5ms)"]
-        Storage[("SqliteStorage (cache.sqlite, documents, links, tags, <100ms 自愈)")]
-    end
-
-    subgraph L3 ["3. 混合检索与图拓扑层 (k0maru::storage & vector)"]
-        FTS5["SQLite FTS5 (documents_fts · BM25 词法全文检索)"]
-        Vec["sqlite-vec (vec0 虚表 · 384维 Cosine 相似度)"]
-        FastEmbed["FastEmbed (all-MiniLM-L6-v2 · 本地 ONNX CPU 推理)"]
-        RRF["RRF 混合融合 (k=60 · 权重平衡)"]
-        Graph["WikiLinks Adjacency Graph (1-hop 邻居 · 双链图升权)"]
-    end
-
-    subgraph L4 ["4. Agent 交互与协议层 (k0maru::cli & mcp)"]
-        Loadout["k0maru loadout (<300 Token 背包 · --copy)"]
-        Offload["k0maru offload & inspect (Mermaid 状态图 · 局部精细回溯)"]
-        Search["k0maru search (CLI 混合语义搜索 · --json)"]
-        MCP["FastMCP Server (stdio 标准协议 · 零网络端口)"]
-    end
-
-    Obsidian & Generic --> Parser
-    Parser --> Scanner
-    Scanner --> Storage
-    Storage --> FTS5 & Vec & Graph
-    FastEmbed --> Vec
-    FTS5 & Vec & Graph --> RRF
-    RRF --> Search
-    RRF --> MCP
-    Loadout & Offload --> MCP
-```
+![K0maru-Agent-Memory: 四层解耦架构全景图](docs/images/architecture_overview.png)
 
 ---
 

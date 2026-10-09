@@ -186,15 +186,7 @@ k0maru distill --file build.log --title "Fix CMake OpenSSL Missing" --tags build
 
 A sustainable knowledge base compounds value over time through a bidirectional feedback loop. The system adheres to the rule: **"Only crystallize upon deliverable completion, troubleshooting success, or explicit decision points"**, keeping daily scratchpad noise out of long-term memory:
 
-```mermaid
-flowchart LR
-    L0["1. Session Loadout<br/>&lt;300 Token Budget Pack"] --> L1["2. Runtime Offload<br/>Pipe Log Filter to Mermaid"]
-    L1 --> L15["2.5 Trace-to-Skill<br/>Distill Failure Traces"]
-    L1 --> L2["3. Session Flush<br/>Commit logs/ & decisions/"]
-    L15 --> L3["4. Reusable Skills<br/>skills/*.md Playbooks"]
-    L2 --> L3
-    L3 -.->|"Continuously Enriches Graph"| L0
-```
+![Memory Lifecycle: The LLM-Wiki Closed Loop](docs/images/memory_lifecycle.png)
 
 1. **Awaken & Loadout**: At the start of a session, dynamically inject concise project scope, relevant design principles, and recent logs.
 2. **Execute & Offload**: Long-running commands pass through pipe filters, storing heavy output into external references while keeping the main context uncluttered.
@@ -205,44 +197,7 @@ flowchart LR
 
 ## 🏗️ Architecture: 4-Layer Decoupled Engine
 
-```mermaid
-graph TD
-    subgraph L1 ["1. Storage & Wiki Adapters (k0maru::adapters)"]
-        Obsidian["ObsidianAdapter (Directory mapping · Frontmatter · WikiLinks)"]
-        Generic["GenericWikiAdapter (Karpathy Flat LLM-Wiki Adapter)"]
-        Parser["pulldown-cmark AST Parser (Code-block filtering · Bare/Aliased links)"]
-    end
-
-    subgraph L2 ["2. Incremental Scanner & Transient Cache (k0maru::scanner & storage)"]
-        Scanner["IncrementalScanner (mtime + xxh3 dirty check · Clean scan <12ms)"]
-        Storage[("SqliteStorage (cache.sqlite, documents, links, tags, <75ms self-heal)")]
-    end
-
-    subgraph L3 ["3. Hybrid Retrieval & Graph Engine (k0maru::storage & vector)"]
-        FTS5["SQLite FTS5 (documents_fts · BM25 Lexical Ranking)"]
-        Vec["sqlite-vec (vec0 virtual table · 384-dim Cosine Distance)"]
-        FastEmbed["FastEmbed (all-MiniLM-L6-v2 · Local CPU ONNX Inference)"]
-        RRF["RRF Fusion (k=60 · Balanced Reciprocal Rank)"]
-        Graph["WikiLinks Adjacency Graph (1-hop Neighbors · +0.05 Boost)"]
-    end
-
-    subgraph L4 ["4. Agent Protocol & UI Layer (k0maru::cli & mcp)"]
-        Loadout["k0maru loadout (<300 Token budget pack · --copy)"]
-        Offload["k0maru offload & inspect (Mermaid state charts · Targeted slicing)"]
-        Search["k0maru search (CLI Hybrid semantic query · --json)"]
-        MCP["FastMCP Server (stdio standard protocol · Zero open ports)"]
-    end
-
-    Obsidian & Generic --> Parser
-    Parser --> Scanner
-    Scanner --> Storage
-    Storage --> FTS5 & Vec & Graph
-    FastEmbed --> Vec
-    FTS5 & Vec & Graph --> RRF
-    RRF --> Search
-    RRF --> MCP
-    Loadout & Offload --> MCP
-```
+![K0maru-Agent-Memory: 4-Layer Decoupled Architecture](docs/images/architecture_overview.png)
 
 ---
 
