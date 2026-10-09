@@ -1,6 +1,6 @@
 # Ticket 36: English Documentation Suite (`docs/en/`)
 
-**Status**: open
+**Status**: closed
 **Blocked by**: 34, 35
 
 ## Goal
