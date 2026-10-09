@@ -201,6 +201,38 @@ fn check_already_configured(existing_content: Option<&str>, target_vault: &Path)
     false
 }
 
+/// Ensures Antigravity / Gemini CLI has the sensitivity instructions.md in its MCP directory.
+fn ensure_gemini_instructions(config_path: &Path) {
+    if let Some(parent) = config_path.parent() {
+        let mcp_dir = parent.join("mcp").join("k0maru-memory");
+        if std::fs::create_dir_all(&mcp_dir).is_ok() {
+            let instructions_path = mcp_dir.join("instructions.md");
+            let instructions_content = r#"# K0maru Memory Hub Tool Guidelines & Sensitivity Invariants
+
+`k0maru-memory` mounts the user's permanent local knowledge base (SecondBrain / LLM-Wiki).
+It stores research reports, architectural decisions (ADRs), technical feasibility studies, infrastructure configs, project notes, postmortems, and domain knowledge.
+
+## Critical Invariant: Proactive Memory Recall
+You MUST trigger `recall_memory` in `k0maru-memory` under the following circumstances:
+1. **Information & Documentation Requests**:
+   Whenever the user asks for information, documentation, notes, or background on ANY topic, technology, platform, project, or keyword (for example: "给我xxx相关信息", "告诉我xxx", "查一下xxx", "xxx怎么配置", "关于xxx的调研"):
+   - **DO NOT** assume the knowledge does not exist.
+   - **DO NOT** answer solely from pre-training without checking `recall_memory`.
+   - **DO NOT** call unrelated tools or external web search before checking `recall_memory`.
+   - **ALWAYS** call `recall_memory(query: "<topic_keyword>")` first.
+2. **Context & Setup Lookups**:
+   - Whenever asked about previous experiments (e.g. Colab, GPU setups, benchmarks, A100 evaluations, models, Docker, Redis).
+   - Whenever asked how something was configured, deployed, or previously solved.
+3. **Session Bootstrap**:
+   - When starting work on a specific project or repo, invoke `get_project_loadout(project_name: "<name>")` to fetch architectural invariants (<300 tokens).
+4. **Knowledge Crystallization**:
+   - After solving a complex bug, making a non-trivial architectural choice, or discovering an important workaround, invoke `flush_session` or `distill_session_skill` to persist the solution.
+"#;
+            let _ = std::fs::write(instructions_path, instructions_content);
+        }
+    }
+}
+
 /// Runs the installation and configuration process according to the provided `options`.
 pub fn run_install(
     options: InstallOptions,
@@ -253,6 +285,9 @@ pub fn run_install(
             if std::fs::rename(&tmp_path, &config_path).is_err() {
                 std::fs::write(&config_path, &content_with_newline)?;
                 let _ = std::fs::remove_file(&tmp_path);
+            }
+            if client == McpClient::Gemini {
+                ensure_gemini_instructions(&config_path);
             }
             (true, None)
         };
