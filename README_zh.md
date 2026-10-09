@@ -250,6 +250,8 @@ graph TD
 
 ## 📊 方案对比矩阵 (Architectural Comparison)
 
+> 📄 **想要查看包含 10 轮成本曲线与实测数据的深度评估？** 请参阅完整的 [横向竞品对比与使用收益评估报告](docs/COMPARISON_REPORT_zh.md)。
+
 不同应用场景在架构权衡上各有侧重：
 
 | 评估维度 | 全量手动粘贴 (Vanilla Context) | 容器化微服务方案 (如 Letta / TencentDB) | 专有后台守护工具 (如 agentmemory) | **K0maru-Agent-Memory (本项目)** |

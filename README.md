@@ -248,6 +248,8 @@ graph TD
 
 ## 📊 Architectural Comparison Matrix
 
+> 📄 **Looking for the full quantitative evaluation?** See the complete [Comparative Evaluation & Benchmark Report](docs/COMPARISON_REPORT.md) featuring 10-turn cost growth curves, horizontal competitor matrices, and empirical benchmarks.
+
 | Evaluation Dimension | Vanilla Context (Copy-Paste) | Containerized Microservices (Letta / TencentDB) | Resident Background Daemons (agentmemory) | **K0maru-Agent-Memory (This Project)** |
 | :--- | :--- | :--- | :--- | :--- |
 | **Storage Medium** | Ephemeral chat history | External DBs (PostgreSQL, pgvector, Redis) | Proprietary DB in hidden directories | **Local Markdown Vaults (Plain Text)** |
