@@ -384,6 +384,28 @@ If you prefer manual setup, add `k0maru` to your client's MCP configuration file
 
 ---
 
+## 🔒 Data Privacy, Transparency & Provenance
+
+K0maru is engineered under the **Cleanroom & Zero-Telemetry Principle**:
+- **100% Local-First & Zero-Telemetry**: K0maru never collects, uploads, or telemeters your Markdown notes, codebase, or queries. All indexing and inference run entirely offline on your local CPU.
+- **Reproducible Public Data Provenance**: All benchmark evaluation metrics and rule extractors are derived strictly from public, open-source corpora (e.g. SWE-bench execution traces, public GitHub Actions CI logs, BEIR/CoIR retrieval benchmarks, and public documentation). Zero private user data is ever used in model calibration, benchmarking, or rule synthesis.
+
+For in-depth provenance documentation and privacy invariants, see [docs/TUNING_AND_DATA.md](docs/TUNING_AND_DATA.md).
+
+---
+
+## 🛠️ Personalization & Developer Customization
+
+Tune K0maru to your exact repository layout, hardware constraints, and agent preferences:
+- **Custom Vault Conventions**: Declare custom directory mappings (`decisions: docs/adr`, `logs: 01_AI_Logs`, `skills: playbooks`) in `.k0maru/rules.md` or `AGENTS.md`.
+- **Retrieval Engine Profiles**: Toggle between instant **BM25 lexical search** (`--mode bm25`, <1ms latency, 0MB ONNX memory) for exact symbols/code, and **Hybrid RRF** (`--mode hybrid`) for conceptual discovery.
+- **Resource Footprint**: Run on low-spec VPS (<1GB RAM) using `--mode bm25` or compile without `fastembed` for a featherlight ~2.8MB binary.
+- **Log Thresholds**: Adjust `--threshold <N>` to fine-tune log truncation for compact (32k) or expansive (1M+) agent context windows.
+
+For complete configuration snippets, templates, and best practices, see the [Developer Tuning Guide](docs/TUNING_AND_DATA.md).
+
+---
+
 ## 🙏 Acknowledgments & Technical Ancestry
 
 K0maru-Agent-Memory builds on pioneering ideas from the open-source and research communities. Sincere thanks to:

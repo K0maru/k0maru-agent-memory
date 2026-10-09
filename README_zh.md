@@ -406,6 +406,28 @@ k0maru doctor
 
 ---
 
+## 🔒 数据隐私、来源透明度与评测基准
+
+K0maru 严格遵循**「洁净室与零遥测原则（Cleanroom & Zero-Telemetry Principle）」**：
+- **100% 本地离线与零遥测**：K0maru 绝不收集、不缓存、不上传用户的任何 Markdown 笔记、代码片段或搜索 Query。所有的倒排索引与向量计算完全在本地机器物理完成。
+- **开源公域评测数据透明度**：所有基准测试数据与故障提炼规则，均来源于公开、合规且可复现的公域开源语料（如 SWE-bench 智能体轨迹、GitHub Actions 公开构建日志、BEIR / CoIR 检索基准及官方开源文档）。绝无任何私有用户数据参与模型校准、量化或评测。
+
+详细的数据来源与隐私铁律说明，请参阅 [docs/TUNING_AND_DATA_zh.md](docs/TUNING_AND_DATA_zh.md)。
+
+---
+
+## 🛠️ 个人开发者专属定制与调优指南
+
+你可以根据自己的硬件配置、知识库习惯与开发流，灵活调优 K0maru：
+- **知识库规约与目录定制**：在知识库根目录的 `.k0maru/rules.md` 或 `AGENTS.md` 中自由声明分类映射（如 `decisions: docs/adr`, `logs: 01_AI_Logs`, `skills: playbooks`）。
+- **检索模式按需切换**：使用 **BM25 词法模式**（`--mode bm25`，<1ms 响应，0MB ONNX 内存）进行精准代码符号/错误代号检索；使用 **混合模式**（`--mode hybrid`）进行概念语义联想。
+- **低资源极简运行**：在轻量 VPS（<1GB 内存）上使用 `--mode bm25` 运行，或通过关闭 `fastembed` 编译生成 ~2.8MB 的纯净静态文件。
+- **日志卸载阈值微调**：调整 `--threshold <N>` 以适配不同窗口大小的智能体模型（如针对小模型设为 25 行，针对百万上下文模型设为 100 行）。
+
+完整配置范例与调优细节，请参阅 [开发者调优指南](docs/TUNING_AND_DATA_zh.md)。
+
+---
+
 ## ⚖️ 开源协议 (License)
 
 本项目采用 [MIT License](LICENSE) 授权开源。
