@@ -20,6 +20,22 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
 
 ---
 
+## 🧠 K0maru Memory Hub 智能体调用契约与灵敏触发守则
+
+本项目已接入 `K0maru-Agent-Memory` 本地知识库（SecondBrain / LLM-Wiki），挂载了用户的技术调研报告、架构决策记录（ADR）、基础设施配置规范、故障复盘与实验记录。所有智能体（无论主代理或子代理）在交互中必须严格执行以下前置记忆检索契约：
+
+1. **先发制人记忆检索（Proactive Memory Recall - 最高优先级）**：
+   - 凡是人类提出涉及任何项目背景、技术方案、调研报告、历史实验、配置规范、环境凭据或表达**“给我xxx相关信息”、“查一下xxx”、“xxx怎么配置”、“之前怎么做的”**时，**严禁凭空猜测或直接搜索外网，必须第一时间调用 `recall_memory`** 检索本地知识库；
+   - 知识库中包含了关于各种平台与技术栈的深度调研（例如 Google Colab 算力权益与 CLI 无头调度、A100 实测看板、Redis 分布式锁、Docker 容器规范等），模型切勿直接忽略或调用无关外部工具。
+2. **会话起步加载（Session Loadout）**：
+   - 在开始一个新任务、复杂重构或方案设计前，必须优先调用 `get_project_loadout` 获取系统上下文不变量与架构基线（<300 Token）。
+3. **日志截断卸载（Context Offloading）**：
+   - 终端命令产生长编译输出、崩溃调用栈或测试转储（>30 行）时，必须调用 `offload_context` 进行符号化压缩，严禁大段日志塞入会话上下文。
+4. **决策自愈结晶（Decision Crystallization）**：
+   - 攻克疑难缺陷、敲定关键架构决策或获得新配置经验后，必须调用 `flush_session` 或 `distill_session_skill` 将解法原子落盘回知识库。
+
+---
+
 ## 🎯 核心工作流模式 (Matt Pocock Master-Worker Model)
 
 本项目严格执行 Matt Pocock 的 Master-Worker 多代理工程范式，严禁随缘编码（No Vibe Coding）：

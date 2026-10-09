@@ -541,13 +541,13 @@ impl McpServer {
                 "tools": [
                     {
                         "name": "get_project_loadout",
-                        "description": "Generate a compact sub-300-token project context loadout (vision, L3 principles, recent L2 logs)",
+                        "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
                                 "project_name": {
                                     "type": "string",
-                                    "description": "Target project name or keyword"
+                                    "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
                                 }
                             },
                             "required": ["project_name"]
@@ -555,13 +555,13 @@ impl McpServer {
                     },
                     {
                         "name": "recall_memory",
-                        "description": "Search knowledge hub memories and notes using hybrid RRF retrieval (BM25 full-text + vector embeddings + graph links)",
+                        "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (SecondBrain / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. '给我xxx相关信息', '查找xxx', 'xxx怎么配置', 'what did we do with xxx'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "Search query keywords"
+                                    "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
                                 },
                                 "limit": {
                                     "type": "integer",
@@ -573,7 +573,7 @@ impl McpServer {
                     },
                     {
                         "name": "offload_context",
-                        "description": "Truncate and externalize long text/logs (>50 lines) to disk references, returning a Mermaid diagram and node_id",
+                        "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -591,7 +591,7 @@ impl McpServer {
                     },
                     {
                         "name": "inspect_log_node",
-                        "description": "Inspect and retrieve the full offloaded raw log content by its node ID",
+                        "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -605,7 +605,7 @@ impl McpServer {
                     },
                     {
                         "name": "flush_session",
-                        "description": "Crystallize learnings, architectural decisions, or task summaries back into the Markdown knowledge base according to the vault's conventions",
+                        "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -641,7 +641,7 @@ impl McpServer {
                     },
                     {
                         "name": "distill_session_skill",
-                        "description": "Distill an execution trace, error log, or troubleshooting session into a reusable skill note and crystallize it into the vault.",
+                        "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
