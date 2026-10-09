@@ -58,7 +58,7 @@ case "$OS" in
         OS_TYPE="apple-darwin"
         ;;
     Linux)
-        OS_TYPE="unknown-linux-musl"
+        OS_TYPE="unknown-linux-gnu"
         ;;
     *)
         log_error "Unsupported operating system: $OS. K0maru supports macOS and Linux via this installer."
