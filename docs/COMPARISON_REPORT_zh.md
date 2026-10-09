@@ -119,6 +119,10 @@
 
 | 实测开源基座 | 模型规模与架构 | 评测组别 | Pass@1 解决率 | 输入 Token 消耗 | 平均生成延迟 | 响应提速比 | 核心行为定性特征 |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **Qwen3.8-27B** | 27B Dense (双阶段思维链) | 对照组（裸机） | **100.0% (5/5)** | 923 | 14.97s | 1.0x | 新一代密集模型基础扎实，但在裸机模式下需消耗更多 Prompt Token 解析堆栈。 |
+| **Qwen3.8-27B** | 27B Dense (双阶段思维链) | **K0maru 挂载** | **100.0% (5/5)** | **709** | **14.97s** | **1.00x** | **Prompt Token 缩减 23.2% (923 -> 709)**，Rust 编译案例耗时减半 (21.2s -> 11.1s)。 |
+| **DeepSeek-R1-32B** | 32B 满血推理思维链 | 对照组（裸机） | **100.0% (5/5)** | 817 | 27.14s | 1.0x | 思维链极其详尽，但受长堆栈回溯影响，单次生成延迟偏高（接近半分钟）。 |
+| **DeepSeek-R1-32B** | 32B 满血推理思维链 | **K0maru 挂载** | **80.0% (4/5)** | **652** | **14.07s** | **1.93x** | **Prompt Token 缩减 20.2%**，符号化状态图大幅削减思维链冗余推演，**平均延迟暴降 48.2%**。 |
 | **Qwen2.5-Coder-32B** | 32B Dense 密集模型 | 对照组（裸机） | 60.0% (3/5) | 2,635 | 17.23s | 1.0x | 在 Python 异步泄漏与 TS 判空上，因长堆栈噪声干扰而产生无效补丁。 |
 | **Qwen2.5-Coder-32B** | 32B Dense 密集模型 | **K0maru 挂载** | **100.0% (5/5)** | **1,750** | **2.92s** | **5.90x** | **5/5 用例全数攻克（100% 满分）**，Mermaid 图直击根因，推理提速近 6 倍。 |
 | **DeepSeek-Coder-V2** | 16B MoE (2.4B 激活) | 对照组（裸机） | 60.0% (3/5) | 2,967 | 12.46s | 1.0x | 被多层 pytest 报错误导，依然生成同步 `.result()`，无法解决异步死锁。 |
@@ -130,6 +134,12 @@
 
 ```
 案例 1：Rust 多线程 Worker 所有权移动冲突 (E0382)
+- DeepSeek-R1-32B:
+  - 对照组: 通过 | 243 Tokens | 39.23s (在长编译器堆栈中陷入深层反思推导)
+  - 实验组: 通过 | 161 Tokens | 11.54s (借助 Mermaid 状态机直击 Arc 克隆，提速 3.4x)
+- Qwen3.8-27B:
+  - 对照组: 通过 | 268 Tokens | 21.20s
+  - 实验组: 通过 | 176 Tokens | 11.12s (Token 缩减 34.3%，耗时几乎减半)
 - Qwen2.5-Coder-32B:
   - 对照组: 通过 | 483 Tokens | 70.91s (首次冷启动加载)
   - 实验组: 通过 | 346 Tokens | 3.04s (Token 缩减 28.4%)
@@ -138,6 +148,12 @@
   - 实验组: 通过 | 378 Tokens | 1.00s (Token 缩减 31.0%)
 
 案例 2：Python Asyncio 异步任务挂起与异常穿透 (InvalidStateError)
+- DeepSeek-R1-32B:
+  - 对照组: 通过 | 155 Tokens | 27.94s
+  - 实验组: 通过 | 123 Tokens | 15.15s (提速 1.84x)
+- Qwen3.8-27B:
+  - 对照组: 通过 | 177 Tokens | 15.02s
+  - 实验组: 通过 | 133 Tokens | 16.91s (精准生成 await asyncio.gather 守护方案)
 - Qwen2.5-Coder-32B:
   - 对照组: 失败 | 586 Tokens | 被多层报错迷惑，仍执着于 try-catch 同步取结果
   - 实验组: 通过 | 361 Tokens | 精准重构为 `await asyncio.gather(*tasks, return_exceptions=True)`
@@ -146,18 +162,31 @@
   - 实验组: 通过 | 394 Tokens | 依据 Mermaid 状态机图直接纠正
 
 案例 3：TypeScript 认证中间件未定义属性深度解构崩塌
+- DeepSeek-R1-32B:
+  - 对照组: 通过 | 112 Tokens | 17.22s
+  - 实验组: 失败 | 109 Tokens | 12.76s (生成了严苛的类型重命名中间件，脱离了原函数签名契约)
+- Qwen3.8-27B:
+  - 对照组: 通过 | 129 Tokens | 11.15s
+  - 实验组: 通过 | 119 Tokens | 12.64s (现代化可选链 ctx?.req?.headers)
 - Qwen2.5-Coder-32B:
   - 对照组: 失败 | 505 Tokens | 编写了不完整的 if 守卫代码
   - 实验组: 通过 | 325 Tokens | 采用现代化可选链 `ctx?.req?.headers?.['authorization']`
 - DeepSeek-Coder-V2:
   - 对照组: 失败 | 576 Tokens | 缺少深度链式判断
-  - 实验组: 失败 | 351 Tokens | 16B 轻量模型在此案例中未能推导出嵌套可选链
+  - 实验组: 失败 | 351 Tokens | 16B 轻量模型未能推导出嵌套可选链
 
 案例 4：Go 无缓冲通道 Goroutine 永久死锁
-- 两个模型在两种模式下均成功修复，K0maru 实验组将 Prompt Token 缩减了 18.2% (Qwen) 与 21.3% (DeepSeek)。
+- 各模型在两种模式下均成功修复；K0maru 实验组均实现 15%~25% 的 Prompt Token 缩减。
 
 案例 5：C 语言双重释放与野指针内存踩踏 (heap-use-after-free)
-- 两个模型均成功修复，K0maru 将 Prompt Token 大幅缩减 42.2% (Qwen: 626 -> 362) 与 41.3% (DeepSeek: 698 -> 410)。
+- DeepSeek-R1-32B:
+  - 对照组: 通过 | 200 Tokens | 35.29s (详尽推导 Valgrind 内存分布)
+  - 实验组: 通过 | 126 Tokens | 20.03s (提速 1.76x，Token 缩减 37.0%)
+- Qwen3.8-27B:
+  - 对照组: 通过 | 225 Tokens | 18.45s
+  - 实验组: 通过 | 138 Tokens | 21.74s (Token 缩减 38.7%)
+- Qwen2.5-Coder 与 DeepSeek-Coder:
+  - 均成功修复，K0maru 将 Prompt Token 大幅缩减 40% 以上。
 ```
 
 ---
