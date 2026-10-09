@@ -1,6 +1,6 @@
 # Ticket 35: Chinese Documentation Suite (`docs/zh/`)
 
-**Status**: open
+**Status**: closed
 **Blocked by**: 34
 
 ## Goal
