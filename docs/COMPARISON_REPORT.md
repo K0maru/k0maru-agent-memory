@@ -19,22 +19,10 @@ AI coding agents (e.g. Claude Code, Cursor, Windsurf) excel at iterative reasoni
 | **Query Latency** | LLM latency balloons to **15–35 seconds** per turn due to processing massive context prompts. | LLM latency remains snappy (**1–3 seconds**) with lightweight prompts. | **5x–10x Faster Turnaround**. |
 | **Privacy & Security** | Raw sensitive stack traces, local paths, and environment secrets get transmitted directly to third-party LLM APIs. | Traces are sanitized and stored locally on disk; only structural Mermaid summaries are sent over the wire. | **Zero Sensitive Token Leakage**. |
 
-### Cumulative Context Growth: 10-Turn Debugging Scenario
+### Visualizing the Operational Impact
 
-```
-Context Size (Tokens)
- 200k ──┐
-        │                                         ▲ Turn 10: 162,500 tokens
- 150k ──┤                                       ┌─┘ (Context Overflow!)
-        │                                   ┌───┘
- 100k ──┤                               ┌───┘ [WITHOUT K0MARU]
-        │                           ┌───┘
-  50k ──┤                       ┌───┘
-        │               ┌───────┘ (Turn 6: 128k Window Breached)
-   0k ──┴───────▲───────┴───────────────────────────────▲─────────────────►
-              Turn 1                              Turn 10
-      [WITH K0MARU]: Flat line at ~1,505 tokens (99.1% Token Savings)
-```
+![Figure 1: Token Footprint & Cumulative Context Growth](images/comparison_with_without.png)
+*Figure 1: Quantitative evaluation of K0maru-Agent-Memory vs. Unmanaged Agent workflows. (A) Token footprint per debugging trace across four real-world logs (logarithmic scale), showing up to 99.8% token reduction via Mermaid offloading; (B) 10-turn cumulative context growth curve showing raw context overflowing the 128k token threshold at Turn 6 while K0maru holds context flat at ~1,505 tokens (99.1% cumulative token reduction).*
 
 ---
 
@@ -60,6 +48,9 @@ K0maru is compared against the 4 predominant memory approaches in the AI coding 
 | **Index Rebuild Throughput**| N/A | ~50 docs/sec | ~138 docs/sec | ~119 docs/sec | **6,746 docs/sec** (500 docs in 74.1ms) |
 | **Index Resilience** | N/A | Database corruption risk | Database snapshot dependent | DB backup dependent | **Disposable `cache.sqlite` (rebuilt in <75ms)** |
 | **Protocol Conformance** | Manual prompt injection | Proprietary Python SDK | REST API / Bespoke SDK | Bespoke SDK / REST | **Standard Model Context Protocol (FastMCP Stdio)** |
+
+![Figure 2: Architectural & Systems Performance Benchmark](images/comparison_competitors.png)
+*Figure 2: Empirical benchmark against predominant agent memory frameworks. (A) Cold-start invocation latency (logarithmic scale), showing K0maru's ~1,000x faster startup (3.38ms vs. 1.5–3.2s); (B) Resident memory footprint (RSS) and deployment artifact size; (C) Full index rebuild throughput in documents per second (6,746 docs/sec vs. 50–139 docs/sec).*
 
 ---
 
