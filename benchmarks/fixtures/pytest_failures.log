@@ -1,6 +1,6 @@
 ============================= test session starts ==============================
 platform darwin -- Python 3.11.8, pytest-8.1.1, pluggy-1.4.0
-rootdir: /Users/k0maru3/workspace/k0maru-agent-memory
+rootdir: /workspace/k0maru-agent-memory
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.3.0, asyncio-0.23.6, cov-5.0.0, mock-3.14.0, xdist-3.5.0
@@ -28,7 +28,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -92,7 +92,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -156,7 +156,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -220,7 +220,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -284,7 +284,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -348,7 +348,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -412,7 +412,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -476,7 +476,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -540,7 +540,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -604,7 +604,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -668,7 +668,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
@@ -732,7 +732,7 @@ E   sqlite3.OperationalError: database table is locked
 [WARN] Lock acquisition waited 5000ms before timeout
 ----------------------------- Captured stderr call -----------------------------
 Traceback (most recent call last):
-  File "/Users/k0maru3/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
+  File "/workspace/k0maru-agent-memory/src/storage/sqlite.py", line 88, in execute_batch
     with self.conn.transaction():
 LockTimeout: Timeout acquiring database lock on /tmp/k0maru_test_vault/.k0maru/cache.sqlite
 
