@@ -98,7 +98,7 @@ Measured on a standard developer workstation (Apple Silicon, macOS 14+, SSD):
 
 ---
 
-## Part 5: Empirical Colab A100 Hardware Benchmark (Qwen2.5-Coder-32B & DeepSeek-Coder-V2)
+## Part 5: Empirical Colab A100 Hardware Benchmark (Multi-Model Evaluation Matrix)
 
 To bridge the gap between theoretical calculations and real-world engineering outcomes, we conducted live empirical evaluations on an **NVIDIA A100-SXM4-80GB GPU** (80GB VRAM, 167GB RAM) in a clean Google Colab environment.
 
