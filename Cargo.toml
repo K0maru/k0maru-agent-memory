@@ -1,6 +1,6 @@
 [package]
 name = "k0maru"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2021"
 description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
 exclude = [
