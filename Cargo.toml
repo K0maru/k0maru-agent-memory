@@ -41,6 +41,9 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 mime_guess = "2.0"
 dirs = "7.0.0"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [features]
 default = ["fastembed"]
 fastembed = ["dep:fastembed"]
