@@ -191,14 +191,55 @@
 
 ---
 
-### 4. 双脚手架协同范式：Pi (`pi.dev`) 与 Hermes Agent
+### 4. 智能体生态真实闭环适配实测：Nous Research Hermes Agent 与 OpenClaw 协同
 
-1. **极简微内核代表 Pi (`pi.dev`)**：
-   - Pi 严格限制只有 4 个底层工具（`read/write/edit/bash`），坚决拒绝臃肿的 System Prompt；
-   - 在 Pi 中通过 Unix 管道追加 `| k0maru offload`，既避免了冗长堆栈污染极简上下文，又将单轮交互 Prompt 减少 **~34%**，完美保持了亚秒级的极速交互体验。
-2. **技能自生长型代表 Nous Research Hermes Agent**：
-   - Hermes 擅长从排障轨迹中结晶可复用技能；
-   - 配合 `k0maru distill`，每次成功的修复方案都会自动转化为结构化技能，并瞬间写入本地 SQLite 向量索引，支持未来会话 5ms 内即时唤醒。
+为了验证异构智能体生态与自然语言工具调用（Tool Calling）在真实知识库场景下的闭环能力，我们在 Google Colab A100 上搭建了**真实的企业级 LLM-Wiki 仓库**（包含核心 P0 支付网关服务 `10_Projects/payment-gateway.md`、L3 幂等规约 `20_Cards/L3_payment_callback_idempotency_rules.md`、历史资损复盘 `00_Logs/2026-10-08-incident-retry-storm.md` 以及仓库命名约定 `.k0maru/rules.md`），驱动 **`Qwen3.8-27B`** 运行自主 Hermes / OpenClaw 智能体循环：
+
+#### 真实多轮 Function Calling 轨迹实录 (Multi-Turn Execution Trace)
+
+```
+[Agent Loop Start] 用户分配任务：实现 payment-gateway 服务的生产级 Go 语言 Stripe Webhook 回调 Handler
+
+--- Turn 1 (Pre-flight Inspection: 编码前主动预检) ---
+⚡ [Agent Tool Call] `get_project_loadout` {"project_name": "payment-gateway"}
+   ↳ 提取项目上下文与 1-hop 架构不变量 (Go 1.22 + Gin + Redis 7 + PG 16)
+⚡ [Agent Tool Call] `recall_memory` {"query": "Stripe webhook idempotency rules deduplication event processing", "limit": 10}
+   ↳ 命中 L3_payment_callback_idempotency_rules (得分 7.05，首位召回)
+⚡ [Agent Tool Call] `recall_memory` {"query": "webhook signature verification security incident replay attack", "limit": 10}
+   ↳ 命中 2026-10-08-incident-retry-storm 事故复盘 (得分 4.05)
+
+--- Turn 2 (Invariant-Compliant Code Generation: 守约代码生成) ---
+Assistant 生成完全符合 ADR-PAY-008 规约的 Go 代码：
+1. `webhook.ConstructEvent` 读取 Raw Body 进行数字签名防篡改/防重放校验；
+2. 执行 `SET lock:payment:callback:{event_id} "1" NX EX 30` 抢占 Redis 分布式互斥锁，抢锁失败立即返回 429 触发 Stripe 指数退避重试；
+3. 状态机门禁拦截：若当前状态不是 STATUS_PENDING，立即返回 200 OK 幂等 ACK，严禁重复入账；
+4. 数据库单事务内原子更新余额与订单状态。
+
+--- Turn 3 (Self-Healing Session Flush: 决策自愈落盘) ---
+⚡ [Agent Tool Call] `flush_session` {
+  "title": "ADR-PAY-012: Stripe Webhook Handler Implementation with Distributed Idempotency Guard",
+  "category": "decision",
+  "tags": ["stripe", "webhook", "idempotency", "redis", "distributed-lock", "gin", "payment-gateway", "ADR"],
+  "related_notes": ["L3_payment_callback_idempotency_rules", "2026-10-08-incident-retry-storm", "payment-gateway"],
+  "content": "..."
+}
+↳ [K0maru Flush Engine] 自动嗅探规约，原子结晶生成：
+  `20_Cards/adr-pay-012-stripe-webhook-handler-implementation-with-distributed-idempotency-guard.md` (织入 YAML Frontmatter 与 WikiLinks)
+
+--- Turn 4 (Instant Self-Healing Recall: 零延迟自愈召回验证) ---
+执行查询：k0maru_recall_memory("Stripe Webhook Idempotency ADR", limit=2)
+↳ 检索延迟：0.88 ms
+↳ 召回得分：12.05 分（含 +0.05 图谱双链加权，全库第 1 名精准命中刚落盘的 ADR-PAY-012 笔记！）
+```
+
+#### 四大核心不变量全检矩阵 (4/4 100% PASS)
+
+| 核心不变量检验项 | 期望标准 | 实际执行验证结果 | 状态 |
+| :--- | :--- | :--- | :---: |
+| **1. 编码前预检 (Pre-flight Inspection)** | 必须先调用 `loadout` 或 `recall` 获取规则，严禁随缘编码 | 触发 `get_project_loadout` + 2 次 `recall_memory` | **PASS ✓** |
+| **2. 架构不变量遵从 (Invariant Compliance)** | 代码中必须包含分布式互斥锁与状态机阻断 | 生成包含 Redis 互斥锁与 `STATUS_PENDING` 检查的 Go 源码 | **PASS ✓** |
+| **3. 会话结晶与自愈 (Self-Healing Flush)** | 交付后通过 `flush_session` 持久化 ADR 决策与双链 | 规范落盘至 `20_Cards/adr-pay-012-...md` | **PASS ✓** |
+| **4. 即时唤醒验证 (Instant Recall)** | 新笔记在无任何索引重建干预下必须可被瞬间检索 | 检索耗时 **0.88 ms**，得分 12.05 首位命中 | **PASS ✓** |
 
 ---
 

@@ -60,8 +60,19 @@ Evaluated on an **NVIDIA A100-SXM4-80GB GPU** in Google Colab Pro, measuring rea
 | **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | Pass@1: 60.0%<br>Latency: 12.46s | **Pass@1: 80.0% (+20%)**<br>**Latency: 1.05s (11.86x faster)** | **Sub-Second Extreme Throughput**; cured Python async leak with 1.05s turnaround |
 | **Qwen3.8-27B** | 27B Dense (Dual-Stage Reasoning) | Tokens: 923<br>Rust Latency: 21.2s | **Tokens: 709 (-23.2%)**<br>**Rust Latency: 11.1s (2x faster)** | **Flawless 100% Pass Baseline**; 23.2% Prompt Token reduction, halved Rust turnaround |
 
-> 📖 **Comprehensive Case Breakdown & Dual-Harness Synergy**:  
-> For the complete per-case logs, harness synergy with **Pi (`pi.dev`)** and **Hermes Agent**, and 500B+ frontier models notes, see [Part 5 of the Comparison Report](docs/COMPARISON_REPORT.md#part-5-empirical-colab-a100-hardware-benchmark-multi-model-evaluation-matrix).
+#### Autonomous Agent Ecosystem Adaptation (Hermes Agent & OpenClaw on Real LLM-Wiki)
+
+Simulated an enterprise-grade payment gateway LLM-Wiki on Colab A100 (containing P0 service architecture, L3 idempotency rules, and incident postmortems), driving **Qwen3.8-27B** through an autonomous Hermes / OpenClaw function calling loop. All 4 core invariants achieved 100% compliance:
+
+| Invariant Verification Item | Expected Standard & Behavior | Empirical Outcome | Status |
+| :--- | :--- | :--- | :---: |
+| **1. Pre-flight Memory Inspection** | Query loadout and rules before generating any code | Autonomously issued `get_project_loadout` + 2x targeted `recall_memory` calls | **PASS ✓** |
+| **2. Architectural Invariant Compliance** | Generated code must enforce distributed mutex & state guard | Produced Go handler with Redis lock `SET NX EX 30` & `STATUS_PENDING` check | **PASS ✓** |
+| **3. Self-Healing Session Flush** | Persist ADR decision to wiki via `flush_session` with WikiLinks | Automatically created `20_Cards/adr-pay-012-...md` with frontmatter | **PASS ✓** |
+| **4. Instant Recall Without Re-indexing** | Note must be recallable immediately without manual re-index | Recalled in **0.88 ms** with top score of 12.05 (Rank #1 hit) | **PASS ✓** |
+
+> 📖 **Comprehensive Case Breakdown & Autonomous Agent Traces**:  
+> For the complete per-case logs, multi-turn Hermes/OpenClaw traces, and 500B+ model notes, see [Part 4 & Part 5 of the Comparison Report](docs/COMPARISON_REPORT.md#4-empirical-agent-ecosystem-adaptation-nous-research-hermes-agent--openclaw).
 
 ---
 

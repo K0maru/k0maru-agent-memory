@@ -60,8 +60,19 @@
 | **DeepSeek-Coder-V2** | 16B MoE (2.4B 激活) | Pass@1: 60.0%<br>延迟: 12.46s | **Pass@1: 80.0% (+20%)**<br>**延迟: 1.05s (11.86x 提速)** | **亚秒级极致吞吐**；攻克 Python 异步泄漏，交互响应压至 1 秒级 |
 | **Qwen3.8-27B** | 27B Dense (双阶段思维链) | Tokens: 923<br>Rust耗时: 21.2s | **Tokens: 709 (-23.2%)**<br>**Rust耗时: 11.1s (2x 提速)** | **稳定 100% Pass 满分基础**；Prompt Token 净缩减 23.2%，Rust 编译案例耗时减半 |
 
-> 📖 **查看完整五大缺陷案例逐一拆解、Pi 与 Hermes 双脚手架协同范式**：  
-> 请参阅完整的 [评估报告第五部分：云端 A100 硬件真实实测基准（多模型端到端实测矩阵）](docs/COMPARISON_REPORT_zh.md#第五部分云端-a100-硬件真实实测基准多模型端到端实测矩阵)。
+#### 智能体生态真实闭环适配验证 (Hermes Agent & OpenClaw on Real LLM-Wiki)
+
+在 Colab A100 上搭建真实企业级支付网关 LLM-Wiki（含 P0 服务架构、L3 幂等规则卡片与历史资损复盘），驱动 **Qwen3.8-27B** 自主运行 Hermes / OpenClaw 多轮函数调用循环，四大核心不变量全部达成：
+
+| 核心不变量检验项 | 期望标准与流程 | 实际执行验证结果 | 状态 |
+| :--- | :--- | :--- | :---: |
+| **1. 编码前预检 (Pre-flight Inspection)** | 编码前主动调用 `loadout` 与 `recall` 获取架构不变量与事故教训 | 自主触发 `get_project_loadout` 与 2 次精准 `recall_memory` | **PASS ✓** |
+| **2. 架构不变量遵从 (Invariant Compliance)** | 代码中必须包含分布式互斥锁与状态机阻断，杜绝资损隐患 | 生成包含 Redis 锁 `SET NX EX 30` 与 `STATUS_PENDING` 检查的 Go 源码 | **PASS ✓** |
+| **3. 会话结晶与自愈 (Self-Healing Flush)** | 交付后通过 `flush_session` 持久化 ADR 决策并编织双向 WikiLinks | 自动规范生成至 `20_Cards/adr-pay-012-...md` (织入 Frontmatter) | **PASS ✓** |
+| **4. 即时唤醒验证 (Instant Recall)** | 新结晶笔记在无人工索引重建干预下必须可被瞬间唤醒 | 检索耗时 **0.88 ms**，得分 12.05 首位命中刚落盘的 ADR 卡片 | **PASS ✓** |
+
+> 📖 **查看完整案例逐一拆解、Hermes / OpenClaw 多轮 Trace 与评测数据**：  
+> 请参阅完整的 [评估报告第四部分：智能体生态真实闭环适配实测](docs/COMPARISON_REPORT_zh.md#4-智能体生态真实闭环适配实测nous-research-hermes-agent-与-openclaw-协同)。
 
 ---
 
