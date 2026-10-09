@@ -203,7 +203,7 @@ A sustainable knowledge base compounds value over time through a bidirectional f
 
 ## 📊 Architectural Comparison Matrix
 
-> 📄 **Looking for the full quantitative evaluation?** See the complete [Comparative Evaluation & Benchmark Report](docs/COMPARISON_REPORT.md) featuring 10-turn cost growth curves, horizontal competitor matrices, and [Part 5: Empirical Open-Source LLM Benchmarks (DeepSeek v4.1 Flash & GLM 5.2 across Hermes & Pi)](docs/COMPARISON_REPORT.md#part-5-empirical-llm-benchmark-deepseek-v41-flash--glm-52-across-hermes--pi).
+> 📄 **Looking for the full quantitative evaluation?** See the complete [Comparative Evaluation & Benchmark Report](docs/COMPARISON_REPORT.md) featuring 10-turn cost growth curves, horizontal competitor matrices, and empirical benchmarks.
 
 | Evaluation Dimension | Vanilla Context (Copy-Paste) | Containerized Microservices (Letta / TencentDB) | Resident Background Daemons (agentmemory) | **K0maru-Agent-Memory (This Project)** |
 | :--- | :--- | :--- | :--- | :--- |
@@ -247,24 +247,6 @@ Measured over 100 cold-start iterations and full index rebuilds of 500 Markdown 
 - **Index Rebuild Throughput**: 500 documents indexed into SQLite FTS5 in **74.55 ms** (**6,707 docs/sec**).
 - **Clean Rescan Duration**: **11.67 ms**.
 - **Binary Size**: **3.66 MB**.
-
-### 3. End-to-End LLM Showcase: DeepSeek v4.1 Flash
-
-Beyond systems-level latency and token compression, how does K0maru perform when driving real-world open-source models? We evaluated **DeepSeek v4.1 Flash** (Asymmetric 552B MoE, 16B active, 1M context) across 20 complex multi-file engineering debugging tasks (Rust concurrency deadlocks, Python async leaks, Go goroutine hangs) comparing a raw baseline agent against a K0maru-managed agent:
-
-| Metric Dimension | Baseline (Unmanaged DeepSeek v4.1 Flash) | With K0maru (Memory-Hub Managed) | Performance Delta |
-| :--- | :---: | :---: | :---: |
-| **Pass@1 Task Resolution Rate** | 41.2% | **87.5%** | **+46.3% Absolute Gain** |
-| **Average Turns to Resolution (TTR)** | 7.4 turns | **2.8 turns** | **2.6x Faster Completion** |
-| **10-Turn Cumulative Tokens** | 162,800 tokens | **1,505 tokens** | **99.08% Token Reduction** |
-| **Cost per 10-Turn Debug Session** | $0.182 USD | **$0.0017 USD** | **>99% API Cost Savings** |
-| **First-Turn Time-to-First-Token (TTFT)** | 18.4s (at Turn 7, 120k tokens) | **1.2s** (at Turn 7, ~1.2k tokens) | **15.3x Lower Response Latency** |
-| **Lost-in-the-Middle Attention Degradation** | High (repeats bash commands at Turn 6+) | **Zero** (KV Cache stays 100% focused) | Eliminates context blowout loops |
-
-> 📖 **Comprehensive Multi-Model & Harness Report**:
-> - **Detailed Model Breakdown**: For in-depth evaluations of **Zhipu GLM 5.2** (tool calling & bilingual reasoning) and future roadmap models (Qwen 2.5 Coder 32B, Llama 3.3 70B), see [Comparative Report: GLM 5.2 & Open Model Matrix](docs/COMPARISON_REPORT.md#2-comprehensive-model-deep-dive-glm-52--open-model-matrix).
-> - **Dual-Harness Evaluation**: See how K0maru bridges minimalist micro-kernels ([Pi / `pi.dev`](docs/COMPARISON_REPORT.md#a-pi-pidev--earendil-workspi-coding-agent--the-hacker-minimalist-micro-kernel)) vs. dynamic self-growing skill engines ([Nous Research Hermes Agent](docs/COMPARISON_REPORT.md#b-nous-research-hermes-agent--the-self-growing-dynamic-skill-engine)).
-> - **Full Report Link**: [docs/COMPARISON_REPORT.md#part-5-empirical-llm-benchmark-deepseek-v41-flash--glm-52-across-hermes--pi](docs/COMPARISON_REPORT.md#part-5-empirical-llm-benchmark-deepseek-v41-flash--glm-52-across-hermes--pi)
 
 ---
 

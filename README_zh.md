@@ -205,7 +205,7 @@ k0maru distill --file build.log --title "修复 CMake 缺少 OpenSSL" --tags bui
 
 ## 📊 方案对比矩阵 (Architectural Comparison)
 
-> 📄 **想要查看包含 10 轮成本曲线与实测数据的深度评估？** 请参阅完整的 [横向竞品对比与使用收益评估报告](docs/COMPARISON_REPORT_zh.md)，包含 [第五部分：端到端开源大模型与双脚手架实测基准（DeepSeek v4.1 Flash & GLM 5.2 深度实证）](docs/COMPARISON_REPORT_zh.md#第五部分端到端开源大模型与双脚手架实测基准deepseek-v41-flash--glm-52-深度实证)。
+> 📄 **想要查看包含 10 轮成本曲线与实测数据的深度评估？** 请参阅完整的 [横向竞品对比与使用收益评估报告](docs/COMPARISON_REPORT_zh.md)。
 
 不同应用场景在架构权衡上各有侧重：
 
@@ -251,24 +251,6 @@ k0maru distill --file build.log --title "修复 CMake 缺少 OpenSSL" --tags bui
 - **缓存瞬态重建吞吐量**：500 篇文档从零创建 SQLite FTS5 索引总耗时 **74.55 ms**（吞吐量达 **6,707 篇/秒**）；
 - **零变动增量扫描耗时**：**11.67 ms**；
 - **二进制大小**：**3.66 MB**。
-
-### 3. 开源大模型端到端实测看板 (DeepSeek v4.1 Flash Showcase)
-
-除了系统级冷启动与 Token 理论压缩比，K0maru 在真实驱动开源主流大模型时表现如何？我们在 20 个真实的复杂跨文件工程排障任务（涵盖 Rust 并发死锁、Python 异步生成器泄漏、Go goroutine 悬挂等）中，对开源统治力基座 **DeepSeek v4.1 Flash**（非对称 552B MoE，16B 激活，1M 上下文）进行了全流程端到端实测：
-
-| 评测维度 | 对照组（裸机 DeepSeek v4.1 Flash） | 实验组（挂载 K0maru 记忆中枢） | 核心工程收益与反差 |
-| :--- | :---: | :---: | :---: |
-| **Pass@1 任务一次性解决率** | 41.2% | **87.5%** | **+46.3% 绝对胜率提升**（彻底消除中途遗忘） |
-| **平均完成轮数 (TTR)** | 7.4 轮 | **2.8 轮** | **排障周期缩短 2.6 倍**（直击核心报错行） |
-| **10 轮交互累积消耗 Tokens** | 162,800 Tokens | **1,505 Tokens** | **99.08% Token 物理节省** |
-| **单任务 10 轮 API 实际账单** | $0.182 美元 | **$0.0017 美元** | **API 调用成本暴降 >99%** |
-| **第 7 轮首字返回延迟 (TTFT)** | 18.4 秒（上下文膨胀至 120k） | **1.2 秒**（上下文恒定在 ~1.2k） | **响应交互提速 15.3 倍** |
-| **中途注意力迷失 (Lost-in-the-Middle)** | 极高（第 6 轮后开始机械重复执行 bash） | **完全杜绝**（注意力焦点 100% 保持清晰） | 阻断长上下文引发的复读机死循环 |
-
-> 📖 **详尽多模型对比与脚手架实测文档**：
-> - **多模型深入拆解**：针对**智谱 GLM 5.2**（结构化工具调用与中英双语推理）的深入定性剖析及后续开源模型（Qwen 2.5 Coder 32B、Llama 3.3 70B 等）规划，详见 [评估报告：智谱 GLM 5.2 与多开源模型全景横测](docs/COMPARISON_REPORT_zh.md#2-详细对比文档智谱-glm-52-与多开源模型全景横测)；
-> - **双典型脚手架对比**：深度拆解极简微内核代表 [Pi (`pi.dev`)](docs/COMPARISON_REPORT_zh.md#a-开源极简微内核代表pi-pidev--earendil-workspi-coding-agent) 与动态技能自演进代表 [Nous Research Hermes Agent](docs/COMPARISON_REPORT_zh.md#b-动态技能自生长型代表nous-research-hermes-agent) 的实测收益；
-> - **报告直达链接**：[docs/COMPARISON_REPORT_zh.md#第五部分端到端开源大模型与双脚手架实测基准deepseek-v41-flash--glm-52-深度实证](docs/COMPARISON_REPORT_zh.md#第五部分端到端开源大模型与双脚手架实测基准deepseek-v41-flash--glm-52-深度实证)。
 
 ---
 
