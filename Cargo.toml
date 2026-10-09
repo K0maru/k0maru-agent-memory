@@ -3,6 +3,14 @@ name = "k0maru"
 version = "0.7.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
+exclude = [
+    ".internal/*",
+    ".scratch/*",
+    "benchmarks/*",
+    "packaging/*",
+    "tests/fixtures/*",
+    "*.ipynb",
+]
 
 [lib]
 name = "k0maru"
