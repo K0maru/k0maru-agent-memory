@@ -22,8 +22,8 @@ fn generate_rustc_error(code: &str, msg: &str, turn_idx: usize, lines_count: usi
         ),
         "   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mismatched types".to_string(),
         "   |".to_string(),
-        format!("   = note: expected signature `fn(&Context) -> Result<TokenBudget, GcError>`"),
-        format!("              found signature `fn(&Context) -> TokenBudget`"),
+        "   = note: expected signature `fn(&Context) -> Result<TokenBudget, GcError>`".to_string(),
+        "              found signature `fn(&Context) -> TokenBudget`".to_string(),
     ];
     for i in 1..lines_count {
         lines.push(format!(
@@ -57,9 +57,9 @@ fn generate_python_traceback(exception_type: &str, msg: &str, frames: usize) -> 
 fn generate_npm_error(code: &str, msg: &str, count: usize) -> String {
     let mut lines = vec![
         format!("npm ERR! code {}", code),
-        format!("npm ERR! syscall spawn"),
-        format!("npm ERR! path /workspace/node_modules/.bin/vite"),
-        format!("npm ERR! errno -2"),
+        "npm ERR! syscall spawn".to_string(),
+        "npm ERR! path /workspace/node_modules/.bin/vite".to_string(),
+        "npm ERR! errno -2".to_string(),
         format!("npm ERR! {}", msg),
     ];
     for i in 0..count {
@@ -78,8 +78,8 @@ fn generate_clang_error(header: &str, count: usize) -> String {
     let mut lines = vec![
         format!("fatal error: {}: No such file or directory", header),
         format!("   #include <{}>", header),
-        format!("            ^~~~~~~~~~~~~~"),
-        format!("compilation terminated."),
+        "            ^~~~~~~~~~~~~~".to_string(),
+        "compilation terminated.".to_string(),
     ];
     for i in 0..count {
         lines.push(format!(
