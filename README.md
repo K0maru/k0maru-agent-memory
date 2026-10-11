@@ -252,10 +252,10 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 
 | Evaluated Model | Architecture | Pass@1 (Baseline) | Pass@1 (K0maru) | Avg Latency (Base -> K0maru) | Speedup | Prompt Tokens (Base -> K0maru) | Token Reduction (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Qwen2.5-Coder-32B** *(Kanban)* | 32B Dense Q4_K_M | 60.0% (3/5) | **100.0% (5/5)** | 24.68s ➔ **7.13s** | **3.46x** | 5,472 ➔ **1,119** | **79.6%** |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dual-Stage Reasoning | 20.0% (1/5) | **40.0% (2/5)** | 16.70s ➔ **6.14s** | **2.72x** | 5,745 ➔ **1,076** | **81.3%** |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | 80.0% (4/5) | **100.0% (5/5)** | 9.43s ➔ **1.36s** | **6.93x** | 6,298 ➔ **1,142** | **81.9%** |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Q4_K_M | 60.0% (3/5) | **100.0% (5/5)** | 24.68s ➔ **7.13s** | **3.46x** | 5,472 ➔ **1,119** | **79.6%** |
 | **DeepSeek-R1-32B** | 32B Reasoning Distill | 20.0% (1/5) | **40.0% (2/5)** | 12.01s ➔ **9.19s** | **1.31x** | 5,412 ➔ **989** | **81.7%** |
-| **Qwen3.8-27B** | 27B Dual-Stage Reasoning | 20.0% (1/5) | **40.0% (2/5)** | 16.70s ➔ **6.14s** | **2.72x** | 5,745 ➔ **1,076** | **81.3%** |
 | **Google Gemma 4 31B** | 31B Multimodal Foundation | 0.0% (0/5) | 0.0% (0/5) | 16.69s ➔ **6.94s** | **2.40x** | 6,356 ➔ **1,134** | **82.2%** |
 
 *See [docs/COMPARISON_REPORT.md](docs/COMPARISON_REPORT.md) for full breakdown, including 4/4 invariant compliance.*

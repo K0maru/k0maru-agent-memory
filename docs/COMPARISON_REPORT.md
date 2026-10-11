@@ -108,10 +108,10 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 - **Host Memory & Disk**: 167 GiB RAM, 194 GiB high-speed NVMe scratch storage.
 - **Inference Server**: Ollama daemon (native CUDA v13 backend, 256k context window).
 - **Evaluated Models**:
-  1. **Qwen2.5-Coder-32B** (`qwen2.5-coder:32b`, 32B Dense, Kanban Coding Model)
-  2. **DeepSeek-R1-32B** (`deepseek-r1:32b`, 32B Reasoning Distillation)
-  3. **DeepSeek-Coder-V2-16B** (`deepseek-coder-v2:16b`, 16B MoE with 2.4B active)
-  4. **Qwen3.8-27B** (`qwen3.8:27b`, 27B Dual-Stage Reasoning)
+  1. **Qwen3.8-27B** (`qwen3.8:27b`, 27B Dual-Stage Reasoning, Flagship Kanban Model)
+  2. **DeepSeek-Coder-V2-16B** (`deepseek-coder-v2:16b`, 16B MoE with 2.4B active)
+  3. **Qwen2.5-Coder-32B** (`qwen2.5-coder:32b`, 32B Dense, Code Baseline Model)
+  4. **DeepSeek-R1-32B** (`deepseek-r1:32b`, 32B Reasoning Distillation)
   5. **Google Gemma 4 31B** (`gemma4:31b`, Google DeepMind 31B Multimodal Foundation Architecture)
 - **Evaluation Corpus**: 5 representative industrial engineering defects spanning Rust (`E0382` move in loop), Python (`InvalidStateError` un-awaited task leak), TypeScript (undefined request headers property access), Go (unbuffered channel deadlock), and C (`heap-use-after-free` double free).
 - **Comparison Dimensions**:
@@ -124,14 +124,14 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 
 | Evaluated Model | Parameters & Architecture | Mode | Pass@1 Rate | Total Prompt Tokens | Token Reduction (%) | Avg Latency | Speedup | Key Behavior Observation |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Qwen2.5-Coder-32B** *(Kanban)* | 32B Dense Q4_K_M | Baseline | 60.0% (3/5) | 5,472 | — | 24.68s | 1.0x | Overwhelmed by Rust borrow-checker dump (90.1s) and TS auth null reference. |
-| **Qwen2.5-Coder-32B** *(Kanban)* | 32B Dense Q4_K_M | **K0maru** | **100.0% (5/5)** | **1,119** | **79.6%** | **7.13s** | **3.46x** | **100% Pass rate**. Case 1 Rust move sped up **15.06x** (90.1s -> 5.98s); TS auth passed via `ctx?.req?.headers`. |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dual-Stage Reasoning | Baseline | 20.0% (1/5) | 5,745 | — | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock. |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dual-Stage Reasoning | **K0maru** | **40.0% (2/5)** | **1,076** | **81.3%** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak. |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | Baseline | 80.0% (4/5) | 6,298 | — | 9.43s | 1.0x | Fast MoE architecture, but failed TS auth due to raw stack trace misdirection. |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | **K0maru** | **100.0% (5/5)** | **1,142** | **81.9%** | **1.36s** | **6.93x** | **100% Pass rate**. Sub-second turnaround on TS (1.26s) and C (1.19s). Case 1 sped up **26.44x** (40.5s -> 1.53s). |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Q4_K_M | Baseline | 60.0% (3/5) | 5,472 | — | 24.68s | 1.0x | Overwhelmed by Rust borrow-checker dump (90.1s) and TS auth null reference. |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Q4_K_M | **K0maru** | **100.0% (5/5)** | **1,119** | **79.6%** | **7.13s** | **3.46x** | **100% Pass rate**. Case 1 Rust move sped up **15.06x** (90.1s -> 5.98s); TS auth passed via `ctx?.req?.headers`. |
 | **DeepSeek-R1-32B** | 32B Reasoning Distill | Baseline | 20.0% (1/5) | 5,412 | — | 12.01s | 1.0x | Prolonged reflection over raw stack traces; failed Python async leak and Go deadlock. |
 | **DeepSeek-R1-32B** | 32B Reasoning Distill | **K0maru** | **40.0% (2/5)** | **989** | **81.7%** | **9.19s** | **1.31x** | Resolved Python async leak with `asyncio.gather`. Prompt tokens cut by 81.7%. |
-| **Qwen3.8-27B** | 27B Dual-Stage Reasoning | Baseline | 20.0% (1/5) | 5,745 | — | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock. |
-| **Qwen3.8-27B** | 27B Dual-Stage Reasoning | **K0maru** | **40.0% (2/5)** | **1,076** | **81.3%** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak. |
 | **Google Gemma 4 31B** | 31B Multimodal Foundation | Baseline | 0.0% (0/5) | 6,356 | — | 16.69s | 1.0x | General foundation model without code specialization; failed all 5 raw trace repairs. |
 | **Google Gemma 4 31B** | 31B Multimodal Foundation | **K0maru** | 0.0% (0/5) | **1,134** | **82.2%** | **6.94s** | **2.40x** | Prompt tokens reduced by **82.2%**; Rust case latency dropped from 53.4s to 6.85s (**7.8x speedup**). |
 
@@ -141,13 +141,13 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 
 To ensure that coding agents adhere to architectural guardrails and complete self-healing cycles, we verified 4 non-negotiable invariants across all 5 models against the Enterprise Payment Settlement Vault:
 
-| Invariant Verification Item | Qwen2.5-Coder-32B | DeepSeek-Coder-V2-16B | DeepSeek-R1-32B | Qwen3.8-27B | Google Gemma 4 31B |
+| Invariant Verification Item | Qwen3.8-27B *(Flagship Kanban)* | Qwen2.5-Coder-32B *(Code Baseline)* | DeepSeek-Coder-V2-16B | DeepSeek-R1-32B | Google Gemma 4 31B |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **1. Pre-flight Memory Inspection** | **PASS ✓** | **PASS ✓** | FAIL | FAIL | FAIL |
-| **2. Invariant Compliance (`SET NX EX 30` + Lua)** | FAIL | **PASS ✓** | FAIL | FAIL | FAIL |
+| **1. Pre-flight Memory Inspection** | FAIL | **PASS ✓** | **PASS ✓** | FAIL | FAIL |
+| **2. Invariant Compliance (`SET NX EX 30` + Lua)** | FAIL | FAIL | **PASS ✓** | FAIL | FAIL |
 | **3. Self-Healing Session Flush (`flush_session`)** | **PASS ✓** | **PASS ✓** | **PASS ✓** | **PASS ✓** | **PASS ✓** |
-| **4. Instant Recall (<1ms read-your-writes)** | **PASS ✓ (306ms)** | **PASS ✓ (285ms)** | **PASS ✓ (294ms)** | **PASS ✓ (281ms)** | **PASS ✓ (280ms)** |
-| **Overall Invariant Compliance** | Partial (3/4) | **100% PASS (4/4)** | Partial (2/4) | Partial (2/4) | Partial (2/4) |
+| **4. Instant Recall (<1ms read-your-writes)** | **PASS ✓ (281ms)** | **PASS ✓ (306ms)** | **PASS ✓ (285ms)** | **PASS ✓ (294ms)** | **PASS ✓ (280ms)** |
+| **Overall Invariant Compliance** | Partial (2/4) | Partial (3/4) | **100% PASS (4/4)** | Partial (2/4) | Partial (2/4) |
 
 *Key Takeaway*: **DeepSeek-Coder-V2-16B** demonstrated perfect 4/4 invariant compliance, querying project invariants, generating compliant Go handlers with Redis mutexes and Lua unlock scripts, crystallizing decisions to Markdown, and verifying instant recall.
 
@@ -155,7 +155,7 @@ To ensure that coding agents adhere to architectural guardrails and complete sel
 
 ### 4. Phase 9 Multi-Agent Heterogeneous Concurrency & Stress Benchmark
 
-Executed directly on the dedicated A100 host using our Kanban model (`Qwen2.5-Coder-32B`) within the simulated Enterprise Payment Settlement LLM-Wiki:
+Executed directly on the dedicated A100 host using our Flagship Kanban model (`Qwen3.8-27B`) alongside code baseline models within the simulated Enterprise Payment Settlement LLM-Wiki:
 
 #### A. Simultaneous Multi-Agent Read Burst (12 Concurrent Agents)
 - **Scale**: 120 total retrieval requests (`k0maru search --mode hybrid` & `k0maru loadout --diff`) dispatched across 12 concurrent worker threads.

@@ -31,14 +31,14 @@ The table below contrasts unmanaged agents (Control Group) against K0maru-manage
 
 | Evaluated Model | Architecture & Role | Group | Pass@1 Accuracy | Input Prompt Tokens | Average Latency | Speedup Factor | Key Engineering Observations |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Qwen2.5-Coder-32B** *(Kanban)* | 32B Dense Code Specialist | Control (Vanilla) | 60.0% (3/5) | 5,472 | 24.68s | 1.0x | Misled by verbose Rust borrow checker stack (90.1s) and TS auth null reference |
-| **Qwen2.5-Coder-32B** *(Kanban)* | 32B Dense Code Specialist | **K0maru Managed** | **100.0% (5/5)** | **1,119** | **7.13s** | **3.46x** | **5/5 solved (+40% accuracy jump)**; Case 1 sped up **15.06x** (90.1s -> 5.98s); 79.6% token reduction |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | Control (Vanilla) | 20.0% (1/5) | 5,745 | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | **K0maru Managed** | **40.0% (2/5)** | **1,076** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | Control (Vanilla) | 80.0% (4/5) | 6,298 | 9.43s | 1.0x | Fast MoE architecture, but failed TS auth due to raw stack trace misdirection |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | **K0maru Managed** | **100.0% (5/5)** | **1,142** | **1.36s** | **6.93x** | **100% Pass rate**; sub-second turnaround on TS (1.26s) and C (1.19s); Case 1 sped up **26.44x** |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Code Specialist | Control (Vanilla) | 60.0% (3/5) | 5,472 | 24.68s | 1.0x | Misled by verbose Rust borrow checker stack (90.1s) and TS auth null reference |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Code Specialist | **K0maru Managed** | **100.0% (5/5)** | **1,119** | **7.13s** | **3.46x** | **5/5 solved (+40% accuracy jump)**; Case 1 sped up **15.06x** (90.1s -> 5.98s); 79.6% token reduction |
 | **DeepSeek-R1-32B** | 32B Reasoning / CoT | Control (Vanilla) | 20.0% (1/5) | 5,412 | 12.01s | 1.0x | Exhaustive thinking chain, but burdened by lengthy stack traces leading to high generation latency |
 | **DeepSeek-R1-32B** | 32B Reasoning / CoT | **K0maru Managed** | **40.0% (2/5)** | **989** | **9.19s** | **1.31x** | Resolved Python async leak with `asyncio.gather`; prompt tokens cut by **81.7%** |
-| **Qwen3.8-27B** | 27B Dense (2-Stage) | Control (Vanilla) | 20.0% (1/5) | 5,745 | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock |
-| **Qwen3.8-27B** | 27B Dense (2-Stage) | **K0maru Managed** | **40.0% (2/5)** | **1,076** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak |
 | **Google Gemma 4 31B** | 31B Multimodal Foundation | Control (Vanilla) | 0.0% (0/5) | 6,356 | 16.69s | 1.0x | General foundation model without code specialization; failed all 5 raw trace repairs |
 | **Google Gemma 4 31B** | 31B Multimodal Foundation | **K0maru Managed** | 0.0% (0/5) | **1,134** | **6.94s** | **2.40x** | Prompt tokens reduced by **82.2%**; Rust case latency dropped from 53.4s to 6.85s (**7.8x speedup**) |
 
