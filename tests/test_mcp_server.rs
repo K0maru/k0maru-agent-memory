@@ -77,7 +77,7 @@ fn test_mcp_tools_list() {
     assert_eq!(resp["id"], 2);
 
     let tools = resp["result"]["tools"].as_array().expect("tools array");
-    assert_eq!(tools.len(), 6);
+    assert_eq!(tools.len(), 7);
 
     let tool_names: Vec<&str> = tools
         .iter()
@@ -90,6 +90,7 @@ fn test_mcp_tools_list() {
     assert!(tool_names.contains(&"inspect_log_node"));
     assert!(tool_names.contains(&"flush_session"));
     assert!(tool_names.contains(&"distill_session_skill"));
+    assert!(tool_names.contains(&"gc_session_context"));
 
     // Verify schemas
     for tool in tools {
@@ -120,6 +121,10 @@ fn test_mcp_tools_list() {
             }
             "distill_session_skill" => {
                 assert!(schema["properties"]["raw_trace"].is_object());
+            }
+            "gc_session_context" => {
+                let required = schema["required"].as_array().expect("required array");
+                assert!(required.iter().any(|r| r == "trajectory_json"));
             }
             _ => panic!("Unexpected tool: {}", name),
         }

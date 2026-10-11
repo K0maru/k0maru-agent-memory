@@ -21,6 +21,7 @@ use crate::scanner::IncrementalScanner;
 use crate::storage::hybrid::{HybridSearchEngine, SearchMode};
 use crate::storage::SqliteStorage;
 use crate::vector::{EmbeddingEngine, MockEmbeddingEngine};
+use k0maru_core::gc::{ContextGcEngine, GcOptions, SessionTrajectory};
 
 /// FastMCP stdio server running on top of JSON-RPC 2.0.
 pub struct McpServer {
@@ -131,6 +132,13 @@ impl McpServer {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "Missing required parameter 'project_name'".to_string())?;
 
+        let diff_requested = arguments
+            .get("diff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let branch = arguments.get("branch").and_then(|v| v.as_str());
+
         if let Err(e) = self.sync_cache() {
             return Err(format!("Cache sync failed: {}", e));
         }
@@ -141,7 +149,29 @@ impl McpServer {
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
 
-        let loadout_opt = if is_obsidian {
+        let loadout_opt = if diff_requested || branch.is_some() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| vault_path.clone());
+            let mut modified_files =
+                crate::git::GitInspector::inspect_diff(&cwd, branch).unwrap_or_default();
+            if modified_files.is_empty() {
+                modified_files =
+                    crate::git::GitInspector::inspect_diff(&vault_path, branch).unwrap_or_default();
+            }
+
+            if is_obsidian {
+                let adapter = ObsidianAdapter::new(&vault_path);
+                let builder = LoadoutBuilder::new(&adapter, storage);
+                builder
+                    .build_with_diff(project_name, &modified_files)
+                    .map_err(|e| e.to_string())?
+            } else {
+                let adapter = GenericWikiAdapter::new(&vault_path);
+                let builder = LoadoutBuilder::new(&adapter, storage);
+                builder
+                    .build_with_diff(project_name, &modified_files)
+                    .map_err(|e| e.to_string())?
+            }
+        } else if is_obsidian {
             let adapter = ObsidianAdapter::new(&vault_path);
             let builder = LoadoutBuilder::new(&adapter, storage);
             builder.build(project_name).map_err(|e| e.to_string())?
@@ -516,6 +546,56 @@ impl McpServer {
         }
     }
 
+    fn call_gc_session_context(&mut self, arguments: &Value) -> Result<String, String> {
+        let trajectory: SessionTrajectory =
+            if let Some(raw_str) = arguments.get("trajectory_json").and_then(|v| v.as_str()) {
+                serde_json::from_str(raw_str)
+                    .map_err(|e| format!("Failed to parse 'trajectory_json' string: {}", e))?
+            } else if let Some(obj) = arguments.get("trajectory_json") {
+                serde_json::from_value(obj.clone())
+                    .map_err(|e| format!("Failed to parse 'trajectory_json' value: {}", e))?
+            } else if let Some(obj) = arguments.get("trajectory") {
+                serde_json::from_value(obj.clone())
+                    .map_err(|e| format!("Failed to parse 'trajectory' value: {}", e))?
+            } else {
+                return Err("Missing required argument: 'trajectory_json'".to_string());
+            };
+
+        let threshold = arguments
+            .get("threshold")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(20);
+
+        let hot_window = arguments
+            .get("hot_window")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(5);
+
+        let context_window = arguments
+            .get("context_window")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(128_000);
+
+        let options = GcOptions {
+            line_threshold: threshold,
+            hot_window_turns: hot_window,
+            context_window_tokens: context_window,
+            refs_dir: Some(self.vault_path.join(".scratch/refs")),
+            ..Default::default()
+        };
+
+        let engine = ContextGcEngine::new();
+        let result = engine
+            .compact(&trajectory, &options)
+            .map_err(|e| format!("Context GC compaction failed: {}", e))?;
+
+        serde_json::to_string_pretty(&result)
+            .map_err(|e| format!("Failed to serialize GC result: {}", e))
+    }
+
     fn handle_initialize(&self, id: Value) -> Value {
         json!({
             "jsonrpc": "2.0",
@@ -541,13 +621,21 @@ impl McpServer {
                 "tools": [
                     {
                         "name": "get_project_loadout",
-                        "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes.",
+                        "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
                         "inputSchema": {
                             "type": "object",
                             "properties": {
                                 "project_name": {
                                     "type": "string",
                                     "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
+                                },
+                                "diff": {
+                                    "type": "boolean",
+                                    "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
+                                },
+                                "branch": {
+                                    "type": "string",
+                                    "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
                                 }
                             },
                             "required": ["project_name"]
@@ -686,6 +774,32 @@ impl McpServer {
                                 }
                             }
                         }
+                    },
+                    {
+                        "name": "gc_session_context",
+                        "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "trajectory_json": {
+                                    "type": "string",
+                                    "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
+                                },
+                                "threshold": {
+                                    "type": "integer",
+                                    "description": "Line threshold before tool output is folded (default: 20)"
+                                },
+                                "hot_window": {
+                                    "type": "integer",
+                                    "description": "Number of recent turns preserved untouched in hot window (default: 5)"
+                                },
+                                "context_window": {
+                                    "type": "integer",
+                                    "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
+                                }
+                            },
+                            "required": ["trajectory_json"]
+                        }
                     }
                 ]
             }
@@ -720,6 +834,10 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "distill_session_skill" => match self.call_distill_session_skill(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "gc_session_context" => match self.call_gc_session_context(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },

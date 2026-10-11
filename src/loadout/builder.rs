@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::core::models::HierarchyLevel;
 use crate::core::traits::{CacheStorage, VaultAdapter};
+use crate::git::ModifiedFile;
 
 /// Summary of an associated L3 evergreen card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -462,9 +463,14 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         ];
 
         for cand in &candidate_paths {
+            let cand_str = cand.to_string_lossy();
+            if cand_str.contains("10_Projects") {
+                continue;
+            }
             if let Ok(doc) = self.adapter.read_document(cand) {
-                if doc.hierarchy == HierarchyLevel::L3Evergreen
-                    || cand.to_string_lossy().contains("20_Cards")
+                let doc_path_str = doc.path.to_string_lossy();
+                if (doc.hierarchy == HierarchyLevel::L3Evergreen || cand_str.contains("20_Cards"))
+                    && !doc_path_str.contains("10_Projects")
                 {
                     let concept = extract_card_concept(&doc.body);
                     return Some((clean.to_string(), doc.path, concept));
@@ -667,4 +673,457 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             markdown,
         }))
     }
+
+    /// Builds a change-aware dynamic context loadout strictly bounded to <300 tokens,
+    /// activating ADRs and invariants relevant to the detected Git changes.
+    pub fn build_with_diff(
+        &self,
+        query: &str,
+        modified_files: &[ModifiedFile],
+    ) -> Result<Option<LoadoutResult>, Box<dyn std::error::Error>> {
+        let project_path = match self.find_project(query)? {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+
+        let project_doc = self.adapter.read_document(&project_path)?;
+        let project_stem = project_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let mut scope = extract_project_scope(&project_doc.body);
+        if scope.chars().count() > 100 {
+            scope = format!("{}...", scope.chars().take(97).collect::<String>());
+        }
+
+        // 1. Extract keywords and changed modules from modified files
+        let mut all_keywords = Vec::new();
+        let mut seen_kw = HashSet::new();
+        let mut changed_modules = Vec::new();
+        let mut seen_mod = HashSet::new();
+
+        for file in modified_files {
+            for kw in file.extract_keywords() {
+                if seen_kw.insert(kw.clone()) {
+                    all_keywords.push(kw.clone());
+                }
+                if seen_mod.insert(kw.clone()) && changed_modules.len() < 3 {
+                    changed_modules.push(kw);
+                }
+            }
+        }
+
+        // Active changes line
+        let active_changes_line = if modified_files.is_empty() {
+            "> **Active Changes**: Clean working tree (no uncommitted changes)".to_string()
+        } else {
+            let mods_summary = if changed_modules.is_empty() {
+                "various files".to_string()
+            } else {
+                changed_modules
+                    .iter()
+                    .map(|m| {
+                        let clamped = if m.chars().count() > 30 {
+                            format!("{}...", m.chars().take(27).collect::<String>())
+                        } else {
+                            m.clone()
+                        };
+                        format!("`{}`", clamped)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let line = format!(
+                "> **Active Changes**: {} modified modules: {} ({} files)",
+                changed_modules.len().max(1),
+                mods_summary,
+                modified_files.len()
+            );
+            if line.chars().count() > 100 {
+                let truncated: String = line.chars().take(97).collect();
+                format!("{}...", truncated)
+            } else {
+                line
+            }
+        };
+
+        // 2. Discover all candidate ADR cards from project links and vault
+        let mut candidate_cards: Vec<ScoredCard> = Vec::new();
+        let mut seen_card_names = HashSet::new();
+        seen_card_names.insert(project_stem.clone());
+        seen_card_names.insert(format!("{}.md", project_stem));
+
+        // 2a. Direct project links
+        for link in &project_doc.links {
+            let target_str = link.target.replace('\\', "/");
+            let is_card_link = target_str.contains("20_Cards/")
+                || (!target_str.contains("01_AI_Logs/") && !target_str.contains("00_Daily/"));
+
+            if is_card_link {
+                if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
+                    if name != project_stem
+                        && path != project_path
+                        && !path.to_string_lossy().contains("10_Projects")
+                        && seen_card_names.insert(name.clone())
+                    {
+                        let score = score_card_relevance(
+                            &name,
+                            &path.to_string_lossy(),
+                            concept.as_deref(),
+                            &all_keywords,
+                            true,
+                        );
+                        candidate_cards.push(ScoredCard {
+                            name,
+                            path: path.to_string_lossy().to_string(),
+                            concept,
+                            score,
+                            is_project_linked: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2b. Outgoing links from storage cache
+        if let Ok(cached_links) = self.storage.get_outgoing_links(&project_path) {
+            for link in cached_links {
+                let target_str = link.target.replace('\\', "/");
+                if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
+                    if name != project_stem
+                        && path != project_path
+                        && !path.to_string_lossy().contains("10_Projects")
+                        && seen_card_names.insert(name.clone())
+                    {
+                        let score = score_card_relevance(
+                            &name,
+                            &path.to_string_lossy(),
+                            concept.as_deref(),
+                            &all_keywords,
+                            true,
+                        );
+                        candidate_cards.push(ScoredCard {
+                            name,
+                            path: path.to_string_lossy().to_string(),
+                            concept,
+                            score,
+                            is_project_linked: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2c. Vault-wide scan for cards in 20_Cards, decisions, adr
+        if let Ok(all_files) = self.adapter.scan_files() {
+            for f in all_files {
+                let f_str = f.to_string_lossy();
+                if f_str.contains("20_Cards") || f_str.contains("adr") || f_str.contains("decision")
+                {
+                    if let Some((name, path, concept)) = self.resolve_l3_card(&f_str) {
+                        if name != project_stem
+                            && path != project_path
+                            && !path.to_string_lossy().contains("10_Projects")
+                            && seen_card_names.insert(name.clone())
+                        {
+                            let score = score_card_relevance(
+                                &name,
+                                &path.to_string_lossy(),
+                                concept.as_deref(),
+                                &all_keywords,
+                                false,
+                            );
+                            candidate_cards.push(ScoredCard {
+                                name,
+                                path: path.to_string_lossy().to_string(),
+                                concept,
+                                score,
+                                is_project_linked: false,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2d. FTS search fallback for top keywords
+        for kw in all_keywords.iter().take(3) {
+            if let Ok(docs) = self.storage.search_fts(kw, 3) {
+                for doc in docs {
+                    let doc_path_str = doc.path.to_string_lossy();
+                    if doc.hierarchy == HierarchyLevel::L3Evergreen
+                        || doc_path_str.contains("20_Cards")
+                        || doc_path_str.contains("adr")
+                        || doc_path_str.contains("decision")
+                    {
+                        if let Some((name, path, concept)) = self.resolve_l3_card(&doc_path_str) {
+                            if name != project_stem
+                                && path != project_path
+                                && !path.to_string_lossy().contains("10_Projects")
+                                && seen_card_names.insert(name.clone())
+                            {
+                                let score = score_card_relevance(
+                                    &name,
+                                    &path.to_string_lossy(),
+                                    concept.as_deref(),
+                                    &all_keywords,
+                                    false,
+                                );
+                                candidate_cards.push(ScoredCard {
+                                    name,
+                                    path: path.to_string_lossy().to_string(),
+                                    concept,
+                                    score,
+                                    is_project_linked: false,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Sort candidate cards by relevance score descending
+        candidate_cards.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.is_project_linked.cmp(&a.is_project_linked))
+                .then_with(|| a.name.len().cmp(&b.name.len()))
+        });
+
+        // 4. Greedy Packing under Safety Budget <= 280 tokens (Hard Bound < 300)
+        let max_token_budget = 280;
+        let mut selected_cards = Vec::new();
+
+        for scored in &candidate_cards {
+            if selected_cards.len() >= 4 {
+                break;
+            }
+
+            // Truncate concept to <= 80 characters
+            let truncated_concept = scored.concept.as_ref().map(|c| {
+                let trimmed = c.trim();
+                if trimmed.chars().count() > 80 {
+                    let truncated: String = trimmed.chars().take(77).collect();
+                    format!("{}...", truncated)
+                } else {
+                    trimmed.to_string()
+                }
+            });
+
+            let candidate_summary = L3CardSummary {
+                name: scored.name.clone(),
+                path: scored.path.clone(),
+                concept: truncated_concept,
+            };
+
+            let mut test_cards = selected_cards.clone();
+            test_cards.push(candidate_summary.clone());
+
+            let test_md = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &test_cards,
+            );
+
+            if estimate_tokens(&test_md) <= max_token_budget {
+                selected_cards.push(candidate_summary);
+            } else if selected_cards.is_empty() {
+                // If even the first card exceeds budget, truncate scope further
+                let shortened_scope: String = scope.chars().take(60).collect();
+                let test_shortened_md = assemble_diff_loadout_markdown(
+                    &project_stem,
+                    &active_changes_line,
+                    &shortened_scope,
+                    &test_cards,
+                );
+                if estimate_tokens(&test_shortened_md) <= max_token_budget {
+                    scope = format!("{}...", shortened_scope);
+                    selected_cards.push(candidate_summary);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // 5. Final Assembly and Hard Guarantee Enforcement
+        let mut final_markdown = assemble_diff_loadout_markdown(
+            &project_stem,
+            &active_changes_line,
+            &scope,
+            &selected_cards,
+        );
+        let mut final_tokens = estimate_tokens(&final_markdown);
+
+        while final_tokens >= 300 && !selected_cards.is_empty() {
+            selected_cards.pop();
+            final_markdown = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &selected_cards,
+            );
+            final_tokens = estimate_tokens(&final_markdown);
+        }
+
+        if final_tokens >= 300 {
+            scope = scope.chars().take(40).collect();
+            final_markdown = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &selected_cards,
+            );
+            final_tokens = estimate_tokens(&final_markdown);
+        }
+
+        if final_tokens >= 300 {
+            scope = scope.chars().take(20).collect();
+            final_markdown = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &selected_cards,
+            );
+            final_tokens = estimate_tokens(&final_markdown);
+        }
+
+        if final_tokens >= 300 {
+            scope = String::new();
+            final_markdown = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &selected_cards,
+            );
+            final_tokens = estimate_tokens(&final_markdown);
+        }
+
+        // Hard clamp / pop on markdown if token estimate is >= 300
+        while final_tokens >= 300 && !final_markdown.is_empty() {
+            if let Some(idx) = final_markdown.rfind('\n') {
+                final_markdown.truncate(idx);
+            } else {
+                let count = final_markdown.chars().count();
+                if count <= 10 {
+                    final_markdown.clear();
+                } else {
+                    final_markdown = final_markdown.chars().take(count - 10).collect();
+                }
+            }
+            final_tokens = estimate_tokens(&final_markdown);
+        }
+
+        Ok(Some(LoadoutResult {
+            project_name: project_stem,
+            project_path: project_path.to_string_lossy().to_string(),
+            scope,
+            l3_cards: selected_cards,
+            l2_logs: Vec::new(),
+            estimated_tokens: final_tokens,
+            markdown: final_markdown,
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ScoredCard {
+    name: String,
+    path: String,
+    concept: Option<String>,
+    score: f64,
+    is_project_linked: bool,
+}
+
+fn score_card_relevance(
+    card_name: &str,
+    card_path: &str,
+    card_concept: Option<&str>,
+    keywords: &[String],
+    is_project_linked: bool,
+) -> f64 {
+    let mut score = 0.0;
+    let name_lower = card_name.to_lowercase();
+    let path_lower = card_path.to_lowercase();
+    let concept_lower = card_concept.unwrap_or("").to_lowercase();
+
+    for kw in keywords {
+        let kw_lower = kw.to_lowercase();
+        if kw_lower.len() < 2 {
+            continue;
+        }
+
+        // Exact name match
+        if name_lower == kw_lower {
+            score += 20.0;
+        } else if name_lower.contains(&kw_lower) {
+            score += 10.0;
+        }
+
+        // Path match
+        if path_lower.contains(&kw_lower) {
+            score += 4.0;
+        }
+
+        // Concept text match
+        if concept_lower.contains(&kw_lower) {
+            score += 3.0;
+        }
+    }
+
+    if is_project_linked {
+        score += 1.0;
+    }
+
+    score
+}
+
+fn assemble_diff_loadout_markdown(
+    project_stem: &str,
+    active_changes: &str,
+    scope: &str,
+    cards: &[L3CardSummary],
+) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "# 🎒 Agent Task Loadout: {} [Diff-Aware]",
+        project_stem
+    ));
+    lines.push(active_changes.to_string());
+    lines.push(format!("> **Project Scope**: {}", scope));
+    lines.push(String::new());
+    lines.push("## 🧠 Activated Invariants & ADRs (Module-Specific)".to_string());
+
+    if cards.is_empty() {
+        lines.push("- *(暂无模块特定 ADR 规则，请遵循通用架构规约)*".to_string());
+    } else {
+        for card in cards {
+            let link_target = if card.path.contains("20_Cards") {
+                format!("20_Cards/{}", card.name)
+            } else {
+                card.name.clone()
+            };
+            if let Some(concept) = &card.concept {
+                lines.push(format!("- **[[{}]]**: {}", link_target, concept));
+            } else {
+                lines.push(format!("- **[[{}]]**", link_target));
+            }
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
+    lines.push("1. **双链优先 (WikiLinks)**: 原生裸双链 `[[...]]`，禁止反引号包裹。".to_string());
+    lines.push(
+        "2. **符号化卸载**: 输出 >50 行写外部日志，主上下文仅维护 Mermaid 图谱。".to_string(),
+    );
+    lines.push("3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string());
+
+    lines.join("\n")
 }
