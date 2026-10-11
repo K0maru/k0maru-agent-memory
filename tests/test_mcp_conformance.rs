@@ -146,12 +146,12 @@ fn test_mcp_full_pipeline_conformance() {
     assert_eq!(responses[0]["id"], 1);
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "k0maru");
 
-    // Response 2: tools/list (6 registered tools)
+    // Response 2: tools/list (7 registered tools)
     assert_eq!(responses[1]["id"], 2);
     let tools = responses[1]["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 6);
+    assert_eq!(tools.len(), 7);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"get_project_loadout"));
     assert!(tool_names.contains(&"recall_memory"));
@@ -159,6 +159,7 @@ fn test_mcp_full_pipeline_conformance() {
     assert!(tool_names.contains(&"inspect_log_node"));
     assert!(tool_names.contains(&"flush_session"));
     assert!(tool_names.contains(&"distill_session_skill"));
+    assert!(tool_names.contains(&"gc_session_context"));
 
     // Response 3: tools/call flush_session
     assert_eq!(responses[2]["id"], 3);

@@ -31,16 +31,30 @@ The table below contrasts unmanaged agents (Control Group) against K0maru-manage
 
 | Evaluated Model | Architecture & Role | Group | Pass@1 Accuracy | Input Prompt Tokens | Average Latency | Speedup Factor | Key Engineering Observations |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Qwen2.5-Coder-32B** | 32B Dense Code Specialist | Control (Vanilla) | 60.0% (3/5) | 2,635 | 17.23s | 1.0x | Misled by verbose stack traces in Python and TS cases; emitted non-compiling patches |
-| **Qwen2.5-Coder-32B** | 32B Dense Code Specialist | **K0maru Managed** | **100.0% (5/5)** | **1,750** | **2.92s** | **5.90x** | **5/5 solved (+40% accuracy jump)**; Mermaid state diagram pinpoints root cause; 5.90x faster |
-| **DeepSeek-R1-32B** | 32B Reasoning / CoT | Control (Vanilla) | 100.0% (5/5) | 817 | 27.14s | 1.0x | Solved all cases, but over-reflected on long traces; responses took nearly 30 seconds |
-| **DeepSeek-R1-32B** | 32B Reasoning / CoT | **K0maru Managed** | **80.0% (4/5)** | **652** | **14.07s** | **1.93x** | **CoT reflection latency cut by 48.2%**; token usage dropped 20.2%; 3.4x faster on Rust case |
-| **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | Control (Vanilla) | 60.0% (3/5) | 2,967 | 12.46s | 1.0x | Misinterpreted long test trace; generated synchronous code that stalled on async deadlocks |
-| **DeepSeek-Coder-V2** | 16B MoE (2.4B active) | **K0maru Managed** | **80.0% (4/5)** | **1,907** | **1.05s** | **11.86x** | **1.05s sub-second turnaround (11.86x faster)**; correctly fixed Python async task leak |
-| **Qwen3.8-27B** | 27B Dense (2-Stage) | Control (Vanilla) | 100.0% (5/5) | 923 | 14.97s | 1.0x | Strong base capabilities, but verbose logs inflated prompt tokens unnecessarily |
-| **Qwen3.8-27B** | 27B Dense (2-Stage) | **K0maru Managed** | **100.0% (5/5)** | **709** | **14.97s** | **1.00x** | **23.2% Token Reduction Ratio (TRR)**; halved turnaround on Rust build case (21.2s -> 11.1s) |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | Control (Vanilla) | 20.0% (1/5) | 5,745 | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock |
+| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | **K0maru Managed** | **40.0% (2/5)** | **1,076** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak |
+| **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | Control (Vanilla) | 80.0% (4/5) | 6,298 | 9.43s | 1.0x | Fast MoE architecture, but failed TS auth due to raw stack trace misdirection |
+| **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | **K0maru Managed** | **100.0% (5/5)** | **1,142** | **1.36s** | **6.93x** | **100% Pass rate**; sub-second turnaround on TS (1.26s) and C (1.19s); Case 1 sped up **26.44x** |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Code Specialist | Control (Vanilla) | 60.0% (3/5) | 5,472 | 24.68s | 1.0x | Misled by verbose Rust borrow checker stack (90.1s) and TS auth null reference |
+| **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Code Specialist | **K0maru Managed** | **100.0% (5/5)** | **1,119** | **7.13s** | **3.46x** | **5/5 solved (+40% accuracy jump)**; Case 1 sped up **15.06x** (90.1s -> 5.98s); 79.6% token reduction |
+| **DeepSeek-R1-32B** | 32B Reasoning / CoT | Control (Vanilla) | 20.0% (1/5) | 5,412 | 12.01s | 1.0x | Exhaustive thinking chain, but burdened by lengthy stack traces leading to high generation latency |
+| **DeepSeek-R1-32B** | 32B Reasoning / CoT | **K0maru Managed** | **40.0% (2/5)** | **989** | **9.19s** | **1.31x** | Resolved Python async leak with `asyncio.gather`; prompt tokens cut by **81.7%** |
+| **Google Gemma 4 31B** | 31B Multimodal Foundation | Control (Vanilla) | 0.0% (0/5) | 6,356 | 16.69s | 1.0x | General foundation model without code specialization; failed all 5 raw trace repairs |
+| **Google Gemma 4 31B** | 31B Multimodal Foundation | **K0maru Managed** | 0.0% (0/5) | **1,134** | **6.94s** | **2.40x** | Prompt tokens reduced by **82.2%**; Rust case latency dropped from 53.4s to 6.85s (**7.8x speedup**) |
 
 ---
+
+## ⚡ Multi-Agent Heterogeneous Concurrency & Stress Evaluation (A100)
+
+| Benchmark Stress Dimension | Concurrency / Load | Measured Metric / Throughput | Status | Engineering Assurance |
+| :--- | :--- | :--- | :---: | :--- |
+| **Simultaneous Read Bursts** | 12 Concurrent Agents, 120 queries | **18.9 QPS**, Avg: **614.29ms** (P50: 781.9ms) | **100% PASS** | Zero SQLite busy contention (`SQLITE_BUSY = 0`) |
+| **Simultaneous Write & Flush Race** | 8 Concurrent Writers | **12.2 writes/sec**, Avg: **584.93ms** | **100% PASS** | 8/8 files created, zero collision loss (`-v2.md` to `-v8.md`) |
+| **Instant Self-Healing Recall** | Read-your-writes validation | **290.99 ms** | **PASS ✓** | Immediate sub-second recall without re-indexing |
+| **Context Garbage Collection (GC)** | 50-turn trajectory compaction | **94.67% TRR** (20,946 ➔ 1,110 tokens) | **PASS ✓** | Preserves context within cognitive Smart-Zone (15%–60%) |
+| **Dynamic Loadout Git-Diff** | Change-aware ADR activation | **245 tokens** | **PASS ✓** | Strictly bounded under <300 token budget |
+| **Heterogeneous Agent Loops** | Hermes, OpenClaw, Pi | Turnaround: **1.04s – 8.49s** | **100% PASS** | Verified autonomous tool calling & ADR crystallization |
+
 
 ## 📈 Publication-Grade Visualizations
 

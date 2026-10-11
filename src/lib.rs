@@ -4,23 +4,32 @@
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub mod adapters;
+// Re-export core library submodules and domain types from k0maru-core
+pub use k0maru_core::{
+    adapters, core, default_embedding_engine, ensure_sqlite_vec_registered, extract_elements,
+    extract_tags, extract_wikilinks, gc, parse_content_hash, parse_frontmatter, parser, scanner,
+    storage, vector, CacheStorage, CachedDocMeta, ContextGcEngine, DirtySets, Document,
+    EmbeddingEngine, GcError, GcEvent, GcOptions, GcResult, GenericWikiAdapter, HierarchyLevel,
+    HybridSearchEngine, IncrementalScanner, MockEmbeddingEngine, Note, ObsidianAdapter, SearchMode,
+    SearchResult, SessionTrajectory, SqliteStorage, SyncStats, TrajectoryTurn, TurnRole,
+    VaultAdapter, VectorError, VectorSyncEngine, VectorSyncStats, WikiLink, DEFAULT_BATCH_SIZE,
+    VECTOR_DIMENSIONS,
+};
+#[cfg(feature = "fastembed")]
+pub use k0maru_core::{resolve_cache_dir, FastEmbedBackend};
+
+// Application modules
 pub mod convention;
-pub mod core;
 pub mod distill;
 pub mod doctor;
 pub mod ecosystem;
+pub mod git;
 pub mod install;
 pub mod loadout;
 pub mod mcp;
 pub mod offload;
-pub mod parser;
-pub mod scanner;
-pub mod storage;
 pub mod ui;
-pub mod vector;
 
-pub use adapters::{GenericWikiAdapter, ObsidianAdapter};
 pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
@@ -34,6 +43,7 @@ pub use doctor::{
 pub use ecosystem::{
     inspect_all_clients, inspect_client, ClientConfigInfo, ClientConfigStatus, McpClient,
 };
+pub use git::{parse_diff_stream, FileChangeStatus, GitInspector, ModifiedFile};
 pub use install::{
     format_install_report, inject_k0maru_mcp, run_install, ClientInstallOutcome, InstallOptions,
     InstallReport, InstallTarget,
@@ -44,12 +54,7 @@ pub use loadout::{
 };
 pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
-pub use scanner::{IncrementalScanner, VectorSyncEngine, VectorSyncStats};
-pub use storage::{HybridSearchEngine, SearchMode, SearchResult, SqliteStorage};
 pub use ui::run_server;
-#[cfg(feature = "fastembed")]
-pub use vector::FastEmbedBackend;
-pub use vector::{default_embedding_engine, EmbeddingEngine, MockEmbeddingEngine, VectorError};
 
 #[cfg(test)]
 mod tests {

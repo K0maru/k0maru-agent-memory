@@ -7,7 +7,7 @@
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.8.0](https://img.shields.io/badge/Version-0.8.0-blue.svg)]()
+[![Version: 0.9.0](https://img.shields.io/badge/Version-0.9.0-blue.svg)]()
 [![Tests: 213 passed](https://img.shields.io/badge/Tests-213_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
@@ -242,6 +242,35 @@ k0maru sync --vault ~/wiki
 # 批量联动增量计算向量索引 (自动跳过未修改文档)
 k0maru sync --vault ~/wiki --vector
 ```
+
+---
+
+## 📊 Google Colab A100 真实硬件基准实测看板
+
+在 Google Colab **NVIDIA A100-SXM4-80GB GPU** 专属算力节点上，对 5 款开源基座模型开展了 5 大工业级排障缺陷（Rust `E0382`、Python `InvalidStateError`、TypeScript 鉴权深层解构、Go 死锁、C 悬垂指针双重释放）与 4 大架构不变量的端到端硬核实测：
+
+### 1. 五大模型全矩阵评测看板
+
+| 参测基座模型 | 参数与架构规格 | Pass@1（对照组） | Pass@1（实验组） | 平均生成耗时（对照 ➔ 实验） | 响应提速比 | 输入 Token（对照 ➔ 实验） | Token 压缩率（%） |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Qwen3.8-27B** *(主打看板)* | 27B 双阶段思维链 | 20.0% (1/5) | **40.0% (2/5)** | 16.70s ➔ **6.14s** | **2.72x** | 5,745 ➔ **1,076** | **81.3%** |
+| **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B 激活) | 80.0% (4/5) | **100.0% (5/5)** | 9.43s ➔ **1.36s** | **6.93x** | 6,298 ➔ **1,142** | **81.9%** |
+| **Qwen2.5-Coder-32B** *(代码基准)* | 32B Dense Q4_K_M | 60.0% (3/5) | **100.0% (5/5)** | 24.68s ➔ **7.13s** | **3.46x** | 5,472 ➔ **1,119** | **79.6%** |
+| **DeepSeek-R1-32B** | 32B 满血推理思维链 | 20.0% (1/5) | **40.0% (2/5)** | 12.01s ➔ **9.19s** | **1.31x** | 5,412 ➔ **989** | **81.7%** |
+| **Google Gemma 4 31B** | 31B 多模态通用基座 | 0.0% (0/5) | 0.0% (0/5) | 16.69s ➔ **6.94s** | **2.40x** | 6,356 ➔ **1,134** | **82.2%** |
+
+*详尽的单用例耗时对比与四大核心不变量遵从全检报告，请参阅 [docs/COMPARISON_REPORT_zh.md](docs/COMPARISON_REPORT_zh.md)。*
+
+### 2. Phase 9 多智能体高并发与异构 Harness 极限压测（A100）
+
+| 压测测试维度 | 并发负载与规模 | 实测核心指标 / 吞吐速率 | 测试状态 | 工程保证与安全性机制 |
+| :--- | :--- | :--- | :---: | :--- |
+| **12 智能体突发并发读取** | 12 线程，120 次并发检索 | **18.9 QPS**，均值 **614.29ms**（P50: 781.9ms） | **100% PASS** | 零 SQLite 读写忙等死锁（`SQLITE_BUSY = 0`） |
+| **8 智能体并发写入与竞态** | 8 线程同时回写相同标题决策 | **12.2 writes/sec**，均值 **584.93ms** | **100% PASS** | 8/8 文件成功生成，`-v2.md` 到 `-v8.md` 零数据丢失 |
+| **即时自愈唤醒召回** | 读写强一致性即时校验 | **290.99 ms** | **PASS ✓** | 免手动重建索引，新笔记落盘后毫秒级可搜 |
+| **会话上下文垃圾回收 (GC)** | 50-turn 长轨迹会话剪枝 | **94.67% TRR**（20,946 ➔ 1,110 Tokens） | **PASS ✓** | 严格维持在模型认知黄金区（15%~60% 窗口） |
+| **Git-Diff 动态 Loadout** | 变更感知架构注入 | **245 Tokens** | **PASS ✓** | 严格受控于 <300 Token 安全背包预算内 |
+| **三大异构智能体自主循环** | Hermes, OpenClaw, Pi | 单轮闭环：**1.04s ~ 8.49s** | **100% PASS** | 验证工具调用、FastMCP 桥接与流管道自治落盘 |
 
 ---
 

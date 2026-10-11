@@ -1,0 +1,564 @@
+{
+  "hardware": {
+    "device": "NVIDIA A100-SXM4-80GB",
+    "vram_gb": 79.25,
+    "host": "Google Colab Ultra"
+  },
+  "part1_defect_matrix": {
+    "Qwen2.5-Coder-32B": {
+      "model_tag": "qwen2.5-coder:32b",
+      "scenarios": {
+        "case1_rust_ownership": {
+          "title": "Rust Concurrency Ownership Move in Loop (E0382)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 90.09,
+            "prompt_tokens": 1408
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 5.98,
+            "prompt_tokens": 208,
+            "speedup_x": 15.06,
+            "token_saving_pct": 85.2
+          }
+        },
+        "case2_python_async": {
+          "title": "Python Async Task Leak & Coroutine Un-awaited (InvalidStateError)",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 6.37,
+            "prompt_tokens": 1019
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 5.56,
+            "prompt_tokens": 208,
+            "speedup_x": 1.15,
+            "token_saving_pct": 79.6
+          }
+        },
+        "case3_ts_auth": {
+          "title": "TypeScript Undefined Property Access in Auth Pipeline",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 7.59,
+            "prompt_tokens": 1121
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 6.25,
+            "prompt_tokens": 216,
+            "speedup_x": 1.21,
+            "token_saving_pct": 80.7
+          }
+        },
+        "case4_go_deadlock": {
+          "title": "Go Unbuffered Channel Goroutine Deadlock",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 9.43,
+            "prompt_tokens": 702
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 9.15,
+            "prompt_tokens": 264,
+            "speedup_x": 1.03,
+            "token_saving_pct": 62.4
+          }
+        },
+        "case5_c_double_free": {
+          "title": "C Resource Deallocation Double Free / Dangling Pointer",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 9.94,
+            "prompt_tokens": 1222
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 8.71,
+            "prompt_tokens": 223,
+            "speedup_x": 1.14,
+            "token_saving_pct": 81.8
+          }
+        }
+      },
+      "summary": {
+        "baseline_pass_count": 3,
+        "managed_pass_count": 5,
+        "total_scenarios": 5,
+        "baseline_avg_latency": 24.68,
+        "managed_avg_latency": 7.13,
+        "baseline_total_prompt_tokens": 5472,
+        "managed_total_prompt_tokens": 1119,
+        "token_reduction_pct": 79.6,
+        "speedup_x": 3.46
+      }
+    },
+    "DeepSeek-R1-32B": {
+      "model_tag": "deepseek-r1:32b",
+      "scenarios": {
+        "case1_rust_ownership": {
+          "title": "Rust Concurrency Ownership Move in Loop (E0382)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 20.95,
+            "prompt_tokens": 1452
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 9.25,
+            "prompt_tokens": 182,
+            "speedup_x": 2.26,
+            "token_saving_pct": 87.5
+          }
+        },
+        "case2_python_async": {
+          "title": "Python Async Task Leak & Coroutine Un-awaited (InvalidStateError)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 9.76,
+            "prompt_tokens": 993
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 9.15,
+            "prompt_tokens": 182,
+            "speedup_x": 1.07,
+            "token_saving_pct": 81.7
+          }
+        },
+        "case3_ts_auth": {
+          "title": "TypeScript Undefined Property Access in Auth Pipeline",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 9.85,
+            "prompt_tokens": 1095
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 9.17,
+            "prompt_tokens": 190,
+            "speedup_x": 1.07,
+            "token_saving_pct": 82.6
+          }
+        },
+        "case4_go_deadlock": {
+          "title": "Go Unbuffered Channel Goroutine Deadlock",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 9.49,
+            "prompt_tokens": 676
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 9.14,
+            "prompt_tokens": 238,
+            "speedup_x": 1.04,
+            "token_saving_pct": 64.8
+          }
+        },
+        "case5_c_double_free": {
+          "title": "C Resource Deallocation Double Free / Dangling Pointer",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 9.97,
+            "prompt_tokens": 1196
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 9.23,
+            "prompt_tokens": 197,
+            "speedup_x": 1.08,
+            "token_saving_pct": 83.5
+          }
+        }
+      },
+      "summary": {
+        "baseline_pass_count": 1,
+        "managed_pass_count": 2,
+        "total_scenarios": 5,
+        "baseline_avg_latency": 12.01,
+        "managed_avg_latency": 9.19,
+        "baseline_total_prompt_tokens": 5412,
+        "managed_total_prompt_tokens": 989,
+        "token_reduction_pct": 81.7,
+        "speedup_x": 1.31
+      }
+    },
+    "DeepSeek-Coder-V2-16B": {
+      "model_tag": "deepseek-coder-v2:16b",
+      "scenarios": {
+        "case1_rust_ownership": {
+          "title": "Rust Concurrency Ownership Move in Loop (E0382)",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 40.5,
+            "prompt_tokens": 1614
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 1.53,
+            "prompt_tokens": 215,
+            "speedup_x": 26.44,
+            "token_saving_pct": 86.7
+          }
+        },
+        "case2_python_async": {
+          "title": "Python Async Task Leak & Coroutine Un-awaited (InvalidStateError)",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 1.65,
+            "prompt_tokens": 1137
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 1.32,
+            "prompt_tokens": 211,
+            "speedup_x": 1.25,
+            "token_saving_pct": 81.4
+          }
+        },
+        "case3_ts_auth": {
+          "title": "TypeScript Undefined Property Access in Auth Pipeline",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 1.46,
+            "prompt_tokens": 1388
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 1.26,
+            "prompt_tokens": 216,
+            "speedup_x": 1.16,
+            "token_saving_pct": 84.4
+          }
+        },
+        "case4_go_deadlock": {
+          "title": "Go Unbuffered Channel Goroutine Deadlock",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 2.11,
+            "prompt_tokens": 791
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 1.51,
+            "prompt_tokens": 275,
+            "speedup_x": 1.4,
+            "token_saving_pct": 65.2
+          }
+        },
+        "case5_c_double_free": {
+          "title": "C Resource Deallocation Double Free / Dangling Pointer",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 1.44,
+            "prompt_tokens": 1368
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 1.19,
+            "prompt_tokens": 225,
+            "speedup_x": 1.21,
+            "token_saving_pct": 83.6
+          }
+        }
+      },
+      "summary": {
+        "baseline_pass_count": 4,
+        "managed_pass_count": 5,
+        "total_scenarios": 5,
+        "baseline_avg_latency": 9.43,
+        "managed_avg_latency": 1.36,
+        "baseline_total_prompt_tokens": 6298,
+        "managed_total_prompt_tokens": 1142,
+        "token_reduction_pct": 81.9,
+        "speedup_x": 6.93
+      }
+    },
+    "Qwen3.8-27B": {
+      "model_tag": "qwen3.8:27b",
+      "scenarios": {
+        "case1_rust_ownership": {
+          "title": "Rust Concurrency Ownership Move in Loop (E0382)",
+          "baseline": {
+            "pass": true,
+            "latency_sec": 56.7,
+            "prompt_tokens": 1532
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.06,
+            "prompt_tokens": 200,
+            "speedup_x": 9.36,
+            "token_saving_pct": 86.9
+          }
+        },
+        "case2_python_async": {
+          "title": "Python Async Task Leak & Coroutine Un-awaited (InvalidStateError)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 6.8,
+            "prompt_tokens": 1054
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 6.02,
+            "prompt_tokens": 196,
+            "speedup_x": 1.13,
+            "token_saving_pct": 81.4
+          }
+        },
+        "case3_ts_auth": {
+          "title": "TypeScript Undefined Property Access in Auth Pipeline",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 6.34,
+            "prompt_tokens": 1160
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.47,
+            "prompt_tokens": 206,
+            "speedup_x": 0.98,
+            "token_saving_pct": 82.2
+          }
+        },
+        "case4_go_deadlock": {
+          "title": "Go Unbuffered Channel Goroutine Deadlock",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 6.49,
+            "prompt_tokens": 728
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.05,
+            "prompt_tokens": 260,
+            "speedup_x": 1.07,
+            "token_saving_pct": 64.3
+          }
+        },
+        "case5_c_double_free": {
+          "title": "C Resource Deallocation Double Free / Dangling Pointer",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 7.19,
+            "prompt_tokens": 1271
+          },
+          "k0maru_managed": {
+            "pass": true,
+            "latency_sec": 6.13,
+            "prompt_tokens": 214,
+            "speedup_x": 1.17,
+            "token_saving_pct": 83.2
+          }
+        }
+      },
+      "summary": {
+        "baseline_pass_count": 1,
+        "managed_pass_count": 2,
+        "total_scenarios": 5,
+        "baseline_avg_latency": 16.7,
+        "managed_avg_latency": 6.14,
+        "baseline_total_prompt_tokens": 5745,
+        "managed_total_prompt_tokens": 1076,
+        "token_reduction_pct": 81.3,
+        "speedup_x": 2.72
+      }
+    },
+    "Google Gemma 4 31B": {
+      "model_tag": "gemma4:31b",
+      "scenarios": {
+        "case1_rust_ownership": {
+          "title": "Rust Concurrency Ownership Move in Loop (E0382)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 53.44,
+            "prompt_tokens": 1602
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.85,
+            "prompt_tokens": 210,
+            "speedup_x": 7.8,
+            "token_saving_pct": 86.9
+          }
+        },
+        "case2_python_async": {
+          "title": "Python Async Task Leak & Coroutine Un-awaited (InvalidStateError)",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 7.62,
+            "prompt_tokens": 1153
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.9,
+            "prompt_tokens": 211,
+            "speedup_x": 1.1,
+            "token_saving_pct": 81.7
+          }
+        },
+        "case3_ts_auth": {
+          "title": "TypeScript Undefined Property Access in Auth Pipeline",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 7.6,
+            "prompt_tokens": 1390
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 6.77,
+            "prompt_tokens": 216,
+            "speedup_x": 1.12,
+            "token_saving_pct": 84.5
+          }
+        },
+        "case4_go_deadlock": {
+          "title": "Go Unbuffered Channel Goroutine Deadlock",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 6.99,
+            "prompt_tokens": 779
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 7.03,
+            "prompt_tokens": 269,
+            "speedup_x": 0.99,
+            "token_saving_pct": 65.5
+          }
+        },
+        "case5_c_double_free": {
+          "title": "C Resource Deallocation Double Free / Dangling Pointer",
+          "baseline": {
+            "pass": false,
+            "latency_sec": 7.81,
+            "prompt_tokens": 1432
+          },
+          "k0maru_managed": {
+            "pass": false,
+            "latency_sec": 7.15,
+            "prompt_tokens": 228,
+            "speedup_x": 1.09,
+            "token_saving_pct": 84.1
+          }
+        }
+      },
+      "summary": {
+        "baseline_pass_count": 0,
+        "managed_pass_count": 0,
+        "total_scenarios": 5,
+        "baseline_avg_latency": 16.69,
+        "managed_avg_latency": 6.94,
+        "baseline_total_prompt_tokens": 6356,
+        "managed_total_prompt_tokens": 1134,
+        "token_reduction_pct": 82.2,
+        "speedup_x": 2.4
+      }
+    }
+  },
+  "part2_invariants_matrix": {
+    "Qwen2.5-Coder-32B": {
+      "model_tag": "qwen2.5-coder:32b",
+      "invariant1_preflight": true,
+      "invariant2_compliance": false,
+      "invariant3_flush": true,
+      "invariant4_instant_recall": true,
+      "all_passed": false,
+      "instant_recall_latency_ms": 306.45
+    },
+    "DeepSeek-R1-32B": {
+      "model_tag": "deepseek-r1:32b",
+      "invariant1_preflight": false,
+      "invariant2_compliance": false,
+      "invariant3_flush": true,
+      "invariant4_instant_recall": true,
+      "all_passed": false,
+      "instant_recall_latency_ms": 293.71
+    },
+    "DeepSeek-Coder-V2-16B": {
+      "model_tag": "deepseek-coder-v2:16b",
+      "invariant1_preflight": true,
+      "invariant2_compliance": true,
+      "invariant3_flush": true,
+      "invariant4_instant_recall": true,
+      "all_passed": true,
+      "instant_recall_latency_ms": 285.3
+    },
+    "Qwen3.8-27B": {
+      "model_tag": "qwen3.8:27b",
+      "invariant1_preflight": false,
+      "invariant2_compliance": false,
+      "invariant3_flush": true,
+      "invariant4_instant_recall": true,
+      "all_passed": false,
+      "instant_recall_latency_ms": 281.13
+    },
+    "Google Gemma 4 31B": {
+      "model_tag": "gemma4:31b",
+      "invariant1_preflight": false,
+      "invariant2_compliance": false,
+      "invariant3_flush": true,
+      "invariant4_instant_recall": true,
+      "all_passed": false,
+      "instant_recall_latency_ms": 279.86
+    }
+  },
+  "part3_concurrency_stress": {
+    "concurrent_reads": {
+      "total_requests": 120,
+      "concurrency": 12,
+      "success_rate_pct": 100.0,
+      "qps": 18.9,
+      "avg_latency_ms": 614.29,
+      "p50_latency_ms": 781.9,
+      "p95_latency_ms": 1111.63,
+      "p99_latency_ms": 1134.25
+    },
+    "concurrent_writes": {
+      "writers_count": 8,
+      "files_created": 8,
+      "zero_collision_loss": true,
+      "write_qps": 12.2,
+      "avg_write_latency_ms": 584.93,
+      "instant_recall_hits": 8,
+      "instant_recall_latency_ms": 290.99
+    },
+    "context_gc": {
+      "raw_tokens": 20946,
+      "pruned_tokens": 1110,
+      "trr_percent": 94.67,
+      "smart_zone_compliant": true,
+      "turns_processed": 146
+    },
+    "dynamic_loadout": {
+      "tokens": 245,
+      "compliant": true,
+      "output_preview": "# 🎒 Agent Task Loadout: payment-settlement-engine [Diff-Aware]\n> **Active Changes**: Clean working tree (no uncommitted"
+    },
+    "tri_harness": [
+      {
+        "harness": "Hermes Agent",
+        "status": "PASS",
+        "cycle_latency_sec": 8.49,
+        "flush_confirmed": true
+      },
+      {
+        "harness": "OpenClaw Agent",
+        "status": "PASS",
+        "cycle_latency_sec": 1.09,
+        "flush_confirmed": true
+      },
+      {
+        "harness": "Pi Agent",
+        "status": "PASS",
+        "cycle_latency_sec": 1.04,
+        "flush_confirmed": true
+      }
+    ]
+  }
+}

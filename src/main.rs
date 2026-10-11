@@ -8,6 +8,7 @@ use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::core::traits::VaultAdapter;
 use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget};
 use k0maru::doctor::{format_report, run_diagnostics};
+use k0maru::git::{parse_diff_stream, GitInspector};
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
@@ -59,6 +60,9 @@ enum Commands {
     /// Distill troubleshooting traces or execution logs into reusable skills
     Distill(DistillArgs),
 
+    /// Long-trajectory context garbage collection (Context GC) with 4-tier pruning protocol
+    Gc(GcArgs),
+
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
         #[arg(short, long, help = "Path to the markdown vault")]
@@ -95,9 +99,21 @@ pub struct LoadoutArgs {
     #[arg(long)]
     pub json: bool,
 
+    /// Output line-delimited JSON stream (NDJSON)
+    #[arg(long)]
+    pub json_stream: bool,
+
     /// List all active projects in the vault
     #[arg(short, long)]
     pub list: bool,
+
+    /// Inspect Git working tree / index changes and dynamically activate module-relevant ADRs
+    #[arg(short, long)]
+    pub diff: bool,
+
+    /// Target Git base branch for comparison (e.g. 'main', 'dev')
+    #[arg(short, long, value_name = "BRANCH")]
+    pub branch: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -113,6 +129,10 @@ pub struct OffloadArgs {
     /// Directory to store offloaded references (defaults to .scratch/refs or <vault>/.k0maru/refs)
     #[arg(short = 'r', long, value_name = "PATH")]
     pub refs_dir: Option<PathBuf>,
+
+    /// Output line-delimited JSON stream (NDJSON)
+    #[arg(long)]
+    pub json_stream: bool,
 }
 
 #[derive(Args, Debug)]
@@ -154,7 +174,7 @@ pub struct SyncArgs {
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
-    /// Search query string
+    /// Search query string (use '-' to read query from stdin)
     #[arg(value_name = "QUERY")]
     pub query: String,
 
@@ -173,6 +193,10 @@ pub struct SearchArgs {
     /// Output full machine-readable JSON array of search hits
     #[arg(long)]
     pub json: bool,
+
+    /// Output line-delimited JSON stream (NDJSON)
+    #[arg(long)]
+    pub json_stream: bool,
 }
 
 #[derive(Args, Debug)]
@@ -311,6 +335,33 @@ pub struct DistillArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct GcArgs {
+    /// Path to trajectory JSON file (defaults to stdin if omitted)
+    #[arg(value_name = "FILE")]
+    pub file: Option<PathBuf>,
+
+    /// Line threshold for folding tool outputs (default: 20)
+    #[arg(short = 't', long, default_value = "20")]
+    pub threshold: usize,
+
+    /// Number of recent turns preserved in hot window (default: 5)
+    #[arg(short = 'k', long, default_value = "5")]
+    pub hot_window: usize,
+
+    /// Context window size in tokens for Smart-Zone evaluation (default: 128000)
+    #[arg(long, default_value = "128000")]
+    pub context_window: usize,
+
+    /// Output structured JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Output line-delimited JSON stream
+    #[arg(long)]
+    pub json_stream: bool,
+}
+
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
     if let Some(p) = explicit {
         return p;
@@ -382,14 +433,50 @@ fn safe_print(msg: &str) {
     use std::io::Write;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    let _ = write!(handle, "{}", msg);
+    if let Err(e) = write!(handle, "{}", msg) {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+    }
+    if let Err(e) = handle.flush() {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+    }
 }
 
 fn safe_println(msg: &str) {
     use std::io::Write;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    let _ = writeln!(handle, "{}", msg);
+    if let Err(e) = writeln!(handle, "{}", msg) {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+    }
+    if let Err(e) = handle.flush() {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+    }
+}
+
+fn current_timestamp_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn emit_json_stream_event(event: &str, data: serde_json::Value) {
+    let payload = serde_json::json!({
+        "event": event,
+        "timestamp": current_timestamp_millis(),
+        "data": data,
+    });
+    if let Ok(line) = serde_json::to_string(&payload) {
+        safe_println(&line);
+    }
 }
 
 fn run_loadout_with_adapter<A: VaultAdapter>(
@@ -410,22 +497,199 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
 
     let builder = LoadoutBuilder::new(adapter, &storage);
 
-    if args.list || args.query.is_none() {
+    if args.list {
         let projects = builder.list_projects()?;
-        if args.json {
+        if args.json_stream {
+            emit_json_stream_event(
+                "loadout_start",
+                serde_json::json!({
+                    "mode": "list",
+                }),
+            );
+            for p in &projects {
+                emit_json_stream_event(
+                    "project_listed",
+                    serde_json::json!({
+                        "name": p.name,
+                        "status": p.status,
+                        "path": p.path,
+                    }),
+                );
+            }
+            emit_json_stream_event(
+                "loadout_ready",
+                serde_json::json!({
+                    "total_projects": projects.len(),
+                }),
+            );
+        } else if args.json {
             let json_str = serde_json::to_string_pretty(&projects)?;
-            println!("{}", json_str);
+            safe_println(&json_str);
             if args.copy {
                 copy_and_notify(&json_str);
             }
         } else {
-            println!("📂 当前项目列表：");
-            println!("--------------------------------------------------");
+            safe_println("📂 当前项目列表：");
+            safe_println("--------------------------------------------------");
             for p in &projects {
-                println!("  • {}  [{}] ({})", p.name, p.status, p.path);
+                safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
             }
-            println!("--------------------------------------------------");
-            println!("💡 用法: k0maru loadout <项目关键词>");
+            safe_println("--------------------------------------------------");
+            safe_println("💡 用法: k0maru loadout <项目关键词>");
+            if args.copy {
+                let text = projects
+                    .iter()
+                    .map(|p| format!("  • {}  [{}] ({})", p.name, p.status, p.path))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                copy_and_notify(&text);
+            }
+        }
+        return Ok(());
+    }
+
+    let mut piped_files = Vec::new();
+    if !std::io::stdin().is_terminal() {
+        let stdin = std::io::stdin();
+        if let Ok(files) = parse_diff_stream(stdin.lock()) {
+            piped_files = files;
+        }
+    }
+
+    if args.diff || args.branch.is_some() || !piped_files.is_empty() {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let mut modified_files = GitInspector::inspect_diff(&cwd, args.branch.as_deref())?;
+
+        for f in piped_files {
+            if !modified_files
+                .iter()
+                .any(|existing| existing.path == f.path)
+            {
+                modified_files.push(f);
+            }
+        }
+
+        let query = match args.query {
+            Some(q) => q,
+            None => {
+                let cwd_name = cwd.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if !cwd_name.is_empty() && builder.find_project(cwd_name).ok().flatten().is_some() {
+                    cwd_name.to_string()
+                } else {
+                    let projects = builder.list_projects()?;
+                    if let Some(first) = projects.first() {
+                        first.name.clone()
+                    } else {
+                        eprintln!(
+                            "❌ Vault 中未找到任何可用工程项目。请使用 --list 查看所有项目。"
+                        );
+                        std::process::exit(2);
+                    }
+                }
+            }
+        };
+
+        match builder.build_with_diff(&query, &modified_files)? {
+            Some(loadout) => {
+                if args.json_stream {
+                    emit_json_stream_event(
+                        "loadout_start",
+                        serde_json::json!({
+                            "project": query,
+                            "mode": "diff",
+                        }),
+                    );
+                    let file_paths: Vec<String> = modified_files
+                        .iter()
+                        .map(|f| f.path.to_string_lossy().to_string())
+                        .collect();
+                    emit_json_stream_event(
+                        "diff_inspected",
+                        serde_json::json!({
+                            "modified_files": file_paths,
+                        }),
+                    );
+                    for card in &loadout.l3_cards {
+                        emit_json_stream_event(
+                            "rule_activated",
+                            serde_json::json!({
+                                "rule": card.name,
+                                "concept": card.concept.clone().unwrap_or_default(),
+                            }),
+                        );
+                    }
+                    emit_json_stream_event(
+                        "loadout_ready",
+                        serde_json::json!({
+                            "tokens": loadout.estimated_tokens,
+                            "within_budget": loadout.estimated_tokens <= 300,
+                            "markdown": loadout.markdown,
+                        }),
+                    );
+                } else if args.json {
+                    let output = serde_json::to_string_pretty(&loadout)?;
+                    safe_println(&output);
+                    if args.copy {
+                        copy_and_notify(&output);
+                    }
+                } else {
+                    safe_println(&loadout.markdown);
+                    if args.copy {
+                        copy_and_notify(&loadout.markdown);
+                    }
+                }
+            }
+            None => {
+                eprintln!(
+                    "❌ 未找到匹配 '{}' 的工程项目。可使用 --list 查看所有项目。",
+                    query
+                );
+                std::process::exit(2);
+            }
+        }
+
+        return Ok(());
+    }
+
+    if args.query.is_none() {
+        let projects = builder.list_projects()?;
+        if args.json_stream {
+            emit_json_stream_event(
+                "loadout_start",
+                serde_json::json!({
+                    "mode": "list",
+                }),
+            );
+            for p in &projects {
+                emit_json_stream_event(
+                    "project_listed",
+                    serde_json::json!({
+                        "name": p.name,
+                        "status": p.status,
+                        "path": p.path,
+                    }),
+                );
+            }
+            emit_json_stream_event(
+                "loadout_ready",
+                serde_json::json!({
+                    "total_projects": projects.len(),
+                }),
+            );
+        } else if args.json {
+            let json_str = serde_json::to_string_pretty(&projects)?;
+            safe_println(&json_str);
+            if args.copy {
+                copy_and_notify(&json_str);
+            }
+        } else {
+            safe_println("📂 当前项目列表：");
+            safe_println("--------------------------------------------------");
+            for p in &projects {
+                safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
+            }
+            safe_println("--------------------------------------------------");
+            safe_println("💡 用法: k0maru loadout <项目关键词>");
             if args.copy {
                 let text = projects
                     .iter()
@@ -441,14 +705,42 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
     if let Some(query) = args.query {
         match builder.build(&query)? {
             Some(loadout) => {
-                let output = if args.json {
-                    serde_json::to_string_pretty(&loadout)?
+                if args.json_stream {
+                    emit_json_stream_event(
+                        "loadout_start",
+                        serde_json::json!({
+                            "project": query,
+                            "mode": "standard",
+                        }),
+                    );
+                    for card in &loadout.l3_cards {
+                        emit_json_stream_event(
+                            "rule_activated",
+                            serde_json::json!({
+                                "rule": card.name,
+                                "concept": card.concept.clone().unwrap_or_default(),
+                            }),
+                        );
+                    }
+                    emit_json_stream_event(
+                        "loadout_ready",
+                        serde_json::json!({
+                            "tokens": loadout.estimated_tokens,
+                            "within_budget": loadout.estimated_tokens <= 300,
+                            "markdown": loadout.markdown,
+                        }),
+                    );
+                } else if args.json {
+                    let output = serde_json::to_string_pretty(&loadout)?;
+                    safe_println(&output);
+                    if args.copy {
+                        copy_and_notify(&output);
+                    }
                 } else {
-                    loadout.markdown
-                };
-                println!("{}", output);
-                if args.copy {
-                    copy_and_notify(&output);
+                    safe_println(&loadout.markdown);
+                    if args.copy {
+                        copy_and_notify(&loadout.markdown);
+                    }
                 }
             }
             None => {
@@ -456,7 +748,7 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
                     "❌ 未找到匹配 '{}' 的工程项目。可使用 --list 查看所有项目。",
                     query
                 );
-                std::process::exit(1);
+                std::process::exit(2);
             }
         }
     }
@@ -476,6 +768,17 @@ fn run_loadout(args: LoadoutArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_offload(args: OffloadArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let is_terminal = std::io::stdin().is_terminal()
+        || std::env::var("K0MARU_FORCE_TTY")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false);
+
+    if is_terminal {
+        eprintln!("❌ 错误: 未提供日志输入且 stdin 为交互式终端 (TTY)。");
+        eprintln!("💡 用法: cat log.txt | k0maru offload 或指定管道流。");
+        std::process::exit(2);
+    }
+
     let refs_dir = detect_refs_dir(args.refs_dir);
     let mut engine = OffloadEngine::new(refs_dir).with_threshold(args.threshold);
     if let Some(task_id) = args.task_id {
@@ -486,7 +789,41 @@ fn run_offload(args: OffloadArgs) -> Result<(), Box<dyn std::error::Error>> {
     let reader = stdin.lock();
     let result = engine.process_stream(reader)?;
 
-    if result.truncated {
+    if args.json_stream {
+        emit_json_stream_event(
+            "stream_chunk",
+            serde_json::json!({
+                "lines_processed": result.total_lines,
+            }),
+        );
+        if result.truncated {
+            emit_json_stream_event(
+                "threshold_exceeded",
+                serde_json::json!({
+                    "threshold": args.threshold,
+                    "action": "offloading",
+                }),
+            );
+            emit_json_stream_event(
+                "offload_complete",
+                serde_json::json!({
+                    "node_id": result.node_id,
+                    "total_lines": result.total_lines,
+                    "truncated": true,
+                    "log_path": result.log_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+                    "mermaid_graph": result.mermaid_graph,
+                }),
+            );
+        } else {
+            emit_json_stream_event(
+                "offload_complete",
+                serde_json::json!({
+                    "total_lines": result.total_lines,
+                    "truncated": false,
+                }),
+            );
+        }
+    } else if result.truncated {
         safe_println(&result.mermaid_graph);
         safe_println(&result.summary_text);
     } else if !result.summary_text.is_empty() {
@@ -609,16 +946,31 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let query = if args.query == "-" {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        let trimmed = buf.trim().to_string();
+        if trimmed.is_empty() {
+            eprintln!("❌ 错误: 管道输入的搜索关键词为空");
+            std::process::exit(2);
+        }
+        trimmed
+    } else {
+        args.query
+    };
+
     let mode = match args.mode.to_lowercase().as_str() {
         "hybrid" => SearchMode::Hybrid,
         "bm25" => SearchMode::Bm25,
         "vector" => SearchMode::Vector,
         other => {
-            return Err(format!(
-                "Invalid search mode '{}'. Supported modes: hybrid, bm25, vector",
+            eprintln!(
+                "❌ Invalid search mode '{}'. Supported modes: hybrid, bm25, vector",
                 other
-            )
-            .into());
+            );
+            std::process::exit(2);
         }
     };
 
@@ -639,32 +991,62 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let embedder = default_embedding_engine(model_cache).ok();
     let engine = HybridSearchEngine::new(&storage, embedder);
 
-    let results = engine.search(&args.query, mode, args.limit)?;
+    let results = engine.search(&query, mode, args.limit)?;
 
-    if args.json {
+    if args.json_stream {
+        emit_json_stream_event(
+            "search_start",
+            serde_json::json!({
+                "query": query,
+                "mode": args.mode,
+                "limit": args.limit,
+            }),
+        );
+        for (i, r) in results.iter().enumerate() {
+            emit_json_stream_event(
+                "search_hit",
+                serde_json::json!({
+                    "rank": i + 1,
+                    "score": r.score,
+                    "title": r.title,
+                    "path": r.path,
+                    "snippet": r.snippet,
+                }),
+            );
+        }
+        emit_json_stream_event(
+            "search_complete",
+            serde_json::json!({
+                "total_hits": results.len(),
+            }),
+        );
+    } else if args.json {
         let json_str = serde_json::to_string_pretty(&results)?;
-        println!("{}", json_str);
+        safe_println(&json_str);
     } else {
         if results.is_empty() {
-            println!("🔍 No results found matching query: '{}'", args.query);
+            safe_println(&format!("🔍 No results found matching query: '{}'", query));
             return Ok(());
         }
 
-        println!(
+        safe_println(&format!(
             "🔍 Search Results for '{}' ({} results, mode: {}):",
-            args.query,
+            query,
             results.len(),
             args.mode
-        );
-        println!("--------------------------------------------------");
+        ));
+        safe_println("--------------------------------------------------");
         for (i, r) in results.iter().enumerate() {
             let rank = i + 1;
-            println!("#{:<2} [{:.4}] {} ({})", rank, r.score, r.title, r.path);
+            safe_println(&format!(
+                "#{:<2} [{:.4}] {} ({})",
+                rank, r.score, r.title, r.path
+            ));
             if !r.snippet.is_empty() {
-                println!("    {}", r.snippet);
+                safe_println(&format!("    {}", r.snippet));
             }
         }
-        println!("--------------------------------------------------");
+        safe_println("--------------------------------------------------");
     }
 
     Ok(())
@@ -876,7 +1258,98 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_gc(args: GcArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let input_str = if let Some(ref path) = args.file {
+        if !path.exists() {
+            eprintln!("❌ 错误: 找不到指定的轨迹文件: {}", path.display());
+            std::process::exit(2);
+        }
+        std::fs::read_to_string(path)?
+    } else if !std::io::stdin().is_terminal() {
+        let mut buffer = String::new();
+        std::io::stdin().read_to_string(&mut buffer)?;
+        buffer
+    } else {
+        eprintln!(
+            "❌ 错误: 未提供轨迹文件且 stdin 不是管道。用法: k0maru gc <FILE> 或管道输入: cat session.json | k0maru gc"
+        );
+        std::process::exit(2);
+    };
+
+    if input_str.trim().is_empty() {
+        eprintln!("❌ 错误: 会话轨迹输入为空");
+        std::process::exit(1);
+    }
+
+    let trajectory: k0maru::gc::SessionTrajectory =
+        serde_json::from_str(&input_str).map_err(|e| format!("无法解析会话轨迹 JSON: {}", e))?;
+
+    let options = k0maru::gc::GcOptions {
+        line_threshold: args.threshold,
+        hot_window_turns: args.hot_window,
+        context_window_tokens: args.context_window,
+        ..Default::default()
+    };
+
+    let engine = k0maru::gc::ContextGcEngine::new();
+    let (result, events) = engine.compact_with_events(&trajectory, &options)?;
+
+    if args.json_stream {
+        for event in events {
+            safe_println(&serde_json::to_string(&event)?);
+        }
+    } else if args.json {
+        safe_println(&serde_json::to_string_pretty(&result)?);
+    } else {
+        safe_println("🧹 会话上下文 GC 压缩报告:");
+        safe_println(&format!("• 会话标识:       {}", trajectory.session_id));
+        safe_println(&format!("• 原始 Token 数:   {}", result.raw_tokens));
+        safe_println(&format!("• 压缩后 Token 数: {}", result.compacted_tokens));
+        safe_println(&format!(
+            "• Token 压缩率:    {:.2}% (TRR >= 85% 达标: {})",
+            result.token_reduction_ratio,
+            if result.token_reduction_ratio >= 85.0 {
+                "✅ 是"
+            } else {
+                "⚠️ 否"
+            }
+        ));
+        safe_println(&format!(
+            "• Smart-Zone 占用: {:.1}% (范围: 15% - 60%, 达标: {})",
+            result.smart_zone_occupancy * 100.0,
+            if result.in_smart_zone {
+                "✅ 是"
+            } else {
+                "⚠️ 否"
+            }
+        ));
+        safe_println(&format!(
+            "• 轮次统计:        原始 {} 轮 / 压缩后 {} 轮 (折叠/卸载 {} 处)",
+            result.raw_turns_count, result.compacted_turns_count, result.folded_nodes_count
+        ));
+    }
+
+    Ok(())
+}
+
 fn main() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            ""
+        };
+        if payload.contains("Broken pipe") || payload.contains("failed printing to stdout") {
+            std::process::exit(0);
+        }
+        default_hook(info);
+    }));
+
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Loadout(args)) => {
@@ -935,6 +1408,12 @@ fn main() {
         }
         Some(Commands::Distill(args)) => {
             if let Err(e) = run_distill(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Gc(args)) => {
+            if let Err(e) = run_gc(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }

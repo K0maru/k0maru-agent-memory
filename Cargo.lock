@@ -1613,7 +1613,7 @@ dependencies = [
 
 [[package]]
 name = "k0maru"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "arboard",
  "assert_cmd",
@@ -1621,7 +1621,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 7.0.0",
- "fastembed",
+ "k0maru-core",
  "mime_guess",
  "openssl",
  "predicates",
@@ -1636,6 +1636,23 @@ dependencies = [
  "tokio",
  "tower 0.4.13",
  "tower-http 0.5.2",
+ "walkdir",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "k0maru-core"
+version = "0.9.0"
+dependencies = [
+ "fastembed",
+ "openssl",
+ "pulldown-cmark",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlite-vec",
+ "tempfile",
  "walkdir",
  "xxhash-rust",
 ]
