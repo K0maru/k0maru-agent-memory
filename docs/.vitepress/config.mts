@@ -28,6 +28,7 @@ export default defineConfig({
           { text: '生态与场景', link: '/zh/workflows/ecosystem' },
           { text: '参考手册', link: '/zh/reference/cli' },
           { text: '实测看板', link: '/zh/benchmarks/a100-evaluation' },
+          { text: '路线图', link: '/zh/architecture/roadmap' },
         ],
         sidebar: [
           {
@@ -43,6 +44,7 @@ export default defineConfig({
             items: [
               { text: '四层架构与核心数据流', link: '/zh/architecture/overview' },
               { text: '核心算法与关键模块深度实现', link: '/zh/architecture/key-implementations' },
+              { text: '演进路线图与架构不变量', link: '/zh/architecture/roadmap' },
             ],
           },
           {
@@ -92,6 +94,7 @@ export default defineConfig({
           { text: 'Workflows', link: '/en/workflows/ecosystem' },
           { text: 'Reference', link: '/en/reference/cli' },
           { text: 'Benchmarks', link: '/en/benchmarks/a100-evaluation' },
+          { text: 'Roadmap', link: '/en/architecture/roadmap' },
         ],
         sidebar: [
           {
@@ -107,6 +110,7 @@ export default defineConfig({
             items: [
               { text: 'Architectural Overview & Data Flow', link: '/en/architecture/overview' },
               { text: 'Key Implementations Deep Dive', link: '/en/architecture/key-implementations' },
+              { text: 'Roadmap & Future Invariants', link: '/en/architecture/roadmap' },
             ],
           },
           {
