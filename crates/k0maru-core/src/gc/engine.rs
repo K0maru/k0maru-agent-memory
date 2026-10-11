@@ -113,20 +113,23 @@ impl ContextGcEngine {
             .map(|t| Self::extract_diagnostic(&t.content))
             .collect();
 
+        let is_success_list: Vec<bool> = trajectory
+            .turns
+            .iter()
+            .map(|t| Self::indicates_success(&t.content))
+            .collect();
+
         // Map turn index -> resolved turn index (if superseded / resolved)
         let mut resolved_map: Vec<Option<usize>> = vec![None; total_turns];
         for i in 0..hot_window_start {
             if let Some(ref diag) = diagnostics[i] {
                 // Search subsequent turns for resolution
                 for (j, subsequent_turn) in trajectory.turns.iter().enumerate().skip(i + 1) {
-                    let is_success = Self::indicates_success(&subsequent_turn.content);
-                    let subsequent_diag = &diagnostics[j];
-
-                    if is_success {
+                    if is_success_list[j] {
                         // Success in turn j resolves error in turn i
                         resolved_map[i] = Some(subsequent_turn.turn_index);
                         break;
-                    } else if let Some(sub_diag) = subsequent_diag {
+                    } else if let Some(ref sub_diag) = diagnostics[j] {
                         // If subsequent compiler run has a different diagnostic, the previous error was resolved
                         if sub_diag != diag {
                             resolved_map[i] = Some(subsequent_turn.turn_index);
