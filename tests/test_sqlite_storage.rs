@@ -431,3 +431,78 @@ fn test_fts_syntax_and_special_characters() {
         );
     }
 }
+
+#[test]
+fn test_search_scoped_fts_pushdown_prevents_truncation() {
+    let mut storage = SqliteStorage::in_memory().expect("in_memory failed");
+    storage.initialize().expect("initialize failed");
+
+    // 1. Insert 10 daily logs matching "Arbitrage" with high keyword frequency
+    for i in 1..=10 {
+        let doc = create_sample_document(
+            &format!("00_Daily/2026-10-{:02}.md", i),
+            &format!("Arbitrage Log {}", i),
+            HierarchyLevel::L0Ephemeral,
+            "Arbitrage Arbitrage Arbitrage Arbitrage Arbitrage market making strategies today.",
+            vec![],
+            vec!["daily", "arbitrage"],
+        );
+        storage.upsert_document(&doc).expect("upsert daily");
+    }
+
+    // 2. Insert 1 project document matching "Arbitrage"
+    let proj = create_sample_document(
+        "10_Projects/Arbitrage.md",
+        "Arbitrage Engine",
+        HierarchyLevel::L1Resource,
+        "Core architecture for Arbitrage system.",
+        vec![],
+        vec!["project", "topic/arbitrage-engine"],
+    );
+    storage.upsert_document(&proj).expect("upsert project");
+
+    // 3. Global search with limit 5 returns 5 daily logs (the project doc is truncated!)
+    let global_results = storage.search_fts("Arbitrage", 5).expect("global search");
+    assert_eq!(global_results.len(), 5);
+    for r in &global_results {
+        assert_ne!(r.path, PathBuf::from("10_Projects/Arbitrage.md"));
+    }
+
+    // 4. Scoped search pushes down path filter to SQLite directly
+    let scoped = storage
+        .search_scoped_fts("Arbitrage", Some("10_Projects/"), None, 5)
+        .expect("scoped search");
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].path, PathBuf::from("10_Projects/Arbitrage.md"));
+    assert_eq!(scoped[0].title, "Arbitrage Engine");
+
+    // 5. Hierarchy filter
+    let hierarchy_scoped = storage
+        .search_scoped_fts("Arbitrage", None, Some("L1Resource"), 5)
+        .expect("scoped hierarchy");
+    assert_eq!(hierarchy_scoped.len(), 1);
+    assert_eq!(
+        hierarchy_scoped[0].path,
+        PathBuf::from("10_Projects/Arbitrage.md")
+    );
+
+    // 6. Token sanitization with hyphens: "arbitrage-system"
+    let hyphen_scoped = storage
+        .search_scoped_fts("arbitrage-system", Some("10_Projects/"), None, 5)
+        .expect("scoped hyphen");
+    assert_eq!(hyphen_scoped.len(), 1);
+    assert_eq!(
+        hyphen_scoped[0].path,
+        PathBuf::from("10_Projects/Arbitrage.md")
+    );
+
+    // 7. Token sanitization with tags/slashes: "topic/arbitrage-engine"
+    let tag_scoped = storage
+        .search_scoped_fts("topic/arbitrage-engine", Some("10_Projects/"), None, 5)
+        .expect("scoped tag");
+    assert_eq!(tag_scoped.len(), 1);
+    assert_eq!(
+        tag_scoped[0].path,
+        PathBuf::from("10_Projects/Arbitrage.md")
+    );
+}

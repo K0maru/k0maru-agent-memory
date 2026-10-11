@@ -76,6 +76,36 @@ pub trait CacheStorage {
         limit: usize,
     ) -> Result<Vec<Document>, Box<dyn std::error::Error>>;
 
+    /// BM25 full-text search across indexed documents, optionally scoped by path prefix and/or hierarchy.
+    fn search_scoped_fts(
+        &self,
+        query: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let docs = self.search_fts(query, limit * 3)?;
+        let filtered: Vec<Document> = docs
+            .into_iter()
+            .filter(|d| {
+                if let Some(prefix) = path_prefix {
+                    let p = d.path.to_string_lossy().replace('\\', "/");
+                    if !p.starts_with(prefix) {
+                        return false;
+                    }
+                }
+                if let Some(h) = hierarchy {
+                    if d.hierarchy.as_str() != h {
+                        return false;
+                    }
+                }
+                true
+            })
+            .take(limit)
+            .collect();
+        Ok(filtered)
+    }
+
     /// Returns all outgoing WikiLinks from a given document path.
     fn get_outgoing_links(&self, path: &Path) -> Result<Vec<WikiLink>, Box<dyn std::error::Error>>;
 
@@ -91,5 +121,14 @@ pub trait CacheStorage {
     /// Retrieves a document by its relative path if present in cache.
     fn get_document(&self, _path: &Path) -> Result<Option<Document>, Box<dyn std::error::Error>> {
         Ok(None)
+    }
+
+    /// Nearest-neighbor vector search if supported by storage backend.
+    fn search_vectors(
+        &self,
+        _query_embedding: &[f32],
+        _limit: usize,
+    ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+        Ok(Vec::new())
     }
 }
