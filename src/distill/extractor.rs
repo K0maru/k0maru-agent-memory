@@ -173,7 +173,8 @@ impl SkillExtractor {
             if hint.len() <= 60 {
                 hint.trim().to_string()
             } else {
-                format!("排障处理: {}", &hint[..60].trim())
+                let slice = hint.chars().take(60).collect::<String>();
+                format!("排障处理: {}", slice.trim())
             }
         } else if !error_summary.is_empty() && error_summary != "执行中断或排障检查" {
             // Clean up error summary for title
@@ -185,7 +186,8 @@ impl SkillExtractor {
             if clean.len() <= 60 {
                 format!("解决 {}", clean)
             } else {
-                format!("解决 {}", &clean[..57])
+                let slice = clean.chars().take(57).collect::<String>();
+                format!("解决 {}", slice.trim())
             }
         } else {
             "执行故障排查与经验提炼".to_string()
