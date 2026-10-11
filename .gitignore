@@ -61,3 +61,6 @@ docs/.vitepress/cache/
 
 # Agent Workspaces & Multi-Agent Scratch
 .agents/
+
+# Generated Colab Runners
+benchmarks/run_colab_*.py
