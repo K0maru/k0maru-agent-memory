@@ -26,6 +26,10 @@ path = "src/lib.rs"
 name = "k0maru"
 path = "src/main.rs"
 
+[[bin]]
+name = "k0maru-memory"
+path = "src/main.rs"
+
 [dependencies]
 k0maru-core = { path = "crates/k0maru-core" }
 clap = { version = "4.5", features = ["derive", "cargo"] }

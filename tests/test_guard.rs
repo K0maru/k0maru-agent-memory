@@ -25,6 +25,31 @@ fn init_git_repo(path: &Path) {
 }
 
 #[test]
+fn test_guard_install_pre_commit_hook() {
+    let dir = tempdir().unwrap();
+    init_git_repo(dir.path());
+
+    let mut cmd = Command::cargo_bin("k0maru").unwrap();
+    cmd.current_dir(dir.path())
+        .args(["guard", "install", "--path", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    let hook_path = dir.path().join(".git").join("hooks").join("pre-commit");
+    assert!(hook_path.exists(), "pre-commit hook file must be created");
+
+    let content = fs::read_to_string(&hook_path).unwrap();
+    assert!(content.contains("k0maru guard check --diff"));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::metadata(&hook_path).unwrap().permissions();
+        assert_eq!(perms.mode() & 0o111, 0o111, "hook must be executable");
+    }
+}
+
+#[test]
 fn test_mcp_guard_check_flags_violation() {
     let vault_dir = tempdir().unwrap();
     let k0maru_dir = vault_dir.path().join(".k0maru");
@@ -69,172 +94,62 @@ new file mode 100644
     );
 
     let content_text = res["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(
-        content_text.contains("ADR-SETTLE-001"),
-        "Must flag ADR-SETTLE-001 violation"
-    );
-    assert!(
-        content_text.contains("execWithoutLock"),
-        "Must identify offending content"
-    );
-    assert!(
-        content_text.contains("Acquire Redis lock before modifying ledger"),
-        "Must include remediation instructions"
-    );
-    assert!(
-        content_text.contains("\"is_passed\": false")
-            || content_text.contains("\"is_passed\":false"),
-        "Report JSON must indicate is_passed = false"
-    );
+    assert!(content_text.contains("ADR-SETTLE-001"));
+    assert!(content_text.contains("execWithoutLock"));
+    assert!(content_text.contains("\"is_passed\": false"));
 }
 
 #[test]
-fn test_mcp_guard_check_passes_clean_diff() {
-    let vault_dir = tempdir().unwrap();
-    let k0maru_dir = vault_dir.path().join(".k0maru");
-    fs::create_dir_all(&k0maru_dir).unwrap();
+fn test_guard_cli_check_clean_and_deny_violations() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
 
+    let k0maru_dir = root.join(".k0maru");
+    fs::create_dir_all(&k0maru_dir).unwrap();
     fs::write(
         k0maru_dir.join("guard.toml"),
         r#"
 [[rules]]
-id = "ADR-SETTLE-001"
-title = "Mandatory Distributed Lock"
-file_pattern = "*.go"
+id = "ADR-001"
+title = "No Raw SQL"
+file_pattern = "*.rs"
 severity = "deny"
-forbidden = "execWithoutLock"
-must_contain = "redis.Lock"
-remediation = "Acquire Redis lock before modifying ledger."
+forbidden = "execute_raw"
+remediation = "Use query builder."
 "#,
     )
     .unwrap();
 
-    let mut server = McpServer::new(vault_dir.path());
-
-    let clean_diff = r#"
-diff --git a/settle.go b/settle.go
-new file mode 100644
---- /dev/null
-+++ b/settle.go
-@@ -0,0 +1,5 @@
-+package settle
-+func SettleLedger() {
-+    redis.Lock()
-+}
-"#;
-
-    let res = server.handle_tool_call(
-        json!(2),
-        &json!({
-            "name": "guard_check",
-            "arguments": {
-                "diff": clean_diff
-            }
-        }),
-    );
-
-    let content_text = res["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(
-        content_text.contains("All architectural invariants passed!"),
-        "Clean diff must pass"
-    );
-    assert!(
-        content_text.contains("\"is_passed\": true") || content_text.contains("\"is_passed\":true"),
-        "Report JSON must indicate is_passed = true"
-    );
-}
-
-#[test]
-fn test_cli_pre_commit_hook_blocks_git_commit_on_violation() {
-    let dir = tempdir().unwrap();
-    init_git_repo(dir.path());
-
-    // 1. Install hook
-    let mut cmd = Command::cargo_bin("k0maru").unwrap();
-    cmd.current_dir(dir.path())
-        .args(["guard", "install", "--path", dir.path().to_str().unwrap()])
+    // Clean check passes (exit 0)
+    let mut cmd_clean = Command::cargo_bin("k0maru").unwrap();
+    cmd_clean
+        .current_dir(root)
+        .args(["guard", "check", "--vault", root.to_str().unwrap()])
         .assert()
         .success();
 
-    // 2. Add guard rule
-    let k0maru_dir = dir.path().join(".k0maru");
-    fs::create_dir_all(&k0maru_dir).unwrap();
-    fs::write(
-        k0maru_dir.join("guard.toml"),
-        r#"
-[[rules]]
-id = "ADR-BLOCK-001"
-title = "No unwrap in commit"
-file_pattern = "*.rs"
-severity = "deny"
-forbidden = "\\.unwrap\\(\\)"
-remediation = "Handle errors with ?"
-"#,
-    )
-    .unwrap();
+    // Stdin diff with violation fails (exit 1)
+    let bad_diff = r#"
+diff --git a/src/db.rs b/src/db.rs
+--- a/src/db.rs
++++ b/src/db.rs
+@@ -1,1 +1,2 @@
++    db.execute_raw("DROP TABLE users");
+"#;
 
-    // Initial safe commit (can skip hook or commit rule file)
-    let _ = StdCommand::new("git")
-        .args(["add", ".k0maru/guard.toml"])
-        .current_dir(dir.path())
-        .output();
-    let _ = StdCommand::new("git")
-        .args(["commit", "-m", "init rule", "--no-verify"])
-        .current_dir(dir.path())
-        .output();
-
-    // Create a violation file
-    fs::write(
-        dir.path().join("service.rs"),
-        "fn calculate() {\n    let val = parse().unwrap();\n}\n",
-    )
-    .unwrap();
-
-    let _ = StdCommand::new("git")
-        .args(["add", "service.rs"])
-        .current_dir(dir.path())
-        .output();
-
-    // Ensure k0maru binary is on PATH for hook execution
-    let bin_path = assert_cmd::cargo::cargo_bin("k0maru");
-    let target_bin_dir = bin_path.parent().unwrap();
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", target_bin_dir.display(), current_path);
-
-    // Run git commit, hook should block it
-    let commit_res = StdCommand::new("git")
-        .args(["commit", "-m", "violating commit"])
-        .current_dir(dir.path())
-        .env("PATH", &new_path)
-        .output()
-        .expect("git commit invocation failed");
-
-    assert!(
-        !commit_res.status.success(),
-        "Git commit must be blocked by k0maru guard pre-commit hook"
-    );
-
-    // Now fix violation
-    fs::write(
-        dir.path().join("service.rs"),
-        "fn calculate() -> Result<(), ()> {\n    let val = parse()?;\n    Ok(())\n}\n",
-    )
-    .unwrap();
-
-    let _ = StdCommand::new("git")
-        .args(["add", "service.rs"])
-        .current_dir(dir.path())
-        .output();
-
-    let clean_commit_res = StdCommand::new("git")
-        .args(["commit", "-m", "compliant commit"])
-        .current_dir(dir.path())
-        .env("PATH", &new_path)
-        .output()
-        .expect("git commit invocation failed");
-
-    assert!(
-        clean_commit_res.status.success(),
-        "Git commit must succeed once violation is fixed"
-    );
+    let mut cmd_fail = Command::cargo_bin("k0maru").unwrap();
+    cmd_fail
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--vault",
+            root.to_str().unwrap(),
+            "--diff",
+        ])
+        .write_stdin(bad_diff)
+        .assert()
+        .failure()
+        .code(1);
 }

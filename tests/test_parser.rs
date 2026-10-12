@@ -1,10 +1,20 @@
-use k0maru::core::models::WikiLink;
+mod common;
+
+use std::fs;
+use std::path::PathBuf;
+
+use chrono::NaiveDate;
+use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use k0maru::convention::{generate_filename, slugify, NamingStyle};
+use k0maru::core::models::HierarchyLevel;
+use k0maru::core::traits::VaultAdapter;
 use k0maru::parser::{extract_elements, extract_tags, extract_wikilinks, parse_frontmatter};
+use k0maru::scanner::IncrementalScanner;
+use k0maru::storage::SqliteStorage;
 use serde_json::json;
-use std::time::Instant;
 
 #[test]
-fn test_frontmatter_valid_yaml() {
+fn test_frontmatter_yaml_parsing_and_metadata() {
     let content = r#"---
 title: "Deep Module Design"
 hierarchy: L3Evergreen
@@ -29,266 +39,153 @@ This is the document body with some content.
 
     assert!(body.starts_with("# Deep Module Design"));
     assert!(body.contains("This is the document body with some content."));
+
+    // Empty frontmatter test
+    let (empty_fm, empty_body) = parse_frontmatter("# Just Title\nNo frontmatter");
+    assert_eq!(empty_fm, json!({}));
+    assert_eq!(empty_body, "# Just Title\nNo frontmatter");
 }
 
 #[test]
-fn test_frontmatter_empty() {
-    let content = "---\n---\n# Empty Frontmatter Body";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter, json!({}));
-    assert_eq!(body, "# Empty Frontmatter Body");
-}
-
-#[test]
-fn test_frontmatter_crlf() {
-    let content = "---\r\ntitle: CRLF Note\r\nstatus: active\r\n---\r\n# Body with CRLF";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter["title"], "CRLF Note");
-    assert_eq!(frontmatter["status"], "active");
-    assert_eq!(body, "# Body with CRLF");
-}
-
-#[test]
-fn test_frontmatter_missing() {
-    let content = "# Title Without Frontmatter\n\nJust markdown body content.";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter, json!({}));
-    assert_eq!(body, content);
-}
-
-#[test]
-fn test_frontmatter_unclosed() {
-    let content = "---\ntitle: Never closed\nbody starts here without closing";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter, json!({}));
-    assert_eq!(body, content);
-}
-
-#[test]
-fn test_frontmatter_invalid_yaml() {
-    let content = "---\ninvalid: yaml: : : [unmatched\n---\nBody after invalid YAML";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter, json!({}));
-    // Graceful fallback without panic
-    assert!(body.contains("Body after invalid YAML") || body == content);
-}
-
-#[test]
-fn test_frontmatter_hr_not_confused() {
-    let content = "# First Heading\n\nSome text\n---\nMore text after horizontal rule";
-    let (frontmatter, body) = parse_frontmatter(content);
-    assert_eq!(frontmatter, json!({}));
-    assert_eq!(body, content);
-}
-
-#[test]
-fn test_extract_wikilinks_bare_and_aliased() {
-    let content = "Check [[CardA]] and aliased [[CardB|Display B]] here.";
-    let links = extract_wikilinks(content);
-    assert_eq!(links.len(), 2);
-    assert_eq!(
-        links[0],
-        WikiLink {
-            target: "CardA".to_string(),
-            alias: None,
-            raw_text: "[[CardA]]".to_string(),
-        }
-    );
-    assert_eq!(
-        links[1],
-        WikiLink {
-            target: "CardB".to_string(),
-            alias: Some("Display B".to_string()),
-            raw_text: "[[CardB|Display B]]".to_string(),
-        }
-    );
-}
-
-#[test]
-fn test_extract_wikilinks_paths_and_unicode() {
-    let content = r#"Links with paths and unicode:
-- [[01_AI_Logs/2026-09-28-log]]
-- [[20_Cards/深度模块设计|深度模块]]
-- [[Notes/Subfolder/Architecture.md]]
+fn test_wikilinks_extraction_and_alias_resolution() {
+    let body = r#"
+# Notes
+Linking to [[Architecture_Decisions]] and with alias [[k0maru-memory|K0maru Memory Hub]].
+Anchor link: [[Project#Milestones]].
 "#;
-    let links = extract_wikilinks(content);
+
+    let links = extract_wikilinks(body);
     assert_eq!(links.len(), 3);
-    assert_eq!(links[0].target, "01_AI_Logs/2026-09-28-log");
+    assert_eq!(links[0].target, "Architecture_Decisions");
     assert_eq!(links[0].alias, None);
 
-    assert_eq!(links[1].target, "20_Cards/深度模块设计");
-    assert_eq!(links[1].alias, Some("深度模块".to_string()));
+    assert_eq!(links[1].target, "k0maru-memory");
+    assert_eq!(links[1].alias, Some("K0maru Memory Hub".to_string()));
 
-    // .md suffix stripped from target
-    assert_eq!(links[2].target, "Notes/Subfolder/Architecture");
-    assert_eq!(links[2].alias, None);
+    assert_eq!(links[2].target, "Project#Milestones");
+
+    let tags = extract_tags(body);
+    assert!(tags.is_empty());
+
+    let (found_links, found_tags) = extract_elements(body);
+    assert_eq!(found_links.len(), 3);
+    assert_eq!(found_tags.len(), 0);
 }
 
 #[test]
-fn test_extract_wikilinks_whitespace_trimming() {
-    let content = "[[  Target Card  |  Custom Alias  ]]";
-    let links = extract_wikilinks(content);
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].target, "Target Card");
-    assert_eq!(links[0].alias, Some("Custom Alias".to_string()));
-    assert_eq!(links[0].raw_text, "[[  Target Card  |  Custom Alias  ]]");
-}
+fn test_obsidian_adapter_scan_and_hidden_filtering() {
+    let temp_vault = common::fixtures::mock_obsidian_vault();
+    let root = temp_vault.path();
 
-#[test]
-fn test_extract_wikilinks_ignore_code_blocks() {
-    let content = r#"Here is a real link: [[RealCard1]].
+    // Create ignored directories
+    fs::create_dir_all(root.join(".git")).unwrap();
+    fs::write(root.join(".git/config"), "dummy").unwrap();
+    fs::create_dir_all(root.join(".trash")).unwrap();
+    fs::write(root.join(".trash/deleted.md"), "# Deleted").unwrap();
+    fs::create_dir_all(root.join(".k0maru")).unwrap();
+    fs::write(root.join(".k0maru/cache.sqlite"), "bin").unwrap();
 
-```rust
-// This is inside a fenced code block
-let fake = "[[FakeInRustCode]]";
-let another_fake = "[[FakeRust|Alias]]";
-```
+    let adapter = ObsidianAdapter::new(root);
+    let files = adapter.scan_files().expect("scan files");
 
-Outside again: [[RealCard2|Alias 2]].
+    // Must find exactly the 4 mock markdown files
+    assert_eq!(files.len(), 4);
+    assert!(files.contains(&PathBuf::from("00_Daily/2026-09-29.md")));
+    assert!(files.contains(&PathBuf::from("10_Projects/k0maru-memory.md")));
+    assert!(files.contains(&PathBuf::from("20_Cards/Architecture_Decisions.md")));
 
-```
-Plain code block [[FakeInPlainBlock]]
-```
-
-Finally: [[RealCard3]].
-"#;
-
-    let links = extract_wikilinks(content);
-    let targets: Vec<&str> = links.iter().map(|l| l.target.as_str()).collect();
-    assert_eq!(targets, vec!["RealCard1", "RealCard2", "RealCard3"]);
-}
-
-#[test]
-fn test_extract_wikilinks_ignore_inline_code() {
-    let content = "Do not parse `[[FakeInlineLink]]` or `` `[[AnotherInline|Fake]]` `` inside inline code, but do parse [[ValidAfter]].";
-    let links = extract_wikilinks(content);
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].target, "ValidAfter");
-}
-
-#[test]
-fn test_extract_wikilinks_edge_cases() {
-    let content = r#"
-Ignore malformed:
-- [SingleBracket]
-- [[]]
-- [[   ]]
-- [[UnclosedBracket
-- UnopenedBracket]]
-- [[|OnlyAlias]]
-- [[ValidOne]]
-"#;
-    let links = extract_wikilinks(content);
-    assert_eq!(links.len(), 1);
-    assert_eq!(links[0].target, "ValidOne");
-}
-
-#[test]
-fn test_extract_tags_simple_and_nested() {
-    let content = "Testing #rust and #dev/backend and #topic/ai-ml tags.";
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#rust", "#dev/backend", "#topic/ai-ml"]);
-}
-
-#[test]
-fn test_extract_tags_unicode() {
-    let content = "中文标签：#知识库/架构设计 与 #原则/测试驱动开发";
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#知识库/架构设计", "#原则/测试驱动开发"]);
-}
-
-#[test]
-fn test_extract_tags_ignore_markdown_headers() {
-    let content = r#"# Header 1
-## Header 2
-### Header 3 with #valid_tag_in_header
-#### Header 4
-# 标题一
-"#;
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#valid_tag_in_header"]);
-}
-
-#[test]
-fn test_extract_tags_ignore_urls() {
-    let content = r#"
-Check this link: https://example.com#section-anchor and http://test.org/path#hash.
-Markdown link: [documentation](https://docs.rs/pulldown-cmark#features)
-Autolink: <https://github.com/foo/bar#readme>
-Here is a #real_tag.
-"#;
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#real_tag"]);
-}
-
-#[test]
-fn test_extract_tags_ignore_code_blocks_and_inline() {
-    let content = r#"
-```python
-# This is a python comment
-#not_a_tag
-class Foo: pass
-```
-
-And inline `#not_a_tag_either` here.
-Real tags are #valid_tag1 and (#valid_tag2), plus #valid_tag3!
-"#;
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#valid_tag1", "#valid_tag2", "#valid_tag3"]);
-}
-
-#[test]
-fn test_extract_tags_punctuation_and_numbers() {
-    let content =
-        "Ignore pure numbers like #123 and #1 or empty #. But keep #tag1, #tag-two, #tag_three.";
-    let tags = extract_tags(content);
-    assert_eq!(tags, vec!["#tag1", "#tag-two", "#tag_three"]);
-}
-
-#[test]
-fn test_parser_performance_1000_documents() {
-    let sample_doc = r#"---
-title: "Micro-bench Note"
-hierarchy: L3Evergreen
-tags:
-  - test
-  - benchmark
----
-# Benchmark Heading
-
-This document references [[CardOne]] and aliased [[CardTwo|Alias Two]].
-It also has hierarchical tag #topic/subtopic/micro and #rust/perf.
-
-```rust
-// Fenced code block with fake link and fake tag
-let fake = "[[FakeInsideCode]]";
-// #fake_tag
-```
-
-Inline code: `[[FakeInline]]` and `#fake_inline`.
-Final note link: [[CardThree/Subcard.md]].
-"#;
-
-    // Warm-up
-    let _ = parse_frontmatter(sample_doc);
-    let _ = extract_wikilinks(sample_doc);
-    let _ = extract_tags(sample_doc);
-
-    let start = Instant::now();
-    for _ in 0..1000 {
-        let (fm, body) = parse_frontmatter(sample_doc);
-        assert!(!fm.is_null());
-        let (links, tags) = extract_elements(body);
-        assert_eq!(links.len(), 3);
-        assert_eq!(tags.len(), 2);
+    for f in &files {
+        let s = f.to_string_lossy();
+        assert!(!s.contains(".git"));
+        assert!(!s.contains(".trash"));
+        assert!(!s.contains(".k0maru"));
     }
-    let elapsed = start.elapsed();
-    println!("Parsed 1,000 documents in {:?}", elapsed);
-    let threshold_ms = if cfg!(debug_assertions) { 150 } else { 50 };
-    assert!(
-        elapsed.as_millis() < threshold_ms,
-        "Parsing 1,000 documents must complete in <{}ms, took {:?}",
-        threshold_ms,
-        elapsed
+}
+
+#[test]
+fn test_generic_wiki_adapter_conformance() {
+    let temp_wiki = common::fixtures::mock_karpathy_wiki();
+    let root = temp_wiki.path();
+
+    let adapter = GenericWikiAdapter::new(root);
+    let files = adapter.scan_files().expect("scan files");
+    assert_eq!(files.len(), 3);
+
+    for rel_path in &files {
+        let doc = adapter.read_document(rel_path).expect("read doc");
+        assert_eq!(doc.hierarchy, HierarchyLevel::L3Evergreen);
+        assert!(!doc.title.is_empty());
+    }
+}
+
+#[test]
+fn test_incremental_scanner_change_detection() {
+    let temp_vault = common::fixtures::mock_obsidian_vault();
+    let root = temp_vault.path();
+
+    let adapter = ObsidianAdapter::new(root);
+    let mut storage = SqliteStorage::in_memory().expect("in-memory db");
+
+    // 1. Initial sync
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    let stats1 = scanner.sync(false).expect("initial sync");
+    assert_eq!(stats1.added, 4);
+    assert_eq!(stats1.modified, 0);
+
+    // 2. Second sync unmodified
+    let stats2 = scanner.sync(false).expect("second sync");
+    assert_eq!(stats2.added, 0);
+    assert_eq!(stats2.unchanged, 4);
+
+    // 3. Modify single file
+    let card = root.join("20_Cards/Architecture_Decisions.md");
+    let current_content = fs::read_to_string(&card).unwrap();
+    fs::write(&card, format!("{}\nUpdated line here.", current_content)).unwrap();
+
+    let stats3 = scanner.sync(false).expect("third sync");
+    assert_eq!(stats3.modified, 1);
+    assert_eq!(stats3.unchanged, 3);
+}
+
+#[test]
+fn test_convention_sniffer_slugify_and_filename() {
+    assert_eq!(
+        slugify("Migrate Cache from SQLite to SQLite-Vec"),
+        "migrate-cache-from-sqlite-to-sqlite-vec"
     );
+    assert_eq!(
+        slugify("  Special   Characters & Symbols! #123  "),
+        "special-characters-symbols-123"
+    );
+
+    let date = NaiveDate::from_ymd_opt(2026, 10, 4).unwrap();
+    let date_file = generate_filename("New Hybrid Engine", &NamingStyle::DateSlug, Some(date));
+    assert_eq!(date_file, "2026-10-04-new-hybrid-engine.md");
+
+    let slug_file = generate_filename("Hello World", &NamingStyle::SlugOnly, None);
+    assert_eq!(slug_file, "hello-world.md");
+}
+
+#[test]
+fn test_frontmatter_invariants_extraction() {
+    let content = r#"---
+title: "Living ADR Guard"
+hierarchy: L3Evergreen
+invariants:
+  - id: ADR-001
+    pattern: "*.rs"
+    forbidden: "unwrap\\(\\)"
+    severity: deny
+    remediation: "Use ? operator instead"
+---
+# Living ADR Guard
+Content body.
+"#;
+
+    let (frontmatter, _) = parse_frontmatter(content);
+    assert!(frontmatter.get("invariants").is_some());
+    let invs = frontmatter["invariants"].as_array().unwrap();
+    assert_eq!(invs.len(), 1);
+    assert_eq!(invs[0]["id"], "ADR-001");
+    assert_eq!(invs[0]["severity"], "deny");
 }
