@@ -9,6 +9,7 @@
 pub mod adapters;
 pub mod core;
 pub mod gc;
+pub mod guard;
 pub mod parser;
 pub mod scanner;
 pub mod storage;
@@ -53,4 +54,10 @@ pub use vector::{resolve_cache_dir, FastEmbedBackend};
 pub use gc::{
     estimate_tokens, ContextGcEngine, GcError, GcEvent, GcOptions, GcResult, SessionTrajectory,
     TrajectoryTurn, TurnRole,
+};
+
+// Guard
+pub use guard::{
+    extract_rules_from_config, extract_rules_from_document, extract_rules_from_vault, GuardEngine,
+    GuardReport, GuardRule, GuardViolation, RuleCondition, RuleSeverity,
 };
