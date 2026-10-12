@@ -1,6 +1,6 @@
 # Ticket 40-3: CLI Flags, Config/Env Var Resolution & Doctor Integration
 
-## Status: Ready
+**Status**: Completed
 **Blocked by**: Ticket 40-1, Ticket 40-2
 
 ## Goal

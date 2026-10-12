@@ -1,6 +1,6 @@
 # Ticket 40-2: Dynamic Dimension Support & Auto-Migration in `SqliteStorage`
 
-## Status: Ready
+**Status**: Completed
 **Blocked by**: Ticket 40-1
 
 ## Goal

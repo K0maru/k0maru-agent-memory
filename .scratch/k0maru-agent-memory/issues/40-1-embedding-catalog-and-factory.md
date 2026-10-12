@@ -1,6 +1,6 @@
 # Ticket 40-1: Embedding Catalog, Enum, and Factory Resolver
 
-## Status: Ready
+**Status**: Completed
 **Blocked by**: None
 
 ## Goal
