@@ -6,7 +6,7 @@ members = [
 
 [package]
 name = "k0maru"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
 exclude = [
