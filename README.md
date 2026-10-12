@@ -3,15 +3,17 @@
 # K0maru-Agent-Memory
 
 > **A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents.**  
-> *Mounting personal Markdown vaults (Obsidian & Karpathy LLM-Wiki) with instant sub-millisecond context retrieval and token governance.*
+> *Mounting personal Markdown vaults (Obsidian & Karpathy LLM-Wiki) with instant sub-millisecond context retrieval, symbolic log offloading, and living ADR architectural guardrails.*
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version: 0.9.0](https://img.shields.io/badge/Version-0.9.0-blue.svg)]()
-[![Tests: 213 passed](https://img.shields.io/badge/Tests-213_passed-brightgreen.svg)]()
+[![Version: 0.11.0](https://img.shields.io/badge/Version-0.11.0-blue.svg)]()
+[![Tests: 67 passed](https://img.shields.io/badge/Tests-67_passed-brightgreen.svg)]()
 [![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
+
+> 💡 **Dual Binary Support**: Available as both `k0maru` and `k0maru-memory` standalone binaries for seamless compatibility with multi-agent orchestration systems.
 
 ---
 
@@ -31,11 +33,15 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
    - Your existing local Markdown notes (Obsidian Vault, Karpathy-style flat LLM-Wiki) serve as the **Single Source of Truth**.
    - Zero proprietary binary lock-in, zero migration friction, and zero changes to your existing folder structure.
 3. **🪓 Disposable Transient Cache**:
-   - Maintains only a single-file SQLite database (`cache.sqlite`) integrating FTS5 BM25 full-text indices and `sqlite-vec` virtual tables.
+   - Maintains only a single-file SQLite database (`cache.sqlite`) integrating FTS5 BM25 full-text indices and `sqlite-vec` virtual tables with pluggable embedding dimensions.
    - Strictly disposable: delete it anytime (`rm cache.sqlite`) and the scanner **self-heals and rebuilds the index from scratch in 74 ms**.
-4. **📉 Industrial-Grade Context Governance (99.4% TRR & Live A100 Validation)**:
+4. **📉 Symbolic Context Offloading & Governance (99.4% TRR & Live A100 Validation)**:
    - Filters verbose logs via standard Unix pipes (`| k0maru offload`), transforming long traces into Mermaid state diagrams and stored slices.
-   - Validated on NVIDIA A100 GPUs to reduce prompt tokens significantly while preventing attention drift and reasoning degradation.
+   - Includes 4-tier Context GC (`k0maru gc`) keeping agent sessions within the cognitive Smart-Zone (15%–60%).
+5. **🛡️ Living ADR Guard & Architectural Invariant Sentinel (<10ms Audit)**:
+   - Transforms passive Architecture Decision Records (ADRs) and vault notes into active, executable guardrails.
+   - Audits staged Git diffs and incoming code against architectural rules (forbidden anti-patterns, required boundaries, regex invariants) via `k0maru guard check --diff` or the `guard_check` FastMCP tool.
+   - Installs pre-commit hooks (`k0maru guard install`) to block non-compliant code from entering repositories with 0 runtime dependencies.
 
 ### Architectural Comparison Matrix
 
@@ -47,6 +53,7 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 | **Cold Start Latency** | Instant | 2,500 ms – 3,500 ms (container boot) | 1,000 ms – 2,000 ms | **3.38 ms** (native Rust binary) |
 | **Resident Memory (RAM)** | 0 MB | ~850 MB – 2,000 MB | ~150 MB – 300 MB | **~11.7 MB** (released instantly on command exit) |
 | **Terminal Log Governance**| Manual or LLM truncation | Network API transfer required | Internal bespoke truncation | **Standard Unix pipe filter (`\| k0maru offload`)** |
+| **Living ADR Sentinel** | Manual code review | External SonarQube / heavy CI | None | **Living ADR Guard (<10ms git diff audit against vault rules)** |
 | **Index Self-Healing** | None | Snapshot & backup dependent | Local database integrity dependent | **`cache.sqlite` disposable anytime, rebuilt in 74ms** |
 
 ### Empirical Open-Source Model Benchmark (NVIDIA A100-80GB GPU)
@@ -97,6 +104,7 @@ brew install K0maru/tap/k0maru
 ```bash
 cargo install --git https://github.com/K0maru/k0maru-agent-memory
 ```
+*(Builds both `k0maru` and `k0maru-memory` binary aliases).*
 
 ---
 
@@ -140,19 +148,37 @@ Outputs a clear, color-coded health report (`✓ Binary In Path`, `✓ FTS5 Inde
 
 ## 🛠️ Common Use Cases & Workflows (How-Tos)
 
-### Use Case 1: Kickstarting New Sessions —— Rapid Context Loadout (`k0maru loadout`)
+### Use Case 1: Kickstarting New Sessions —— Rapid Context Loadout (`k0maru loadout` & `get_project_loadout`)
 
 Avoid dumping dozens of unrelated files into fresh agent chats. `loadout` extracts project mission, core architectural invariants (L3), and recent engineering logs (L2), strictly contained within **< 300 Tokens**:
+
+- **4-Tier Scoped Project Resolver**:
+  - **Tier 1**: Normalized exact match, alias, tag, and backlink-derived project aliases.
+  - **Tier 2**: Scoped FTS5 SQL push-down via `search_scoped_fts` (never global Top 5 truncation).
+  - **Tier 3**: Vector semantic fallback (if vector embeddings exist).
+  - **Tier 4**: Ambient workspace / CWD directory matching.
+- **Git Diff Change-Awareness (`--diff`)**: Dynamically analyzes working tree modifications to activate module-relevant ADRs and invariants.
 
 ```bash
 # Generate project loadout and copy directly to the system clipboard (macOS / Linux / Windows)
 k0maru loadout my-project --vault ~/wiki --copy
+
+# Diff-aware loadout: dynamically inspect git changes and activate relevant ADRs
+k0maru loadout my-project --vault ~/wiki --diff --copy
 ```
-Paste (`Cmd+V`) into your new chat. The agent gains instant architectural grounding while staying firmly in its high-attention reasoning zone.
+
+**FastMCP Autonomous Tool Equivalent**: `get_project_loadout`
+```json
+{
+  "project_name": "k0maru-agent-memory",
+  "diff": true,
+  "branch": "main"
+}
+```
 
 ---
 
-### Use Case 2: Build & Test Failures —— Symbolic Log Offloading (`k0maru offload`)
+### Use Case 2: Build & Test Failures —— Symbolic Context Offloading (`| k0maru offload`)
 
 When running test suites or compilers that generate thousands of lines, pipe the command output through `k0maru`:
 
@@ -164,40 +190,38 @@ cargo test 2>&1 | k0maru offload
 k0maru inspect node_54697ed3
 ```
 
-- Delivers **99.44% Token Reduction** on raw build/test failures.
-- State machine diagrams immediately highlight failure transitions (e.g. `Iteration1 --> Iteration2: E0382`), guiding LLMs directly to the root cause without attention drift.
+- **99.44% Token Reduction**: Truncates massive compiler dumps, storing full raw logs safely under `.scratch/refs/` or `<vault>/.k0maru/refs/`.
+- **Mermaid State Diagrams**: Transforms raw stack traces into structural transitions (e.g., `Iteration1 --> Failure: E0382 borrow after move`), guiding LLMs directly to the root cause without attention drift.
+- **FastMCP Autonomous Tools**:
+  - `offload_context`: Agents can offload terminal logs produced during tool execution.
+  - `inspect_log_node`: Retrieve specific stack slices by `node_id`.
+  - `gc_session_context`: Compresses long 50+ turn trajectory sessions using a 4-tier compaction protocol (preserving hot windows and achieving TRR >= 85%).
 
 ---
 
-### Use Case 3: Querying the Vault —— Natural Language Intent-Driven Recall
+### Use Case 3: Querying the Vault —— Natural Language Intent-Driven Recall (`recall_memory` & `k0maru search`)
 
-Once connected via MCP, frontier models (Claude 3.5 Sonnet, GPT-4o, Qwen) automatically understand intent and invoke the right tools without memorizing explicit keywords:
+Once connected via MCP, frontier models automatically understand intent and invoke the right tools without memorizing explicit keywords:
 
-| User Natural Prompt | Autonomous Tool Call | Intent Logic |
-| :--- | :--- | :--- |
-| *"Starting a new task, catch up on project context"*<br/>*"What architectural rules must we follow?"* | `get_project_loadout` | Recognizes need for architectural alignment; injects compact L3 rules and recent logs |
-| *"How do we usually configure database timeouts?"*<br/>*"Check if we have notes on JWT refresh best practices"* | `recall_memory` | Recognizes query against private knowledge; triggers hybrid semantic search |
-| *"The test run failed with 300 lines of errors, check the failure stack"* | `inspect_log_node` | Recognizes need for truncated error slice; extracts exact stack trace by ID |
-| *"We finalized RRF hybrid search with k=60, document this decision"* | `flush_session` | Recognizes need to record an ADR; writes structured markdown adhering to conventions |
-
-> 💡 **Pro-Tip: Autonomous Vault Inspection System Prompt**  
-> Add this single instruction to your `AGENTS.md` or global system prompt:  
-> `> Before designing architecture, debugging complex failures, or implementing core logic, inspect the local vault using k0maru-memory to align with historical ADRs and codebase conventions.`  
-> Agents will proactively consult your security and architectural standards before writing a single line of code.
-
-For manual CLI searches:
 ```bash
-# Hybrid search (BM25 + 384d ONNX vectors + RRF k=60 + WikiLinks graph boost)
+# Hybrid search (BM25 + ONNX vectors + RRF k=60 + WikiLinks graph boost)
 k0maru search "concurrency deadlock mitigation" --vault ~/wiki --mode hybrid --limit 5
+
+# Pluggable embeddings: select specific model or dimension
+k0maru search "vector similarity" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
+- **Pluggable Vector Backends**: Built-in support for `all-minilm-l6-v2` (384d, default), `bge-small-zh-v1.5` (512d), `bge-base-en-v1.5` (768d), `paraphrase-multilingual-minilm-l12-v2` (384d), and mock embedders for offline testing.
+- **Dynamic Dimension Migration**: Seamlessly reconfigures `sqlite-vec` virtual tables upon model switching without manual database rebuilds.
+
 ---
 
-### Use Case 4: Preserving Decisions —— Adaptive Vault Crystallization (`k0maru flush`)
+### Use Case 4: Preserving Decisions & Troubleshooting Skills —— Memory Crystallization (`k0maru flush` & `distill`)
 
-Crystallize engineering takeaways, architectural decisions (ADRs), or debugging solutions back into your vault:
+Crystallize engineering takeaways, architectural decisions (ADRs), or debugging playbooks back into your vault:
 
 ```bash
+# Crystallize an ADR into vault matching local conventions
 k0maru flush \
   --title "Mitigating Tokio Runtime Blocking in Worker Pools" \
   --category decision \
@@ -206,15 +230,67 @@ k0maru flush \
   --tags "tokio,rust,performance" \
   --related "Architecture Standards,Async Concurrency" \
   --vault ~/wiki
+
+# Distill troubleshooting trace into a reusable skill note
+k0maru distill \
+  --trace-file /tmp/error.log \
+  --title "Resolving SQLite Vec Apple Silicon Linking" \
+  --vault ~/wiki
 ```
 
 - **Convention Sniffing**: Automatically adapts to your vault's naming style (e.g., `YYYY-MM-DD-slug.md`), directory structures, and `AGENTS.md` rules.
-- **Collision Defense**: Detects duplicate titles and increments versions safely without overwriting existing notes.
-- **Instant Indexing**: Automatically triggers incremental indexing; new notes become recallable within 5ms.
+- **Collision Defense**: Detects duplicate titles and increments versions safely (`-v2.md`) without overwriting existing notes.
+- **Hermes Skill Export**: Supports `--target hermes` to output dynamic skills compatible with Nous Research Hermes Agent.
+- **FastMCP Autonomous Tools**: `flush_session` and `distill_session_skill`.
 
 ---
 
-### Use Case 5: Vault Introspection —— Embedded Developer Console (`k0maru ui`)
+### Use Case 5: Pre-Commit Sentinel —— Living ADR Guard (`k0maru guard` & `guard_check`)
+
+ADRs and technical guidelines should not be dead text in forgotten folders. K0maru's **Living ADR Guard** turns your documentation into an automated architectural sentinel:
+
+```bash
+# Audit Git working tree / staged diff against active Living ADR invariants (<10ms)
+k0maru guard check --diff
+
+# Install pre-commit hook into repository to block non-compliant commits automatically
+k0maru guard install
+```
+
+#### How Invariants are Declared
+
+In your vault's ADR notes (`20_Cards/` or `10_Projects/`), add an `invariants` block to the frontmatter:
+
+```yaml
+---
+title: ADR-042 Distributed Lock Standard
+category: decision
+tags: [architecture, redis, idempotency]
+invariants:
+  - id: "enforce-distributed-mutex"
+    condition: "must_contain"
+    pattern: "redis_lock\\.acquire|SET\\s+NX\\s+EX"
+    paths: ["src/payment/**/*.rs", "services/order/**/*.go"]
+    severity: "deny"
+    fix_hint: "Critical financial paths must acquire a distributed Redis lock before mutating state."
+  - id: "ban-raw-sql-in-handlers"
+    condition: "forbidden"
+    pattern: "SELECT .* FROM raw_|execute_unprepared"
+    paths: ["src/api/**/*.rs"]
+    severity: "deny"
+    fix_hint: "Use query builders or prepared statements in storage layer."
+---
+```
+
+You can also place rules in repository root `.k0maru/rules`, `guard.toml`, or `AGENTS.md`.
+
+- **<10ms Lightning Fast**: Runs in native Rust, evaluating hundreds of diff hunks instantly.
+- **Exit Codes**: Returns `0` on clean pass, `1` on blocking `deny` violation, `2` on execution error.
+- **FastMCP Autonomous Tool**: `guard_check` allows AI agents to audit diffs before presenting changes to the human developer.
+
+---
+
+### Use Case 6: Vault Introspection —— Embedded Developer Console (`k0maru ui`)
 
 Launch a local visual dashboard on demand:
 
@@ -232,7 +308,7 @@ k0maru ui --vault ~/wiki --open
 
 ---
 
-### Use Case 6: Vault Changes —— Sub-Millisecond Incremental Synchronization (`k0maru sync`)
+### Use Case 7: Vault Changes —— Sub-Millisecond Incremental Synchronization (`k0maru sync`)
 
 ```bash
 # Incremental rescan of markdown files and FTS5 indices (takes just 11ms when clean)
@@ -240,7 +316,32 @@ k0maru sync --vault ~/wiki
 
 # Batch incremental generation of ONNX vector embeddings (skips unchanged notes)
 k0maru sync --vault ~/wiki --vector
+
+# Sync with custom embedding model
+k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 ```
+
+---
+
+## 🤖 Autonomous Agent Ecosystem & FastMCP Protocol
+
+When connected via FastMCP, AI coding agents gain access to 8 purpose-built memory tools:
+
+| FastMCP Tool | Target Intent & Natural Prompt Triggers | Core Value & Mechanics |
+| :--- | :--- | :--- |
+| `get_project_loadout` | *"Start new task"*, *"What are our architectural invariants?"* | Scoped 4-tier retrieval returning mission, rules, and recent logs strictly **< 300 Tokens**. Supports `--diff` dynamic activation. |
+| `recall_memory` | *"How do we configure X?"*, *"Search notes for Y"* | Hybrid BM25 + ONNX vector + RRF $k=60$ + 1-hop WikiLinks graph boost. Instant sub-millisecond retrieval. |
+| `offload_context` | Large tool execution outputs, test logs (>30 lines) | Externalizes verbose terminal text into Mermaid state diagrams and stored disk slices. Prevents attention drift. |
+| `inspect_log_node` | *"Inspect failure stack for node_xxxx"* | Retrieves exact raw stack trace slice on demand by node ID. |
+| `flush_session` | *"Document this decision"*, *"Save milestone to vault"* | Atomically writes structured ADRs or logs into vault matching local naming conventions and frontmatter schemas. |
+| `distill_session_skill`| *"Distill this bug fix into a reusable skill"* | Extracts troubleshooting patterns into structured skill notes (Markdown or Hermes format). |
+| `gc_session_context` | Long multi-turn agent dialogues approaching context limit | Compresses session trajectory with 4-tier pruning protocol, achieving **TRR >= 85%** while preserving hot window. |
+| `guard_check` | Before Git commits, post-implementation code review | Audits diff against Living ADR rules (<10ms). Halts non-compliant code from entering repositories. |
+
+> 💡 **Pro-Tip: Autonomous Vault Inspection System Prompt**  
+> Add this single instruction to your `AGENTS.md` or global system prompt:  
+> `> Before designing architecture, debugging complex failures, or implementing core logic, inspect the local vault using k0maru-memory to align with historical ADRs and codebase conventions. Run guard_check before completing tasks.`  
+> Agents will proactively consult your security and architectural standards before writing code.
 
 ---
 
@@ -279,20 +380,22 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 
 ![K0maru-Agent-Memory: Architecture Overview](docs/images/architecture_overview.png)
 
-1. **Interface Layer**: CLI Tools (`doctor`, `install`, `loadout`, `search`, `flush`, pipe filters) + Embedded Dashboard (Axum + rust-embed) + FastMCP Stdio Service.
-2. **Orchestration & Governance Layer**: State Machine Log Parser (Mermaid abstraction and slice storage) + Packager (<300 token Smart-Zone control) + Adaptive Convention Sniffer.
-3. **Hybrid Search & Graph Layer**: SQLite FTS5 BM25 + `sqlite-vec` ONNX Embeddings + Reciprocal Rank Fusion ($k=60$) + 1-Hop WikiLinks Graph Boost (+0.05).
+1. **Interface Layer**: CLI Tools (`doctor`, `install`, `loadout`, `search`, `flush`, `distill`, `gc`, `guard`, pipe filters) + Embedded Dashboard (Axum + rust-embed) + FastMCP Stdio Service.
+2. **Orchestration & Governance Layer**: Living ADR Guard Engine + State Machine Log Parser (Mermaid abstraction and slice storage) + Packager (<300 token Smart-Zone control) + Adaptive Convention Sniffer.
+3. **Hybrid Search & Graph Layer**: SQLite FTS5 BM25 + `sqlite-vec` ONNX Embeddings (pluggable 384d/512d/768d) + Reciprocal Rank Fusion ($k=60$) + 1-Hop WikiLinks Graph Boost (+0.05).
 4. **Storage & Persistence Layer**: Local Plaintext Markdown Vault (Single Source of Truth) + Disposable `cache.sqlite` (Transient full-text, vector, and adjacency index).
 
 ### Memory Lifecycle Loop
 
 ![Memory Lifecycle: LLM-Wiki Bidirectional Closed Loop](docs/images/memory_lifecycle.png)
 
-- **Wake & Loadout** ➔ **Run & Offload** ➔ **Session Flush (ADR)** ➔ **Consolidation (Evergreen Cards)**
+- **Wake & Loadout** ➔ **Run & Offload** ➔ **Pre-Commit Guard** ➔ **Session Flush (ADR)** ➔ **Consolidation (Evergreen Cards)**
 
 ---
 
 ## 📖 CLI Cheat Sheet
+
+Both `k0maru` and `k0maru-memory` binary names are supported identically.
 
 | Command | Common Flags | Description |
 | :--- | :--- | :--- |
@@ -305,16 +408,19 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 | | `--port <port>` | Binds custom local port |
 | | `--open` | Automatically opens default browser upon startup |
 | `k0maru loadout <query>` | `--vault <path>` | Target markdown vault directory |
+| | `--diff` | Dynamically activates module-relevant ADRs by inspecting git diff |
 | | `--copy` | Copies assembled <300 token loadout directly to clipboard |
 | | `--json` | Outputs structured JSON loadout data |
 | | `-l`, `--list` | Lists all active projects within vault |
 | `k0maru search <query>` | `--vault <path>` | Target markdown vault directory |
 | | `--mode <mode>` | Search mode (`hybrid` [default], `bm25`, `vector`) |
+| | `--embed-model <name>`| Pluggable embedding model (`all-minilm-l6-v2`, `bge-small-zh-v1.5`, etc.) |
 | | `--limit <N>` | Maximum search results to return (default: 5) |
 | | `--json` | Outputs structured JSON search results |
 | `k0maru sync` | `--vault <path>` | Incrementally scans and updates SQLite indices |
 | | `--vector` | Computes and stores ONNX vector embeddings incrementally |
-| | `--json` | Outputs JSON sync statistics |
+| | `--embed-model <name>`| Selects embedding model for vector generation |
+| | `--force` | Forces full re-index ignoring cache timestamps |
 | `k0maru offload` | `--threshold <N>`| Line count threshold for triggering symbolic offload (default: 50) |
 | | `--task-id <id>` | Binds a task ID for traceable offloaded logs |
 | `k0maru inspect <id>` | `<node_id>` | Retrieves persisted stack trace slice for a specific node ID |
@@ -325,14 +431,21 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 | | `--tags <t1,t2>` | Comma-separated tags |
 | | `--related <r1,r2>`| Comma-separated related note titles (linked as `[[WikiLinks]]`) |
 | | `--dry-run` | Previews destination path and generated note without writing |
-| | `--json` | Outputs machine-readable JSON result |
-| `k0maru mcp` | `--vault <path>` | Starts stdio FastMCP service for agent integration |
+| `k0maru distill` | `--trace-file <path>`| Distills raw execution trace into reusable skill note |
+| | `--target <ecosystem>`| Export target: `default` (Obsidian) or `hermes` (Hermes Agent) |
+| `k0maru gc` | `--input <path>` | Compacts multi-turn session trajectory with 4-tier GC protocol |
+| | `--threshold <N>` | Line threshold for folding tool outputs (default: 20) |
+| `k0maru guard check` | `--diff` | Audits git staged/unstaged diff against Living ADR rules (<10ms) |
+| | `--strict` | Treats all warnings as blocking errors |
+| | `--json` | Outputs structured JSON guard report |
+| `k0maru guard install` | `--path <repo_dir>` | Installs `.git/hooks/pre-commit` hook to block non-compliant commits |
+| `k0maru mcp` | `--vault <path>` | Starts stdio FastMCP service exposing all 8 memory tools |
 
 ---
 
 ## 🔒 Privacy & Cleanroom Principles
 
-- **100% Local & Zero Telemetry**: K0maru never collects, stores, or uploads your notes, code snippets, or queries. All indexing and inference run entirely on your physical machine.
+- **100% Local & Zero Telemetry**: K0maru never collects, stores, or uploads your notes, code snippets, or queries. All indexing, vector inference, and guard evaluations run entirely on your physical machine.
 - **Open-Domain Evaluation Compliance**: Benchmark data and rules are derived exclusively from public, compliant, and reproducible sources (SWE-bench agent trajectories, GitHub Actions public CI logs, BEIR/CoIR benchmarks). Zero private user data was involved. See [docs/TUNING_AND_DATA.md](docs/TUNING_AND_DATA.md).
 
 ---
@@ -340,6 +453,7 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 ## 🛠️ Customization & Tuning
 
 - **Vault Convention Tuning**: Declare custom directory mappings in `.k0maru/rules.md` or `AGENTS.md` (e.g., `decisions: docs/adr`, `logs: 01_AI_Logs`).
+- **Living ADR Invariants**: Add YAML frontmatter `invariants` to any ADR card in `20_Cards/` to immediately activate guardrails across your repositories.
 - **Low-Resource Workstations**: On memory-constrained devices (<1GB RAM), run with `--mode bm25` for sub-millisecond keyword retrieval with zero ONNX memory overhead.
 - **Offload Sensitivity**: Adjust `--threshold <N>` to match your model's context window. See [Developer Tuning Guide](docs/TUNING_AND_DATA.md).
 
