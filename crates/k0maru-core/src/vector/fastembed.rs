@@ -8,6 +8,7 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
 use crate::vector::engine::EmbeddingEngine;
 use crate::vector::error::VectorError;
+use crate::vector::models::EmbeddingModelType;
 
 /// Resolves the default cache directory for embedding models.
 ///
@@ -42,6 +43,21 @@ impl FastEmbedBackend {
     /// If `cache_dir` is `None`, defaults to `~/.k0maru/models/`.
     pub fn new(cache_dir: Option<PathBuf>) -> Result<Self, VectorError> {
         Self::with_model(EmbeddingModel::AllMiniLML6V2, cache_dir)
+    }
+
+    /// Creates a new `FastEmbedBackend` with the specified [`EmbeddingModelType`].
+    pub fn with_model_type(
+        model_type: EmbeddingModelType,
+        cache_dir: Option<PathBuf>,
+    ) -> Result<Self, VectorError> {
+        let fastembed_model = model_type.to_fastembed_model().ok_or_else(|| {
+            VectorError::ModelInitFailed(format!(
+                "Model type '{}' cannot be instantiated with FastEmbedBackend",
+                model_type.canonical_name()
+            ))
+        })?;
+
+        Self::with_model(fastembed_model, cache_dir)
     }
 
     /// Creates a new `FastEmbedBackend` with a specific [`EmbeddingModel`].

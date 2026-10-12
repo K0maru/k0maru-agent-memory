@@ -7,12 +7,13 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Re-export core library submodules and domain types from k0maru-core
 pub use k0maru_core::{
     adapters, core, default_embedding_engine, ensure_sqlite_vec_registered, extract_elements,
-    extract_tags, extract_wikilinks, gc, parse_content_hash, parse_frontmatter, parser, scanner,
-    storage, vector, CacheStorage, CachedDocMeta, ContextGcEngine, DirtySets, Document,
-    EmbeddingEngine, GcError, GcEvent, GcOptions, GcResult, GenericWikiAdapter, HierarchyLevel,
-    HybridSearchEngine, IncrementalScanner, MockEmbeddingEngine, Note, ObsidianAdapter, SearchMode,
-    SearchResult, SessionTrajectory, SqliteStorage, SyncStats, TrajectoryTurn, TurnRole,
-    VaultAdapter, VectorError, VectorSyncEngine, VectorSyncStats, WikiLink, DEFAULT_BATCH_SIZE,
+    extract_tags, extract_wikilinks, gc, parse_content_hash, parse_frontmatter, parser,
+    resolve_embedding_engine, scanner, storage, vector, CacheStorage, CachedDocMeta,
+    ContextGcEngine, DirtySets, Document, EmbeddingEngine, EmbeddingModelType, GcError, GcEvent,
+    GcOptions, GcResult, GenericWikiAdapter, HierarchyLevel, HybridSearchEngine,
+    IncrementalScanner, MockEmbeddingEngine, Note, ObsidianAdapter, SearchMode, SearchResult,
+    SessionTrajectory, SqliteStorage, SyncStats, TrajectoryTurn, TurnRole, VaultAdapter,
+    VectorError, VectorSyncEngine, VectorSyncStats, WikiLink, DEFAULT_BATCH_SIZE,
     VECTOR_DIMENSIONS,
 };
 #[cfg(feature = "fastembed")]

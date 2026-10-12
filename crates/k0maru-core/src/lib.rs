@@ -46,7 +46,10 @@ pub use scanner::{
 };
 
 // Vector
-pub use vector::{default_embedding_engine, EmbeddingEngine, MockEmbeddingEngine, VectorError};
+pub use vector::{
+    default_embedding_engine, resolve_embedding_engine, EmbeddingEngine, EmbeddingModelType,
+    MockEmbeddingEngine, VectorError,
+};
 #[cfg(feature = "fastembed")]
 pub use vector::{resolve_cache_dir, FastEmbedBackend};
 

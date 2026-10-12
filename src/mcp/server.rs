@@ -20,7 +20,7 @@ use crate::offload::{inspect_node, OffloadEngine};
 use crate::scanner::IncrementalScanner;
 use crate::storage::hybrid::{HybridSearchEngine, SearchMode};
 use crate::storage::SqliteStorage;
-use crate::vector::{EmbeddingEngine, MockEmbeddingEngine};
+use crate::vector::{resolve_embedding_engine, EmbeddingEngine};
 use k0maru_core::gc::{ContextGcEngine, GcOptions, SessionTrajectory};
 
 /// FastMCP stdio server running on top of JSON-RPC 2.0.
@@ -41,11 +41,18 @@ impl McpServer {
             vault_path.join(".scratch").join("refs")
         };
 
+        let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+            Some(vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        let embedder = resolve_embedding_engine(None, model_cache).ok();
+
         Self {
             vault_path,
             refs_dir,
             storage: None,
-            embedder: Some(Arc::new(MockEmbeddingEngine::new(384))),
+            embedder,
         }
     }
 
@@ -64,6 +71,19 @@ impl McpServer {
     /// Sets custom embedding engine for hybrid recall.
     pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingEngine>) -> Self {
         self.embedder = Some(embedder);
+        self
+    }
+
+    /// Sets custom embedding engine for hybrid recall by model name or canonical identifier.
+    pub fn with_embed_model(mut self, model_name: Option<&str>) -> Self {
+        let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
+            Some(self.vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        if let Ok(embedder) = resolve_embedding_engine(model_name, model_cache) {
+            self.embedder = Some(embedder);
+        }
         self
     }
 
@@ -102,13 +122,22 @@ impl McpServer {
         let embedder = self.embedder.clone();
         let storage = self.get_or_init_storage()?;
 
-        let has_vectors = storage.has_vectors().unwrap_or(false);
+        let had_vectors = storage.has_vectors().unwrap_or(false);
+        let migrated = if let Some(ref emb) = embedder {
+            storage
+                .ensure_vector_dimension(emb.dimension())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        let should_sync_vectors = had_vectors || migrated;
 
         if is_obsidian {
             let adapter = ObsidianAdapter::new(&vault_path);
             let mut scanner = IncrementalScanner::new(&adapter, storage);
             let _ = scanner.sync(false)?;
-            if has_vectors {
+            if should_sync_vectors {
                 if let Some(ref emb) = embedder {
                     let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
                 }
@@ -117,7 +146,7 @@ impl McpServer {
             let adapter = GenericWikiAdapter::new(&vault_path);
             let mut scanner = IncrementalScanner::new(&adapter, storage);
             let _ = scanner.sync(false)?;
-            if has_vectors {
+            if should_sync_vectors {
                 if let Some(ref emb) = embedder {
                     let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
                 }
@@ -926,6 +955,11 @@ impl McpServer {
     /// Alias for [`Self::handle_tool_call`].
     pub fn handle_call_tool(&mut self, id: Value, params: &Value) -> Value {
         self.handle_tool_call(id, params)
+    }
+
+    /// Handles a single incoming JSON-RPC 2.0 request string.
+    pub fn handle_request(&mut self, request: &str) -> Option<String> {
+        self.handle_line(request)
     }
 
     /// Handles a single incoming JSON-RPC 2.0 request or notification string.

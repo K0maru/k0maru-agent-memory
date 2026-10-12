@@ -17,7 +17,7 @@ use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::scanner::IncrementalScanner;
 use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
-use k0maru::vector::default_embedding_engine;
+use k0maru::vector::resolve_embedding_engine;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -84,6 +84,9 @@ enum Commands {
 
         #[arg(long, help = "Automatically open default browser")]
         open: bool,
+
+        #[arg(long, visible_alias = "embedder", help = "Embedding model to use")]
+        embed_model: Option<String>,
     },
 }
 
@@ -157,6 +160,10 @@ pub struct McpArgs {
     /// Path to vault root directory (defaults to current dir or detects nearest vault)
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
+
+    /// Embedding model to use for semantic vector retrieval (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
+    #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
+    pub embed_model: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -176,6 +183,10 @@ pub struct SyncArgs {
     /// Generate vector embeddings for synchronized documents
     #[arg(long)]
     pub vector: bool,
+
+    /// Embedding model to use for vector generation (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
+    #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
+    pub embed_model: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -203,6 +214,10 @@ pub struct SearchArgs {
     /// Output line-delimited JSON stream (NDJSON)
     #[arg(long)]
     pub json_stream: bool,
+
+    /// Embedding model to use for vector query (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
+    #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
+    pub embed_model: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -864,7 +879,7 @@ fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    if let Ok(embedder) = default_embedding_engine(model_cache) {
+    if let Ok(embedder) = resolve_embedding_engine(args.embed_model.as_deref(), model_cache) {
         server = server.with_embedder(embedder);
     }
     let stdin = std::io::stdin();
@@ -888,7 +903,16 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         } else {
             None
         };
-        Some(default_embedding_engine(model_cache)?)
+        let engine = resolve_embedding_engine(args.embed_model.as_deref(), model_cache)?;
+        let migrated = storage.ensure_vector_dimension(engine.dimension())?;
+        if migrated && !args.json {
+            safe_println(&format!(
+                "🔄 Vector dimension migration triggered: table recreated for model '{}' ({} dimensions)",
+                engine.model_name(),
+                engine.dimension()
+            ));
+        }
+        Some(engine)
     } else {
         None
     };
@@ -994,7 +1018,7 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let embedder = default_embedding_engine(model_cache).ok();
+    let embedder = resolve_embedding_engine(args.embed_model.as_deref(), model_cache).ok();
     let engine = HybridSearchEngine::new(&storage, embedder);
 
     let results = engine.search(&query, mode, args.limit)?;
@@ -1463,7 +1487,12 @@ fn main() {
                 }
             },
         },
-        Some(Commands::Ui { vault, port, open }) => {
+        Some(Commands::Ui {
+            vault,
+            port,
+            open,
+            embed_model: _,
+        }) => {
             let vault_path = detect_vault_path(vault);
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

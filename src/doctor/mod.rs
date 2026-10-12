@@ -435,37 +435,69 @@ pub fn probe_storage(vault_path: &Path) -> Vec<DiagnosticItem> {
     }
 
     // Embedding engine backend probe
-    #[cfg(feature = "fastembed")]
-    {
-        let model_dir = crate::vector::fastembed::resolve_cache_dir(None);
-        if model_dir.exists() {
-            items.push(DiagnosticItem::pass(
-                cat,
-                "Embedding Engine",
-                format!(
-                    "FastEmbed (ONNX) ready, model cache: {}",
-                    model_dir.display()
-                ),
-            ));
-        } else {
-            items.push(DiagnosticItem::pass(
-                cat,
-                "Embedding Engine",
-                format!(
-                    "FastEmbed (ONNX) ready (cache will download to {})",
-                    model_dir.display()
-                ),
-            ));
-        }
-    }
+    let model_type = if let Ok(env_val) = std::env::var("K0MARU_EMBED_MODEL") {
+        crate::vector::EmbeddingModelType::from_str(&env_val).unwrap_or_default()
+    } else {
+        crate::vector::EmbeddingModelType::default()
+    };
 
-    #[cfg(not(feature = "fastembed"))]
+    if std::env::var("K0MARU_FORCE_MOCK_EMBED").is_ok()
+        || model_type == crate::vector::EmbeddingModelType::Mock
     {
         items.push(DiagnosticItem::pass(
             cat,
             "Embedding Engine",
-            "Mock embedding engine (fastembed feature disabled)".to_string(),
+            format!(
+                "Mock Engine ready [model: {}, {} dimensions, zero-download]",
+                model_type.canonical_name(),
+                model_type.dimension()
+            ),
         ));
+    } else {
+        #[cfg(feature = "fastembed")]
+        {
+            let model_dir = crate::vector::resolve_cache_dir(None);
+            let weights_cached = model_dir.exists()
+                && std::fs::read_dir(&model_dir)
+                    .map(|mut d| d.next().is_some())
+                    .unwrap_or(false);
+            if weights_cached {
+                items.push(DiagnosticItem::pass(
+                    cat,
+                    "Embedding Engine",
+                    format!(
+                        "FastEmbed (ONNX) ready [model: {}, {} dimensions, cache: {} (weights cached)]",
+                        model_type.canonical_name(),
+                        model_type.dimension(),
+                        model_dir.display()
+                    ),
+                ));
+            } else {
+                items.push(DiagnosticItem::pass(
+                    cat,
+                    "Embedding Engine",
+                    format!(
+                        "FastEmbed (ONNX) ready [model: {}, {} dimensions, cache: {} (download on demand)]",
+                        model_type.canonical_name(),
+                        model_type.dimension(),
+                        model_dir.display()
+                    ),
+                ));
+            }
+        }
+
+        #[cfg(not(feature = "fastembed"))]
+        {
+            items.push(DiagnosticItem::pass(
+                cat,
+                "Embedding Engine",
+                format!(
+                    "Mock embedding engine [model: {}, {} dimensions] (fastembed feature disabled)",
+                    model_type.canonical_name(),
+                    model_type.dimension()
+                ),
+            ));
+        }
     }
 
     items

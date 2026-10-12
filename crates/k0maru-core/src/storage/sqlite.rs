@@ -4,9 +4,10 @@
 //! [`CacheStorage`], with BM25-ranked full-text search and link graph index.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use crate::core::models::{CachedDocMeta, Document, HierarchyLevel, WikiLink};
 use crate::core::traits::CacheStorage;
@@ -29,6 +30,7 @@ pub const VECTOR_DIMENSIONS: usize = 384;
 /// Ephemeral SQLite-backed storage implementing [`CacheStorage`].
 pub struct SqliteStorage {
     conn: rusqlite::Connection,
+    active_dimension: AtomicUsize,
 }
 
 impl SqliteStorage {
@@ -52,7 +54,10 @@ impl SqliteStorage {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
-        let mut storage = Self { conn };
+        let mut storage = Self {
+            conn,
+            active_dimension: AtomicUsize::new(0),
+        };
         storage.initialize()?;
         Ok(storage)
     }
@@ -63,7 +68,10 @@ impl SqliteStorage {
         let conn = rusqlite::Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
-        let mut storage = Self { conn };
+        let mut storage = Self {
+            conn,
+            active_dimension: AtomicUsize::new(0),
+        };
         storage.initialize()?;
         Ok(storage)
     }
@@ -78,6 +86,148 @@ impl SqliteStorage {
         &mut self.conn
     }
 
+    /// Returns the currently active vector dimension, querying `vector_schema_info` or active tables.
+    pub fn get_vector_dimension(&self) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+        let table_exists: bool = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type IN ('table', 'shadow') AND name = 'document_vectors'",
+                [],
+                |row| Ok(row.get::<_, i64>(0)? > 0),
+            )
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(None);
+        }
+
+        let schema_info_exists: bool = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vector_schema_info'",
+                [],
+                |row| Ok(row.get::<_, i64>(0)? > 0),
+            )
+            .unwrap_or(false);
+
+        if schema_info_exists {
+            let dim: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT dimension FROM vector_schema_info ORDER BY updated_at DESC LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(d) = dim {
+                return Ok(Some(d as usize));
+            }
+        }
+
+        // If document_vectors exists but no schema info is recorded, legacy schema used 384
+        Ok(Some(Self::VECTOR_DIMENSIONS))
+    }
+
+    /// Alias for [`get_vector_dimension`].
+    pub fn current_vector_dimension(&self) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+        self.get_vector_dimension()
+    }
+
+    /// Ensures that the underlying vector table has the specified dimension.
+    ///
+    /// If `document_vectors` does not exist, creates it with `target_dim` and records it in `vector_schema_info`. Returns `false`.
+    /// If current dimension equals `target_dim`, does nothing and returns `false`.
+    /// If current dimension differs from `target_dim`, drops old vector tables, recreates them with `target_dim`,
+    /// updates `vector_schema_info`, and returns `true` (indicating migration occurred).
+    pub fn ensure_vector_dimension(
+        &mut self,
+        target_dim: usize,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        if target_dim == 0 {
+            return Err("Target vector dimension must be greater than 0".into());
+        }
+
+        let current_dim = self.get_vector_dimension()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS vector_schema_info (dimension INTEGER NOT NULL, updated_at INTEGER NOT NULL);",
+        )?;
+
+        match current_dim {
+            None => {
+                let sql = format!(
+                    r#"
+                    CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
+                        id TEXT PRIMARY KEY,
+                        embedding float[{}] distance_metric=cosine
+                    );
+                    CREATE TABLE IF NOT EXISTS vector_metadata (
+                        document_id TEXT PRIMARY KEY,
+                        content_hash INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                    DELETE FROM vector_schema_info;
+                    INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2);
+                    "#,
+                    target_dim
+                );
+                self.conn.execute_batch(&sql)?;
+                let _ = self.conn.execute(
+                    "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2)",
+                    params![target_dim as i64, now],
+                );
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(false)
+            }
+            Some(curr) if curr == target_dim => {
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(false)
+            }
+            Some(_curr) => {
+                let drop_and_recreate_sql = format!(
+                    r#"
+                    DROP TABLE IF EXISTS document_vectors;
+                    DROP TABLE IF EXISTS vector_metadata;
+                    CREATE VIRTUAL TABLE document_vectors USING vec0(
+                        id TEXT PRIMARY KEY,
+                        embedding float[{}] distance_metric=cosine
+                    );
+                    CREATE TABLE vector_metadata (
+                        document_id TEXT PRIMARY KEY,
+                        content_hash INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                    DELETE FROM vector_schema_info;
+                    "#,
+                    target_dim
+                );
+                self.conn.execute_batch(&drop_and_recreate_sql)?;
+                self.conn.execute(
+                    "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2)",
+                    params![target_dim as i64, now],
+                )?;
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(true)
+            }
+        }
+    }
+
+    fn active_dimension(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let cached = self.active_dimension.load(Ordering::Relaxed);
+        if cached > 0 {
+            return Ok(cached);
+        }
+        let dim = self
+            .get_vector_dimension()?
+            .unwrap_or(Self::VECTOR_DIMENSIONS);
+        self.active_dimension.store(dim, Ordering::Relaxed);
+        Ok(dim)
+    }
+
     /// Inserts or replaces a document vector and its corresponding metadata content hash.
     pub fn insert_vector(
         &self,
@@ -85,10 +235,11 @@ impl SqliteStorage {
         embedding: &[f32],
         hash: u64,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if embedding.len() != Self::VECTOR_DIMENSIONS {
+        let expected_dim = self.active_dimension()?;
+        if embedding.len() != expected_dim {
             return Err(format!(
                 "Embedding dimensions mismatch: expected {}, got {}",
-                Self::VECTOR_DIMENSIONS,
+                expected_dim,
                 embedding.len()
             )
             .into());
@@ -149,10 +300,11 @@ impl SqliteStorage {
         if limit == 0 || query_embedding.is_empty() {
             return Ok(Vec::new());
         }
-        if query_embedding.len() != Self::VECTOR_DIMENSIONS {
+        let expected_dim = self.active_dimension()?;
+        if query_embedding.len() != expected_dim {
             return Err(format!(
                 "Embedding dimensions mismatch: expected {}, got {}",
-                Self::VECTOR_DIMENSIONS,
+                expected_dim,
                 query_embedding.len()
             )
             .into());
@@ -359,6 +511,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
     tokenize = 'unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS vector_schema_info (
+    dimension INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
     id TEXT PRIMARY KEY,
     embedding float[384] distance_metric=cosine
@@ -374,11 +531,30 @@ CREATE TABLE IF NOT EXISTS vector_metadata (
 impl CacheStorage for SqliteStorage {
     fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.conn.execute_batch(SCHEMA_SQL)?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM vector_schema_info", [], |r| r.get(0))
+            .unwrap_or(0);
+        if count == 0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let _ = self.conn.execute(
+                "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (384, ?1)",
+                params![now],
+            );
+        }
+        let dim = self
+            .get_vector_dimension()?
+            .unwrap_or(Self::VECTOR_DIMENSIONS);
+        self.active_dimension.store(dim, Ordering::Relaxed);
         Ok(())
     }
 
     fn wipe_and_rebuild(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let drop_sql = r#"
+        DROP TABLE IF EXISTS vector_schema_info;
         DROP TABLE IF EXISTS vector_metadata;
         DROP TABLE IF EXISTS document_vectors;
         DROP TABLE IF EXISTS documents_fts;
@@ -387,6 +563,7 @@ impl CacheStorage for SqliteStorage {
         DROP TABLE IF EXISTS documents;
         "#;
         self.conn.execute_batch(drop_sql)?;
+        self.active_dimension.store(0, Ordering::Relaxed);
         self.initialize()?;
         Ok(())
     }
