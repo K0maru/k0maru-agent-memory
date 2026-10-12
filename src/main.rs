@@ -9,6 +9,9 @@ use k0maru::core::traits::VaultAdapter;
 use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget};
 use k0maru::doctor::{format_report, run_diagnostics};
 use k0maru::git::{parse_diff_stream, GitInspector};
+use k0maru::guard::{
+    format_guard_report, run_guard_check, run_guard_install, GuardArgs, GuardSubcommand,
+};
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
@@ -62,6 +65,9 @@ enum Commands {
 
     /// Long-trajectory context garbage collection (Context GC) with 4-tier pruning protocol
     Gc(GcArgs),
+
+    /// Living ADR guard and architectural invariant sentinel
+    Guard(GuardArgs),
 
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
@@ -1418,6 +1424,45 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Commands::Guard(args)) => match args.command {
+            GuardSubcommand::Check(check_args) => {
+                let is_json = check_args.json;
+                let vault_path = detect_vault_path(check_args.vault.clone());
+                match run_guard_check(check_args, &vault_path) {
+                    Ok(report) => {
+                        if is_json {
+                            if let Ok(json_str) = serde_json::to_string_pretty(&report) {
+                                println!("{}", json_str);
+                            }
+                        } else {
+                            print!("{}", format_guard_report(&report));
+                        }
+                        if !report.is_passed {
+                            std::process::exit(1);
+                        } else {
+                            std::process::exit(0);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ 错误: {}", e);
+                        std::process::exit(2);
+                    }
+                }
+            }
+            GuardSubcommand::Install(install_args) => match run_guard_install(install_args) {
+                Ok(hook_path) => {
+                    println!(
+                        "✅ Successfully installed k0maru guard hook: {}",
+                        hook_path.display()
+                    );
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    eprintln!("❌ 错误: {}", e);
+                    std::process::exit(2);
+                }
+            },
+        },
         Some(Commands::Ui { vault, port, open }) => {
             let vault_path = detect_vault_path(vault);
             let rt = match tokio::runtime::Builder::new_multi_thread()

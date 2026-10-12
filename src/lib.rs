@@ -24,6 +24,7 @@ pub mod distill;
 pub mod doctor;
 pub mod ecosystem;
 pub mod git;
+pub mod guard;
 pub mod install;
 pub mod loadout;
 pub mod mcp;
@@ -44,6 +45,10 @@ pub use ecosystem::{
     inspect_all_clients, inspect_client, ClientConfigInfo, ClientConfigStatus, McpClient,
 };
 pub use git::{parse_diff_stream, FileChangeStatus, GitInspector, ModifiedFile};
+pub use guard::{
+    format_guard_report, get_git_diff, resolve_guard_rules, run_guard_check, run_guard_install,
+    GuardArgs, GuardCheckArgs, GuardInstallArgs, GuardSubcommand,
+};
 pub use install::{
     format_install_report, inject_k0maru_mcp, run_install, ClientInstallOutcome, InstallOptions,
     InstallReport, InstallTarget,
