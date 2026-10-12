@@ -199,6 +199,31 @@ Built with Go 1.23, Gin framework, Redis 7.2 cluster, and PostgreSQL 16.
 4. Duplicate events MUST return 200 OK idempotently without duplicate credit adjustment.
 """, encoding="utf-8")
 
+    (p_dir / "OKX资金费率套利与跨生态对冲系统.md").write_text("""---
+title: OKX资金费率套利与跨生态对冲系统
+date: 2026-09-04
+status: active
+slug: okx-funding-arbitrage
+aliases:
+  - funding-arbitrage
+  - okx-arbitrage
+tags:
+  - type/project
+  - topic/quantitative-trading
+  - topic/funding-arbitrage
+  - topic/cex-dex-arbitrage
+  - topic/hyperliquid
+  - topic/okx-api
+---
+
+# OKX资金费率套利与跨生态对冲系统
+
+## Non-Negotiable Invariants
+1. Mandatory Gross-Up 0.08% spot fee allocation to eliminate directional delta exposure.
+2. Contango Gate: perp - spot >= 0.
+3. Fee amortization lock-in for minimum 18 hours.
+""", encoding="utf-8")
+
     # 20_Cards
     c_dir = vault_path / "20_Cards"
     c_dir.mkdir(parents=True, exist_ok=True)
@@ -278,6 +303,17 @@ tags: [postmortem, deadlock, concurrency]
 ## Root Cause
 Unbounded channel buffers and unindexed foreign keys caused lock wait timeouts.
 Workers retried indefinitely without jitter, exhausting connection pool.
+    # 25 Cluttered logs that previously monopolized FTS Top 5
+    for i in range(1, 26):
+        (l_dir / f"2026-10-{i:02d}-okx-funding-arbitrage-phase-5-live-tui-monitor.md").write_text(f"""---
+title: 2026-10-{i:02d}-okx-funding-arbitrage-phase-5-live-tui-monitor
+category: log
+hierarchy: L2Log
+tags: [okx, funding, arbitrage]
+---
+
+okx funding arbitrage okx funding arbitrage okx funding arbitrage.
+Investigating [[OKX资金费率套利与跨生态对冲系统]] funding arbitrage performance.
 """, encoding="utf-8")
 
     # .k0maru/rules.md
@@ -598,6 +634,65 @@ Enforce ADR-SETTLE-001 distributed lock with random token and atomic Lua release
         print(f"     {h_name}: Status={'PASS' if success else 'FAIL'}, Turnaround={dur_h:.2f}s")
     
     results["metrics"]["test5_tri_harness"] = harness_results
+
+    # ----------------------------------------------------
+    # Test 6: Adversarial Project Resolution & Loadout Under Log Clutter (Phase 9.1 Verification)
+    # ----------------------------------------------------
+    print("\n[TEST 6] Adversarial Project Resolution Under High-Frequency Log Clutter...")
+    t0_res = time.time()
+    # 1. Kebab-case slug query matching Chinese project
+    proc_slug = subprocess.run([k0maru_bin, "loadout", "--vault", str(vault_path), "okx-funding-arbitrage"], capture_output=True, text=True)
+    slug_dur_ms = (time.time() - t0_res) * 1000.0
+    slug_pass = (proc_slug.returncode == 0 and "OKX资金费率套利与跨生态对冲系统" in proc_slug.stdout)
+    print(f"  -> Slug Query ('okx-funding-arbitrage'): {'PASS' if slug_pass else 'FAIL'} in {slug_dur_ms:.2f}ms")
+
+    # 2. English alias match
+    t0_alias = time.time()
+    proc_alias = subprocess.run([k0maru_bin, "loadout", "--vault", str(vault_path), "funding-arbitrage"], capture_output=True, text=True)
+    alias_dur_ms = (time.time() - t0_alias) * 1000.0
+    alias_pass = (proc_alias.returncode == 0 and "OKX资金费率套利与跨生态对冲系统" in proc_alias.stdout)
+    print(f"  -> Alias Query ('funding-arbitrage'): {'PASS' if alias_pass else 'FAIL'} in {alias_dur_ms:.2f}ms")
+
+    # 3. Chinese keyword match
+    t0_cn = time.time()
+    proc_cn = subprocess.run([k0maru_bin, "loadout", "--vault", str(vault_path), "资金费率"], capture_output=True, text=True)
+    cn_dur_ms = (time.time() - t0_cn) * 1000.0
+    cn_pass = (proc_cn.returncode == 0 and "OKX资金费率套利与跨生态对冲系统" in proc_cn.stdout)
+    print(f"  -> Chinese Substring Query ('资金费率'): {'PASS' if cn_pass else 'FAIL'} in {cn_dur_ms:.2f}ms")
+
+    # 4. MCP get_project_loadout tool call
+    t0_mcp = time.time()
+    mcp_req = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "get_project_loadout",
+            "arguments": {"project_name": "okx-funding-arbitrage"}
+        }
+    })
+    proc_mcp = subprocess.run([k0maru_bin, "mcp", "--vault", str(vault_path)], input=mcp_req, capture_output=True, text=True)
+    mcp_dur_ms = (time.time() - t0_mcp) * 1000.0
+    try:
+        mcp_resp = json.loads(proc_mcp.stdout.strip().splitlines()[-1])
+        mcp_text = mcp_resp.get("result", {}).get("content", [{}])[0].get("text", "")
+        mcp_pass = ("OKX资金费率套利与跨生态对冲系统" in mcp_text) and not mcp_resp.get("result", {}).get("isError", False)
+    except Exception:
+        mcp_pass = False
+    print(f"  -> MCP Stdio Tool Call ('okx-funding-arbitrage'): {'PASS' if mcp_pass else 'FAIL'} in {mcp_dur_ms:.2f}ms")
+
+    test6_all_pass = slug_pass and alias_pass and cn_pass and mcp_pass
+    results["metrics"]["test6_adversarial_project_resolution"] = {
+        "slug_query_pass": slug_pass,
+        "slug_latency_ms": round(slug_dur_ms, 2),
+        "alias_query_pass": alias_pass,
+        "alias_latency_ms": round(alias_dur_ms, 2),
+        "chinese_query_pass": cn_pass,
+        "chinese_latency_ms": round(cn_dur_ms, 2),
+        "mcp_stdio_pass": mcp_pass,
+        "mcp_latency_ms": round(mcp_dur_ms, 2),
+        "all_passed": test6_all_pass
+    }
 
     return results
 

@@ -145,6 +145,7 @@ impl McpServer {
 
         let is_obsidian = self.is_obsidian();
         let vault_path = self.vault_path.clone();
+        let embedder = self.embedder.clone();
         let storage = self
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
@@ -160,24 +161,36 @@ impl McpServer {
 
             if is_obsidian {
                 let adapter = ObsidianAdapter::new(&vault_path);
-                let builder = LoadoutBuilder::new(&adapter, storage);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
                 builder
                     .build_with_diff(project_name, &modified_files)
                     .map_err(|e| e.to_string())?
             } else {
                 let adapter = GenericWikiAdapter::new(&vault_path);
-                let builder = LoadoutBuilder::new(&adapter, storage);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
                 builder
                     .build_with_diff(project_name, &modified_files)
                     .map_err(|e| e.to_string())?
             }
         } else if is_obsidian {
             let adapter = ObsidianAdapter::new(&vault_path);
-            let builder = LoadoutBuilder::new(&adapter, storage);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
             builder.build(project_name).map_err(|e| e.to_string())?
         } else {
             let adapter = GenericWikiAdapter::new(&vault_path);
-            let builder = LoadoutBuilder::new(&adapter, storage);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
             builder.build(project_name).map_err(|e| e.to_string())?
         };
 

@@ -6,10 +6,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::core::models::HierarchyLevel;
 use crate::core::traits::{CacheStorage, VaultAdapter};
 use crate::git::ModifiedFile;
+use crate::loadout::metadata::{
+    extract_derived_aliases, extract_project_metadata, is_project_match, normalize_identifier,
+    ProjectMetadata,
+};
+use crate::vector::EmbeddingEngine;
 
 /// Summary of an associated L3 evergreen card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,12 +264,23 @@ fn is_subsequence(needle: &str, haystack: &str) -> bool {
 pub struct LoadoutBuilder<'a, A: VaultAdapter, S: CacheStorage> {
     pub(crate) adapter: &'a A,
     pub(crate) storage: &'a S,
+    pub(crate) embedder: Option<Arc<dyn EmbeddingEngine>>,
 }
 
 impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
     /// Creates a new `LoadoutBuilder` with references to vault adapter and cache storage.
     pub fn new(adapter: &'a A, storage: &'a S) -> Self {
-        Self { adapter, storage }
+        Self {
+            adapter,
+            storage,
+            embedder: None,
+        }
+    }
+
+    /// Attaches an embedding engine for semantic vector fallback resolution (Tier 3).
+    pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingEngine>) -> Self {
+        self.embedder = Some(embedder);
+        self
     }
 
     /// Discovers candidate project file paths in the vault.
@@ -366,74 +383,186 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         Ok(projects)
     }
 
-    /// Finds a matching project by query string (exact, prefix, substring, or fuzzy).
+    /// Finds a matching project by query string using the 4-tier resolution funnel:
+    /// - Tier 1: Normalized Exact, Alias, Tag, and Backlink Derived-Alias Match.
+    /// - Tier 2: Scoped FTS5 SQL Push-Down.
+    /// - Tier 3: Vector Semantic Fallback (via Cosine Similarity if embedder available).
+    /// - Tier 4: Ambient Workspace / CWD directory matching.
     pub fn find_project(&self, query: &str) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
         let trimmed = query.trim();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-        let q_lower = trimmed.to_lowercase();
-
         let paths = self.discover_project_paths()?;
         if paths.is_empty() {
             return Ok(None);
         }
 
-        // 1. Exact match on stem or document title
+        // Pre-harvest project metadata for all candidates
+        let mut candidates_meta: Vec<(PathBuf, ProjectMetadata)> = Vec::with_capacity(paths.len());
         for path in &paths {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if stem.eq_ignore_ascii_case(trimmed) {
-                return Ok(Some(path.clone()));
-            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
             if let Ok(doc) = self.adapter.read_document(path) {
-                if doc.title.eq_ignore_ascii_case(trimmed) {
+                // Collect backlinks targeting this note to harvest derived aliases
+                let mut derived_aliases = Vec::new();
+                if let Ok(backlinks) = self.storage.get_backlinks(&stem) {
+                    for bl in backlinks {
+                        if let Some(bl_stem) = bl.file_stem().and_then(|s| s.to_str()) {
+                            derived_aliases.extend(extract_derived_aliases(bl_stem));
+                        }
+                    }
+                }
+                if doc.title != stem {
+                    if let Ok(backlinks_title) = self.storage.get_backlinks(&doc.title) {
+                        for bl in backlinks_title {
+                            if let Some(bl_stem) = bl.file_stem().and_then(|s| s.to_str()) {
+                                derived_aliases.extend(extract_derived_aliases(bl_stem));
+                            }
+                        }
+                    }
+                }
+                derived_aliases.sort();
+                derived_aliases.dedup();
+
+                let meta = extract_project_metadata(&doc, &derived_aliases);
+                candidates_meta.push((path.clone(), meta));
+            }
+        }
+
+        if !trimmed.is_empty() {
+            // === TIER 1: Normalized Exact, Alias, Tag, and Derived-Alias Match ===
+            // Pass 1A: Exact stem, exact title, exact slug, or exact alias
+            let q_norm = normalize_identifier(trimmed);
+            for (path, meta) in &candidates_meta {
+                if meta.stem.eq_ignore_ascii_case(trimmed)
+                    || meta.title.eq_ignore_ascii_case(trimmed)
+                    || meta
+                        .slug
+                        .as_deref()
+                        .map(|s| s.eq_ignore_ascii_case(trimmed))
+                        .unwrap_or(false)
+                    || meta.aliases.iter().any(|a| a.eq_ignore_ascii_case(trimmed))
+                    || normalize_identifier(&meta.stem) == q_norm
+                    || normalize_identifier(&meta.title) == q_norm
+                {
                     return Ok(Some(path.clone()));
+                }
+            }
+
+            // Pass 1B: Prefix, substring, tags, token subset, derived aliases via is_project_match
+            for (path, meta) in &candidates_meta {
+                if is_project_match(trimmed, meta) {
+                    return Ok(Some(path.clone()));
+                }
+            }
+
+            // Fuzzy subsequence match on stem fallback
+            let q_lower = trimmed.to_lowercase();
+            for (path, meta) in &candidates_meta {
+                let stem_lower = meta.stem.to_lowercase();
+                if is_subsequence(&q_lower, &stem_lower) {
+                    return Ok(Some(path.clone()));
+                }
+            }
+
+            // === TIER 2: Scoped FTS5 SQL Push-down ===
+            // First try 10_Projects/ scope
+            if let Ok(fts_matches) =
+                self.storage
+                    .search_scoped_fts(trimmed, Some("10_Projects/"), None, 5)
+            {
+                for m in fts_matches {
+                    if paths.contains(&m.path) {
+                        return Ok(Some(m.path));
+                    }
+                    if let Some(matching_path) =
+                        paths.iter().find(|p| p.file_stem() == m.path.file_stem())
+                    {
+                        return Ok(Some(matching_path.clone()));
+                    }
+                }
+            }
+
+            // Also try L1Resource hierarchy scope for generic wiki layouts
+            if let Ok(fts_matches) =
+                self.storage
+                    .search_scoped_fts(trimmed, None, Some("L1Resource"), 5)
+            {
+                for m in fts_matches {
+                    if paths.contains(&m.path) {
+                        return Ok(Some(m.path));
+                    }
+                    if let Some(matching_path) =
+                        paths.iter().find(|p| p.file_stem() == m.path.file_stem())
+                    {
+                        return Ok(Some(matching_path.clone()));
+                    }
+                }
+            }
+
+            // === TIER 3: Vector Semantic Fallback ===
+            if let Some(ref embedder) = self.embedder {
+                if let Ok(query_emb) = embedder.embed(trimmed) {
+                    if let Ok(vector_hits) = self.storage.search_vectors(&query_emb, 10) {
+                        for (doc_id, distance) in vector_hits {
+                            // Cosine similarity > 0.65 threshold (distance <= 0.35)
+                            if distance <= 0.35 {
+                                let hit_path = PathBuf::from(&doc_id);
+                                if paths.contains(&hit_path) {
+                                    return Ok(Some(hit_path));
+                                }
+                                if let Some(matching_path) =
+                                    paths.iter().find(|p| p.file_stem() == hit_path.file_stem())
+                                {
+                                    return Ok(Some(matching_path.clone()));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // 2. Prefix match on stem or title
-        for path in &paths {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let stem_lower = stem.to_lowercase();
-            if stem_lower.starts_with(&q_lower) {
-                return Ok(Some(path.clone()));
-            }
-            if let Ok(doc) = self.adapter.read_document(path) {
-                if doc.title.to_lowercase().starts_with(&q_lower) {
-                    return Ok(Some(path.clone()));
+        // === TIER 4: Ambient Workspace / CWD Resolution ===
+        // Activates if query is empty or matches the current workspace / CWD directory name
+        if trimmed.is_empty() {
+            if let Ok(cwd) = std::env::current_dir() {
+                if let Some(dir_name) = cwd.file_name().and_then(|s| s.to_str()) {
+                    let dir_norm = normalize_identifier(dir_name);
+                    for (path, meta) in &candidates_meta {
+                        if meta.stem.eq_ignore_ascii_case(dir_name)
+                            || meta
+                                .slug
+                                .as_deref()
+                                .map(|s| s.eq_ignore_ascii_case(dir_name))
+                                .unwrap_or(false)
+                            || is_project_match(dir_name, meta)
+                            || normalize_identifier(&meta.stem) == dir_norm
+                        {
+                            return Ok(Some(path.clone()));
+                        }
+                    }
                 }
             }
-        }
-
-        // 3. Substring match on stem or title
-        for path in &paths {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let stem_lower = stem.to_lowercase();
-            if stem_lower.contains(&q_lower) {
-                return Ok(Some(path.clone()));
-            }
-            if let Ok(doc) = self.adapter.read_document(path) {
-                if doc.title.to_lowercase().contains(&q_lower) {
-                    return Ok(Some(path.clone()));
-                }
-            }
-        }
-
-        // 4. Fuzzy subsequence match
-        for path in &paths {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let stem_lower = stem.to_lowercase();
-            if is_subsequence(&q_lower, &stem_lower) {
-                return Ok(Some(path.clone()));
-            }
-        }
-
-        // 5. FTS search fallback in SQLite cache
-        if let Ok(fts_matches) = self.storage.search_fts(trimmed, 5) {
-            for m in fts_matches {
-                if paths.contains(&m.path) {
-                    return Ok(Some(m.path));
+        } else if let Ok(cwd) = std::env::current_dir() {
+            if let Some(dir_name) = cwd.file_name().and_then(|s| s.to_str()) {
+                if dir_name.eq_ignore_ascii_case(trimmed)
+                    || normalize_identifier(dir_name) == normalize_identifier(trimmed)
+                {
+                    for (path, meta) in &candidates_meta {
+                        if meta.stem.eq_ignore_ascii_case(dir_name)
+                            || meta
+                                .slug
+                                .as_deref()
+                                .map(|s| s.eq_ignore_ascii_case(dir_name))
+                                .unwrap_or(false)
+                            || is_project_match(dir_name, meta)
+                        {
+                            return Ok(Some(path.clone()));
+                        }
+                    }
                 }
             }
         }
