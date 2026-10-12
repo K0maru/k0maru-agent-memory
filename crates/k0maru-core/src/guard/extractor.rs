@@ -302,7 +302,7 @@ fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<GuardRu
     } else {
         // Fallback: check if line contains forbidden: or must_contain:
         if trimmed.contains("forbidden:") || trimmed.contains("must_contain:") {
-            id = format!("RULE-{}", &crate::core::models::HierarchyLevel::L3Evergreen);
+            id = format!("RULE-{}", crate::core::models::HierarchyLevel::L3Evergreen);
             parse_key_value_tokens(
                 trimmed,
                 &mut file_pattern,
