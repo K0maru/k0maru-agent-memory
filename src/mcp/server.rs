@@ -145,6 +145,7 @@ impl McpServer {
 
         let is_obsidian = self.is_obsidian();
         let vault_path = self.vault_path.clone();
+        let embedder = self.embedder.clone();
         let storage = self
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
@@ -160,24 +161,36 @@ impl McpServer {
 
             if is_obsidian {
                 let adapter = ObsidianAdapter::new(&vault_path);
-                let builder = LoadoutBuilder::new(&adapter, storage);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
                 builder
                     .build_with_diff(project_name, &modified_files)
                     .map_err(|e| e.to_string())?
             } else {
                 let adapter = GenericWikiAdapter::new(&vault_path);
-                let builder = LoadoutBuilder::new(&adapter, storage);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
                 builder
                     .build_with_diff(project_name, &modified_files)
                     .map_err(|e| e.to_string())?
             }
         } else if is_obsidian {
             let adapter = ObsidianAdapter::new(&vault_path);
-            let builder = LoadoutBuilder::new(&adapter, storage);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
             builder.build(project_name).map_err(|e| e.to_string())?
         } else {
             let adapter = GenericWikiAdapter::new(&vault_path);
-            let builder = LoadoutBuilder::new(&adapter, storage);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
             builder.build(project_name).map_err(|e| e.to_string())?
         };
 
@@ -596,6 +609,30 @@ impl McpServer {
             .map_err(|e| format!("Failed to serialize GC result: {}", e))
     }
 
+    fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
+        let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
+        let project_name = arguments.get("project_name").and_then(|v| v.as_str());
+
+        let rules = crate::guard::resolve_guard_rules(&self.vault_path, project_name)
+            .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
+
+        let diff_text = if let Some(d) = diff_arg {
+            d.to_string()
+        } else {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            crate::guard::get_git_diff(&cwd, None)
+                .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+        };
+
+        let report = crate::guard::GuardEngine::check_diff(&diff_text, &rules);
+
+        let formatted = crate::guard::format_guard_report(&report);
+        let json_report = serde_json::to_string_pretty(&report)
+            .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
+
+        Ok(format!("{}\n\n```json\n{}\n```", formatted, json_report))
+    }
+
     fn handle_initialize(&self, id: Value) -> Value {
         json!({
             "jsonrpc": "2.0",
@@ -800,6 +837,23 @@ impl McpServer {
                             },
                             "required": ["trajectory_json"]
                         }
+                    },
+                    {
+                        "name": "guard_check",
+                        "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "diff": {
+                                    "type": "string",
+                                    "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                                },
+                                "project_name": {
+                                    "type": "string",
+                                    "description": "Optional target project name to filter ADR invariants for."
+                                }
+                            }
+                        }
                     }
                 ]
             }
@@ -838,6 +892,10 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "gc_session_context" => match self.call_gc_session_context(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "guard_check" => match self.call_guard_check(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },

@@ -33,6 +33,9 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - 终端命令产生长编译输出、崩溃调用栈或测试转储（>30 行）时，必须调用 `offload_context` 进行符号化压缩，严禁大段日志塞入会话上下文。
 4. **决策自愈结晶（Decision Crystallization）**：
    - 攻克疑难缺陷、敲定关键架构决策或获得新配置经验后，必须调用 `flush_session` 或 `distill_session_skill` 将解法原子落盘回知识库。
+5. **活体架构守卫哨兵（Living ADR Guard）**：
+   - 在完成工单、提交代码（`git commit`）或发起评审前，必须调用 `guard_check` 工具或执行 `k0maru guard check --diff`，确保当前工作树及 Diff 未破坏既定 ADR 架构不变量与设计准则。
+
 
 ---
 

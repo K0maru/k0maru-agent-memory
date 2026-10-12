@@ -222,6 +222,17 @@ impl SqliteStorage {
         <Self as CacheStorage>::get_document(self, path)
     }
 
+    /// BM25 full-text search across indexed documents, scoped by path prefix and/or hierarchy.
+    pub fn search_scoped_fts(
+        &self,
+        query: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        <Self as CacheStorage>::search_scoped_fts(self, query, path_prefix, hierarchy, limit)
+    }
+
     fn query_raw_docs(
         &self,
         sql: &str,
@@ -245,6 +256,70 @@ impl SqliteStorage {
             docs.push(row?);
         }
         Ok(docs)
+    }
+
+    fn query_raw_docs_scoped(
+        &self,
+        sql: &str,
+        query_arg: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RawDocRow>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let mapped = stmt.query_map(
+            params![query_arg, path_prefix, hierarchy, limit as i64],
+            |row| {
+                Ok(RawDocRow {
+                    path: row.get(0)?,
+                    title: row.get(1)?,
+                    hierarchy: row.get(2)?,
+                    frontmatter: row.get(3)?,
+                    content_hash: row.get(4)?,
+                    mtime: row.get(5)?,
+                    body: row.get(6)?,
+                })
+            },
+        )?;
+        let mut docs = Vec::new();
+        for row in mapped {
+            docs.push(row?);
+        }
+        Ok(docs)
+    }
+
+    fn hydrate_raw_docs(
+        &self,
+        raw_docs: Vec<RawDocRow>,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let mut results = Vec::with_capacity(raw_docs.len());
+        for raw in raw_docs {
+            let path = PathBuf::from(&raw.path);
+            let links = self.get_outgoing_links(&path)?;
+            let mut tag_stmt = self
+                .conn
+                .prepare_cached("SELECT tag FROM tags WHERE document_path = ?1")?;
+            let tags: Vec<String> = tag_stmt
+                .query_map(params![raw.path], |row| row.get(0))?
+                .collect::<Result<Vec<String>, _>>()?;
+
+            let hierarchy = parse_hierarchy(&raw.hierarchy);
+            let frontmatter =
+                serde_json::from_str(&raw.frontmatter).unwrap_or(serde_json::json!({}));
+
+            results.push(Document {
+                path,
+                title: raw.title,
+                hierarchy,
+                frontmatter,
+                links,
+                tags,
+                content_hash: raw.content_hash,
+                mtime: raw.mtime as u64,
+                body: raw.body,
+            });
+        }
+        Ok(results)
     }
 }
 
@@ -440,35 +515,120 @@ impl CacheStorage for SqliteStorage {
             }
         };
 
-        let mut results = Vec::with_capacity(raw_docs.len());
-        for raw in raw_docs {
-            let path = PathBuf::from(&raw.path);
-            let links = self.get_outgoing_links(&path)?;
-            let mut tag_stmt = self
-                .conn
-                .prepare_cached("SELECT tag FROM tags WHERE document_path = ?1")?;
-            let tags: Vec<String> = tag_stmt
-                .query_map(params![raw.path], |row| row.get(0))?
-                .collect::<Result<Vec<String>, _>>()?;
+        self.hydrate_raw_docs(raw_docs)
+    }
 
-            let hierarchy = parse_hierarchy(&raw.hierarchy);
-            let frontmatter =
-                serde_json::from_str(&raw.frontmatter).unwrap_or(serde_json::json!({}));
-
-            results.push(Document {
-                path,
-                title: raw.title,
-                hierarchy,
-                frontmatter,
-                links,
-                tags,
-                content_hash: raw.content_hash,
-                mtime: raw.mtime as u64,
-                body: raw.body,
-            });
+    fn search_scoped_fts(
+        &self,
+        query: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() || limit == 0 {
+            return Ok(Vec::new());
         }
 
-        Ok(results)
+        let search_sql = r#"
+        SELECT d.path, d.title, d.hierarchy, d.frontmatter, d.content_hash, d.mtime, d.body
+        FROM documents_fts
+        JOIN documents d ON d.path = documents_fts.path
+        WHERE documents_fts MATCH ?1
+          AND (?2 IS NULL OR d.path LIKE ?2 || '%' OR replace(d.path, '\', '/') LIKE ?2 || '%')
+          AND (?3 IS NULL OR d.hierarchy = ?3)
+        ORDER BY rank
+        LIMIT ?4
+        "#;
+
+        let has_special = trimmed.contains('-')
+            || trimmed.contains(':')
+            || trimmed.contains('/')
+            || trimmed.contains('"')
+            || trimmed.contains('*')
+            || trimmed.contains('^');
+
+        let raw_docs = if !has_special {
+            match self.query_raw_docs_scoped(search_sql, trimmed, path_prefix, hierarchy, limit) {
+                Ok(docs) if !docs.is_empty() => docs,
+                Ok(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized != trimmed && !sanitized.is_empty() {
+                        self.query_raw_docs_scoped(
+                            search_sql,
+                            &sanitized,
+                            path_prefix,
+                            hierarchy,
+                            limit,
+                        )
+                        .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Err(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized.is_empty() {
+                        Vec::new()
+                    } else {
+                        self.query_raw_docs_scoped(
+                            search_sql,
+                            &sanitized,
+                            path_prefix,
+                            hierarchy,
+                            limit,
+                        )?
+                    }
+                }
+            }
+        } else {
+            let sanitized = sanitize_fts5_query(trimmed);
+            if sanitized.is_empty() {
+                Vec::new()
+            } else {
+                match self.query_raw_docs_scoped(
+                    search_sql,
+                    &sanitized,
+                    path_prefix,
+                    hierarchy,
+                    limit,
+                ) {
+                    Ok(docs) if !docs.is_empty() => docs,
+                    Ok(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() && or_query != sanitized {
+                            self.query_raw_docs_scoped(
+                                search_sql,
+                                &or_query,
+                                path_prefix,
+                                hierarchy,
+                                limit,
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Err(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() {
+                            self.query_raw_docs_scoped(
+                                search_sql,
+                                &or_query,
+                                path_prefix,
+                                hierarchy,
+                                limit,
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                }
+            }
+        };
+
+        self.hydrate_raw_docs(raw_docs)
     }
 
     fn get_outgoing_links(&self, path: &Path) -> Result<Vec<WikiLink>, Box<dyn std::error::Error>> {
@@ -601,6 +761,14 @@ impl CacheStorage for SqliteStorage {
             Ok(None)
         }
     }
+
+    fn search_vectors(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+        SqliteStorage::search_vectors(self, query_embedding, limit)
+    }
 }
 
 struct RawDocRow {
@@ -623,9 +791,26 @@ fn parse_hierarchy(s: &str) -> HierarchyLevel {
     }
 }
 
-fn sanitize_fts5_query(query: &str) -> String {
+pub fn sanitize_fts5_query(query: &str) -> String {
     let mut terms = Vec::new();
-    for token in query.split_whitespace() {
+    for token in query.split(|c: char| {
+        c.is_whitespace()
+            || c == '-'
+            || c == '/'
+            || c == ':'
+            || c == '"'
+            || c == '('
+            || c == ')'
+            || c == '+'
+            || c == '^'
+            || c == '*'
+            || c == '?'
+            || c == '['
+            || c == ']'
+            || c == '{'
+            || c == '}'
+            || c == '~'
+    }) {
         let cleaned = token.replace('"', "\"\"");
         let trimmed = cleaned.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
         if !trimmed.is_empty() {
@@ -635,10 +820,117 @@ fn sanitize_fts5_query(query: &str) -> String {
     terms.join(" ")
 }
 
+pub fn sanitize_fts5_or_query(query: &str) -> String {
+    let mut terms = Vec::new();
+    for token in query.split(|c: char| {
+        c.is_whitespace()
+            || c == '-'
+            || c == '/'
+            || c == ':'
+            || c == '"'
+            || c == '('
+            || c == ')'
+            || c == '+'
+            || c == '^'
+            || c == '*'
+            || c == '?'
+            || c == '['
+            || c == ']'
+            || c == '{'
+            || c == '}'
+            || c == '~'
+    }) {
+        let cleaned = token.replace('"', "\"\"");
+        let trimmed = cleaned.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if !trimmed.is_empty() {
+            terms.push(format!("\"{}\"", trimmed));
+        }
+    }
+    terms.join(" OR ")
+}
+
 fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(std::mem::size_of_val(slice));
     for &val in slice {
         bytes.extend_from_slice(&val.to_le_bytes());
     }
     bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_doc(
+        path: &str,
+        title: &str,
+        hierarchy: HierarchyLevel,
+        body: &str,
+        tags: Vec<&str>,
+    ) -> Document {
+        Document {
+            path: PathBuf::from(path),
+            title: title.to_string(),
+            hierarchy,
+            frontmatter: serde_json::json!({ "title": title }),
+            links: vec![],
+            tags: tags.into_iter().map(|s| s.to_string()).collect(),
+            content_hash: format!("hash_{}", path),
+            mtime: 1774843200,
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_search_scoped_fts_unit_test() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory sqlite");
+        storage.initialize().expect("init");
+
+        // 10 daily logs
+        for i in 1..=10 {
+            let doc = make_test_doc(
+                &format!("00_Daily/2026-10-{:02}.md", i),
+                &format!("Arbitrage Log {}", i),
+                HierarchyLevel::L0Ephemeral,
+                "Arbitrage Arbitrage Arbitrage Arbitrage Arbitrage market making strategies today.",
+                vec!["daily", "arbitrage"],
+            );
+            storage.upsert_document(&doc).expect("upsert daily");
+        }
+
+        // 1 project document
+        let proj = make_test_doc(
+            "10_Projects/Arbitrage.md",
+            "Arbitrage Engine",
+            HierarchyLevel::L1Resource,
+            "Core architecture for Arbitrage system.",
+            vec!["project", "topic/arbitrage-engine"],
+        );
+        storage.upsert_document(&proj).expect("upsert project");
+
+        let scoped = storage
+            .search_scoped_fts("Arbitrage", Some("10_Projects/"), None, 5)
+            .expect("search_scoped_fts");
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].path, PathBuf::from("10_Projects/Arbitrage.md"));
+        assert_eq!(scoped[0].title, "Arbitrage Engine");
+
+        let scoped_hierarchy = storage
+            .search_scoped_fts("Arbitrage", None, Some("L1Resource"), 5)
+            .expect("hierarchy scoped");
+        assert_eq!(scoped_hierarchy.len(), 1);
+        assert_eq!(
+            scoped_hierarchy[0].path,
+            PathBuf::from("10_Projects/Arbitrage.md")
+        );
+
+        let scoped_hyphen = storage
+            .search_scoped_fts("arbitrage-system", Some("10_Projects/"), None, 5)
+            .expect("hyphen scoped");
+        assert_eq!(scoped_hyphen.len(), 1);
+        assert_eq!(
+            scoped_hyphen[0].path,
+            PathBuf::from("10_Projects/Arbitrage.md")
+        );
+    }
 }

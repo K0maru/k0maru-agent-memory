@@ -11,7 +11,7 @@ def main():
     cmd = [
         "tar", "-czf", tarball_path,
         "-C", repo_root,
-        "Cargo.toml", "Cargo.lock", "crates", "src"
+        "Cargo.toml", "Cargo.lock", "crates", "src", "tests"
     ]
     subprocess.run(cmd, check=True)
     
