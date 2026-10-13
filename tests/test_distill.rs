@@ -136,3 +136,80 @@ fn test_cli_distill_smoke() {
     .success()
     .stdout(predicate::str::contains("CLI Distill Smoke Test"));
 }
+
+#[test]
+fn test_linda_tuple_crystallize_and_consume() {
+    let vault_tmp = tempdir().unwrap();
+    let vault_root = vault_tmp.path();
+    let tuple_tmp = tempdir().unwrap();
+    let tuple_dir = tuple_tmp.path();
+
+    let tuple_file = tuple_dir.join("tup_test_001.json");
+    fs::write(
+        &tuple_file,
+        r#"{
+            "id": "tup_test_001",
+            "kind": "TASK_COMPLETED",
+            "domain": "MEMORY",
+            "task_id": "TASK-MEMORY-001",
+            "payload": "{\"status\":\"PASS\",\"commit\":\"53e411e\",\"title\":\"Symbolic ADR Guard\",\"summary\":\"Implemented fast K-DSL guard check\",\"invariants\":[\"ZERO_FALSE_BLOCK\",\"FAST_EVAL\"],\"deliverables\":[\"AST check\",\"Tuple crystallization\"]}",
+            "created_at": "2026-10-13T06:34:55.111534+00:00"
+        }"#,
+    )
+    .unwrap();
+
+    let crystallizer =
+        k0maru::crystal::TupleCrystallizer::new(vault_root, Some(tuple_dir.to_path_buf()));
+
+    // 1. Crystallize with consume = true
+    let results = crystallizer
+        .crystallize_all(Some("TASK_COMPLETED"), Some("MEMORY"), None, true, false)
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].task_id, "TASK-MEMORY-001");
+    assert!(results[0].consumed);
+    assert!(results[0].absolute_path.exists());
+
+    // Tuple file should be consumed (deleted)
+    assert!(!tuple_file.exists(), "Consumed tuple file must be deleted");
+
+    // Check generated Markdown content
+    let note_content = fs::read_to_string(&results[0].absolute_path).unwrap();
+    assert!(note_content.contains("task_id: \"TASK-MEMORY-001\""));
+    assert!(note_content.contains("commit: \"53e411e\""));
+    assert!(note_content.contains("project: \"[[10_Projects/K0maru-Agent-Memory]]\""));
+    assert!(note_content.contains("Symbolic ADR Guard"));
+    assert!(note_content.contains("ZERO_FALSE_BLOCK"));
+    assert!(note_content.contains("Tuple crystallization"));
+
+    // 2. CLI smoke check with k0maru crystal
+    let tuple_file2 = tuple_dir.join("tup_test_002.json");
+    fs::write(
+        &tuple_file2,
+        r#"{
+            "id": "tup_test_002",
+            "kind": "TASK_COMPLETED",
+            "domain": "ROUTER",
+            "task_id": "TASK-ROUTER-002",
+            "payload": "{\"status\":\"PASS\",\"commit\":\"a1b2c3d\",\"title\":\"K-DSL Router\",\"summary\":\"Router K-DSL protocol test\"}",
+            "created_at": "2026-10-13T06:35:00.000000+00:00"
+        }"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("k0maru").unwrap();
+    cmd.args([
+        "crystal",
+        "--vault",
+        vault_root.to_str().unwrap(),
+        "--tuple-dir",
+        tuple_dir.to_str().unwrap(),
+        "--task-id",
+        "TASK-ROUTER-002",
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("TASK-ROUTER-002"));
+}

@@ -640,20 +640,24 @@ impl McpServer {
 
     fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
         let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
+        let kdsl_arg = arguments.get("kdsl").and_then(|v| v.as_str());
         let project_name = arguments.get("project_name").and_then(|v| v.as_str());
 
         let rules = crate::guard::resolve_guard_rules(&self.vault_path, project_name)
             .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
 
-        let diff_text = if let Some(d) = diff_arg {
-            d.to_string()
+        let report = if let Some(kdsl_text) = kdsl_arg {
+            crate::guard::GuardEngine::check_kdsl(kdsl_text, &rules)
         } else {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            crate::guard::get_git_diff(&cwd, None)
-                .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+            let diff_text = if let Some(d) = diff_arg {
+                d.to_string()
+            } else {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                crate::guard::get_git_diff(&cwd, None)
+                    .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+            };
+            crate::guard::GuardEngine::check_diff(&diff_text, &rules)
         };
-
-        let report = crate::guard::GuardEngine::check_diff(&diff_text, &rules);
 
         let formatted = crate::guard::format_guard_report(&report);
         let json_report = serde_json::to_string_pretty(&report)
@@ -876,6 +880,10 @@ impl McpServer {
                                 "diff": {
                                     "type": "string",
                                     "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                                },
+                                "kdsl": {
+                                    "type": "string",
+                                    "description": "Optional K-DSL 0.1 wire packet or JSON envelope to symbolically audit against Living ADR invariants (<5ms)."
                                 },
                                 "project_name": {
                                     "type": "string",

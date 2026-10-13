@@ -21,6 +21,7 @@ pub use k0maru_core::{resolve_cache_dir, FastEmbedBackend};
 
 // Application modules
 pub mod convention;
+pub mod crystal;
 pub mod distill;
 pub mod doctor;
 pub mod ecosystem;
@@ -35,6 +36,9 @@ pub mod ui;
 pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
+};
+pub use crystal::{
+    find_tuples, resolve_tuple_dir, CrystallizeResult, LindaTuple, TaskPayload, TupleCrystallizer,
 };
 pub use distill::{
     DistillEngine, DistillOptions, DistillResult, DistillTarget, DistilledSkill, SkillExtractor,

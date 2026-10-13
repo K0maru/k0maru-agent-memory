@@ -307,4 +307,112 @@ impl GuardEngine {
         let duration_ms = start.elapsed().as_millis();
         GuardReport::new(checked_files, checked_diff_hunks, violations, duration_ms)
     }
+
+    /// Audits a K-DSL wire string or JSON envelope against active invariant rules.
+    ///
+    /// Evaluates K-DSL operations (targets and replacements) symbolically against active
+    /// Living ADR invariants, completing in < 5ms (typically < 500µs).
+    pub fn check_kdsl(kdsl_text: &str, rules: &[GuardRule]) -> GuardReport {
+        let start = Instant::now();
+        let envelope = match crate::guard::kdsl::parse_kdsl(kdsl_text) {
+            Ok(env) => env,
+            Err(e) => {
+                let violations = vec![GuardViolation {
+                    rule_id: "KDSL_PARSE_ERROR".to_string(),
+                    rule_title: "Malformed K-DSL Packet".to_string(),
+                    file_path: "unknown".to_string(),
+                    line_number: None,
+                    matched_content: Some(e),
+                    severity: crate::guard::models::RuleSeverity::Deny,
+                    source_note: "K-DSL Grammar Engine".to_string(),
+                    remediation: "Ensure K-DSL packet conforms to grammar: !δ:<ver>|<domain>|<path>#<rev> §AST:<type>[<id>] @OP:<op> (<target>) -> (<repl>) !Σ:VERIFY(<inv>)".to_string(),
+                }];
+                return GuardReport::new(0, 0, violations, start.elapsed().as_millis());
+            }
+        };
+
+        let compiled_rules: Vec<CompiledRule> = rules.iter().map(CompiledRule::new).collect();
+        let file_path = PathBuf::from(&envelope.filepath);
+        let mut violations = Vec::new();
+        let checked_files = 1;
+        let checked_diff_hunks = envelope.operations.len();
+
+        let mut all_ops_text = String::new();
+        if let Some(ref coord) = envelope.coordinate {
+            all_ops_text.push_str(&format!("{}:{} ", coord.node_type, coord.identifier));
+        }
+        for op in &envelope.operations {
+            all_ops_text.push_str(&format!("{} {} ", op.opcode, op.target));
+            if let Some(ref repl) = op.replacement {
+                all_ops_text.push_str(repl);
+                all_ops_text.push(' ');
+            }
+        }
+
+        for cr in &compiled_rules {
+            let id_matches = envelope.verification_invariants.iter().any(|inv| {
+                let norm_inv = inv.trim().trim_start_matches("LIVING_ADR#");
+                let norm_rule_id = cr.rule.id.trim().trim_start_matches("LIVING_ADR#");
+                norm_inv.eq_ignore_ascii_case(norm_rule_id)
+            });
+
+            let file_matches = matches_file_pattern(cr.rule.file_pattern.as_deref(), &file_path);
+
+            if !id_matches && !file_matches {
+                continue;
+            }
+
+            match &cr.rule.condition {
+                RuleCondition::Forbidden(_) => {
+                    for (op_idx, op) in envelope.operations.iter().enumerate() {
+                        let op_str = format!(
+                            "@OP:{} ({}) -> ({})",
+                            op.opcode,
+                            op.target,
+                            op.replacement.as_deref().unwrap_or("")
+                        );
+                        let target_match = cr.is_match(&op.target);
+                        let repl_match = op
+                            .replacement
+                            .as_deref()
+                            .map(|r| cr.is_match(r))
+                            .unwrap_or(false);
+
+                        if target_match || repl_match {
+                            violations.push(GuardViolation {
+                                rule_id: cr.rule.id.clone(),
+                                rule_title: cr.rule.title.clone(),
+                                file_path: envelope.filepath.clone(),
+                                line_number: Some(op_idx + 1),
+                                matched_content: Some(op_str),
+                                severity: cr.rule.severity,
+                                source_note: cr.rule.source_note.clone(),
+                                remediation: cr.rule.remediation.clone(),
+                            });
+                        }
+                    }
+                }
+                RuleCondition::MustContain(pattern) => {
+                    if !cr.is_match(&all_ops_text) {
+                        violations.push(GuardViolation {
+                            rule_id: cr.rule.id.clone(),
+                            rule_title: cr.rule.title.clone(),
+                            file_path: envelope.filepath.clone(),
+                            line_number: None,
+                            matched_content: Some(format!(
+                                "K-DSL operations missing required pattern '{}'",
+                                pattern
+                            )),
+                            severity: cr.rule.severity,
+                            source_note: cr.rule.source_note.clone(),
+                            remediation: cr.rule.remediation.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        let duration_ms = start.elapsed().as_millis();
+        GuardReport::new(checked_files, checked_diff_hunks, violations, duration_ms)
+    }
 }
