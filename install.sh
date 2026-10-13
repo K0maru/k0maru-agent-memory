@@ -91,8 +91,8 @@ else
     LATEST_JSON=$(curl -sSL -H "Accept: application/vnd.github+json" "${GITHUB_API}/releases/latest" || true)
     VERSION=$(printf "%s" "$LATEST_JSON" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
     if [ -z "$VERSION" ]; then
-        log_warn "Could not fetch latest release from GitHub API (rate-limit or network). Falling back to v0.6.0."
-        VERSION="v0.6.0"
+        log_warn "Could not fetch latest release from GitHub API (rate-limit or network). Falling back to v0.11.0."
+        VERSION="v0.11.0"
     fi
     log_info "Latest release version: ${BOLD}${VERSION}${RESET}"
 fi
@@ -146,6 +146,9 @@ if [ ! -f "${TMP_DIR}/k0maru" ]; then
 fi
 
 chmod +x "${TMP_DIR}/k0maru"
+if [ -f "${TMP_DIR}/k0maru-memory" ]; then
+    chmod +x "${TMP_DIR}/k0maru-memory"
+fi
 
 # 5. Determine Destination Directory
 if [ -n "${K0MARU_INSTALL_DIR:-}" ]; then
@@ -165,9 +168,17 @@ log_info "Installing k0maru to ${DEST_DIR}..."
 if [ "${USE_SUDO:-false}" = "true" ] && [ ! -w "$DEST_DIR" ]; then
     sudo cp "${TMP_DIR}/k0maru" "${DEST_DIR}/k0maru"
     sudo chmod 755 "${DEST_DIR}/k0maru"
+    if [ -f "${TMP_DIR}/k0maru-memory" ]; then
+        sudo cp "${TMP_DIR}/k0maru-memory" "${DEST_DIR}/k0maru-memory"
+        sudo chmod 755 "${DEST_DIR}/k0maru-memory"
+    fi
 else
     cp "${TMP_DIR}/k0maru" "${DEST_DIR}/k0maru"
     chmod 755 "${DEST_DIR}/k0maru"
+    if [ -f "${TMP_DIR}/k0maru-memory" ]; then
+        cp "${TMP_DIR}/k0maru-memory" "${DEST_DIR}/k0maru-memory"
+        chmod 755 "${DEST_DIR}/k0maru-memory"
+    fi
 fi
 
 # 6. Verify Installation

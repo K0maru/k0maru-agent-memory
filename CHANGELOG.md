@@ -7,6 +7,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [0.11.0] - 2026-10-13
+
+### 🚀 What's Changed (English)
+
+#### Key Highlights & New Capabilities
+- **Living ADR Guard & Architectural Invariant Sentinel**:
+  - Implemented `k0maru guard` CLI command and FastMCP `guard_check` tool to continuously audit code modifications and Git diffs against active ADRs and architectural invariants;
+  - Zero-overhead AST diff inspection preventing architectural erosion, cross-layer leakage, and raw SQL injections before commit.
+- **Pluggable Embeddings Architecture & Dynamic Dimension Storage**:
+  - Modular vector backend supporting dynamic dimension migration without wiping existing databases;
+  - Auto-detection and adaptation to various embedding models.
+- **First-Class Project Catalog & Scoped Push-Down Resolver**:
+  - Enhanced `get_project_loadout` with scoped push-down resolver and multi-tier loadout aggregation;
+  - Project alias normalization and adversarial project resolution support.
+- **CI/CD Multi-Platform Distribution Pipeline Self-Healing**:
+  - Added automated GitHub Release creation (`taiki-e/create-gh-release-action`) across all supported platforms;
+  - Switched Linux aarch64 runner to native `ubuntu-24.04-arm` and migrated macOS runners to `macos-latest`;
+  - Packaged both `k0maru` and `k0maru-memory` binary alias in release archives.
+
+---
+
+### 🚀 详细更新日志（简体中文）
+
+#### 核心亮点与新特性
+- **活体架构守卫哨兵（Living ADR Guard）**:
+  - 新增 `k0maru guard` 命令行与 FastMCP `guard_check` 核心工具，在 Git Commit 与 PR 审查前自动对照活跃 ADR 与项目不变量进行增量 Diff 审计；
+  - 零开销静态规则检查，彻底阻断跨层调用泄漏与架构退化。
+- **可插拔向量嵌入架构与动态维度迁移**:
+  - 实现向量存储引擎的多维度动态平滑迁移，支持在切换不同嵌入模型时无需整库重建；
+  - 提升局部向量索引稳定性。
+- **一流项目目录与下推解析器**:
+  - 强化 `get_project_loadout`，支持项目标识归一化、别名映射与多级 Loadout 聚合装配。
+- **全平台 CI/CD 发版流水线自愈与 Runner 矩阵升级**:
+  - 引入自动化 GitHub Release 生成流水线，修复历史 release 丢失与资源 404 问题；
+  - Linux aarch64 接入 GitHub Actions 官方原生 `ubuntu-24.04-arm` Runner，macOS 统一迁移至 `macos-latest`；
+  - 发布压缩包中同时打包 `k0maru` 主二进制及 `k0maru-memory` 别名。
+
+---
+
 ## [0.8.1] - 2026-10-09
 
 ### 🚀 What's Changed (English)
