@@ -58,6 +58,7 @@ jobs:
         uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: k0maru,k0maru-memory
+          archive: k0maru-$target
           target: ${{ matrix.target }}
           tar: unix
           zip: windows
