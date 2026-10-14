@@ -73,6 +73,83 @@ fn test_mcp_tool_recall_memory_hybrid() {
 }
 
 #[test]
+fn test_mcp_recall_memory_compact_wire_vs_full() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    // 1. Default (full omitted or full: false): compact single-line K-DSL wire
+    let res_default = server.handle_tool_call(
+        json!(20),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions"
+            }
+        }),
+    );
+    let text_default = res_default["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text_default.starts_with("!μ:"),
+        "Default should be compact K-DSL wire starting with !μ:"
+    );
+    assert!(text_default.contains("20_Cards/Architecture_Decisions.md"));
+    assert!(text_default.contains("|score:"));
+    assert!(text_default.contains("|links:"));
+    assert!(text_default.contains(" § "));
+    assert!(
+        !text_default.contains("## "),
+        "Compact wire format should not contain markdown headers"
+    );
+    assert!(
+        text_default.len() < 1200,
+        "Compact wire output must be under 1200 characters"
+    );
+    for line in text_default.lines() {
+        assert!(
+            line.starts_with("!μ:"),
+            "Every line in compact wire format must start with !μ:"
+        );
+        assert!(!line.contains('\n'), "Each hit must be a single line");
+    }
+
+    // 2. Explicit full: false
+    let res_compact = server.handle_tool_call(
+        json!(21),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions",
+                "full": false
+            }
+        }),
+    );
+    let text_compact = res_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text_compact.starts_with("!μ:"));
+    assert_eq!(text_compact, text_default);
+
+    // 3. Explicit full: true -> verbose markdown format
+    let res_full = server.handle_tool_call(
+        json!(22),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions",
+                "full": true
+            }
+        }),
+    );
+    let text_full = res_full["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text_full.contains("## Architecture Decisions"));
+    assert!(text_full.contains("Score: "));
+    assert!(text_full.contains("Hierarchy: L3Evergreen"));
+    assert_ne!(text_compact, text_full);
+}
+
+#[test]
 fn test_mcp_tool_get_project_loadout() {
     let vault = mock_obsidian_vault();
     let mut server = McpServer::new(vault.path());
