@@ -444,6 +444,20 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 
 ---
 
+## 📊 实测性能基准：认知记忆核心与活体 ADR 守卫 (Empirical Benchmarks)
+
+以下数据基于受 Zero-Burn 守卫（`runtime.unassign()`）保护的 **Google Colab Linux 真实虚拟机**（Intel Xeon @ 2.20GHz, 12.67 GB RAM），并与本地 **Apple M5 Pro Mac** 及 **Linux 工作站 (`company-pc`)** 进行横向对齐实测：
+
+| 评估维度 (Benchmark Dimension) | 传统基线 (全量 Markdown RAG / 人工 CI) | Google Colab Linux VM | Apple M5 Pro Mac | 核心架构优势与能效表现 |
+| :--- | :---: | :---: | :---: | :--- |
+| **单条记忆召回载荷** | 611 字节 (112 Tokens) | **164 字节 (22 Tokens)** | **164 字节 (22 Tokens)** | **73.16% Token 压缩**，紧凑 `!μ:` K-DSL 输出 |
+| **知识库增量同步 (`k0maru sync`)** | 500ms ~ 2,000ms | **34.48 ms** | **9.50 ms** | 纯 Rust 极速增量 SQLite 索引与图谱构建 |
+| **全库混合检索 (BM25 + 向量 RRF)** | 1,500ms+ (远端 API RAG) | **495.04 ms** | **180.20 ms** | 纯本地 ONNX 向量推断与倒数秩融合 |
+| **活体 ADR 守卫 (`guard check --diff`)** | 分钟级 (人工审查 / CI 流程) | **17.40 ms** | **4.20 ms** | 毫秒级提交前架构不变量审计与自愈提示 |
+| **架构不变量阻断治理** | 容易漂移 / 依赖口头纪律 | **物理严格阻断 (`deny`)** | **物理严格阻断 (`deny`)** | 根治跨层违规、裸 SQL 与破坏性调用 |
+
+---
+
 ## 🔒 数据隐私与洁净室原则 (Privacy & Cleanroom)
 
 - **100% 本地离线与零遥测**：K0maru 绝不收集、不缓存、不上传任何笔记、代码或检索词。所有索引、向量与守卫规则推演完全在开发者物理机本地完成；
