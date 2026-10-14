@@ -211,6 +211,7 @@ k0maru search "并发死锁排查最佳实践" --vault ~/wiki --mode hybrid --li
 k0maru search "向量相似度" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
+- **MCP `recall_memory` 默认紧凑 K-DSL 电报格式（防主控上下文爆炸）**：为彻底防止检索长文撑爆主控 Agent 上下文，`recall_memory` MCP 工具默认返回高密度单行 K-DSL 记忆电报：`!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>`（单条摘要严格截断 ≤140 字符）；仅当显式传入 `"full": true` 参数时才返回完整多行 Markdown 块。
 - **可插拔多模型向量后端**：原生内置 `all-minilm-l6-v2`（384d，默认）、`bge-small-zh-v1.5`（512d）、`bge-base-en-v1.5`（768d）、`paraphrase-multilingual-minilm-l12-v2`（384d）及离线测试专用的 `mock` 引擎；
 - **动态维度自愈迁移**：切换模型或维度时自动无损重建 `sqlite-vec` 虚表，免去手工删库建表烦恼。
 

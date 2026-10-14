@@ -211,6 +211,7 @@ k0maru search "concurrency deadlock mitigation" --vault ~/wiki --mode hybrid --l
 k0maru search "vector similarity" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
+- **Compact K-DSL Wire Default (`!μ:<tier>|<path>|...`) for MCP `recall_memory`**: To prevent Master Agent context explosion, the `recall_memory` MCP tool defaults to returning ultra-dense single-line K-DSL wire entries (`!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>`, capped at ≤140 chars per snippet). Pass `"full": true` in tool arguments only when full multi-line markdown excerpts are explicitly needed.
 - **Pluggable Vector Backends**: Built-in support for `all-minilm-l6-v2` (384d, default), `bge-small-zh-v1.5` (512d), `bge-base-en-v1.5` (768d), `paraphrase-multilingual-minilm-l12-v2` (384d), and mock embedders for offline testing.
 - **Dynamic Dimension Migration**: Seamlessly reconfigures `sqlite-vec` virtual tables upon model switching without manual database rebuilds.
 
