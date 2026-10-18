@@ -262,3 +262,94 @@ fn test_loadout_cli_markdown_and_json() {
     assert_eq!(json_val["project_name"], "k0maru-memory");
     assert!(json_val["estimated_tokens"].as_u64().unwrap() < 300);
 }
+
+#[test]
+fn test_loadout_heterogeneous_wiki_folders() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let projects_dir = root.join("projects");
+    let cards_dir = root.join("cards");
+    let logs_dir = root.join("logs");
+    fs::create_dir_all(&projects_dir).unwrap();
+    fs::create_dir_all(&cards_dir).unwrap();
+    fs::create_dir_all(&logs_dir).unwrap();
+
+    fs::write(
+        projects_dir.join("wiki-memory.md"),
+        r#"---
+title: Heterogeneous Wiki Memory
+status: active
+---
+# Heterogeneous Wiki Memory
+
+> Flat LLM-Wiki project mounted from engineering folders.
+
+## Linked Rules
+- [[cards/rule-card-1]]
+- [[logs/2026-10-01-run]]
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        cards_dir.join("rule-card-1.md"),
+        r#"---
+title: Rule Card 1
+---
+# Rule Card 1
+
+## 📌 核心概念
+> Always verify heterogeneous topology resolution before commit.
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        logs_dir.join("2026-10-01-run.md"),
+        r#"---
+title: 2026-10-01 heterogeneous topology run
+hierarchy: L2Log
+---
+# 2026-10-01 Run
+"#,
+    )
+    .unwrap();
+
+    let adapter = ObsidianAdapter::new(root);
+    let mut storage = SqliteStorage::in_memory().unwrap();
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false).unwrap();
+
+    let builder = LoadoutBuilder::new(&adapter, &storage);
+
+    assert_eq!(
+        builder.find_project("wiki-memory").unwrap(),
+        Some(PathBuf::from("projects/wiki-memory.md")),
+        "projects/ folder must be discovered as a project root"
+    );
+
+    let loadout = builder
+        .build("wiki-memory")
+        .unwrap()
+        .expect("heterogeneous wiki loadout should build");
+
+    assert_eq!(loadout.project_name, "wiki-memory");
+    assert!(
+        loadout
+            .l3_cards
+            .iter()
+            .any(|card| card.path == "cards/rule-card-1.md"),
+        "cards/ note must resolve as an L3 card, got: {:?}",
+        loadout.l3_cards
+    );
+    assert!(
+        loadout
+            .l2_logs
+            .iter()
+            .any(|log| log.path == "logs/2026-10-01-run.md"),
+        "logs/ note must resolve as an L2 log, got: {:?}",
+        loadout.l2_logs
+    );
+    assert!(estimate_tokens(&loadout.markdown) < 300);
+}

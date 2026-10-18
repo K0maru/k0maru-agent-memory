@@ -1,0 +1,6 @@
+{
+  "name": "k0maru-memory",
+  "version": "1.0.0",
+  "description": "Orthogonal LLM-Wiki Memory Sidecar & Living ADR Guard for omp (5 core tools via --sidecar)",
+  "mcpServers": "./mcp-omp.json"
+}

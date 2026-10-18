@@ -521,7 +521,8 @@ impl McpServer {
             ))
         } else {
             Ok(format!(
-                "✓ Crystallized note into vault.\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                title,
                 result.relative_path.display(),
                 result.category,
                 links_str

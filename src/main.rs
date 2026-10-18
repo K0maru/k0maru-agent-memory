@@ -15,6 +15,9 @@ use k0maru::guard::{
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
+use k0maru::pack::{
+    export_pack, import_pack, inspect_pack, MemoryPack, PackExportOptions, PackImportOptions,
+};
 use k0maru::scanner::IncrementalScanner;
 use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
 use k0maru::vector::resolve_embedding_engine;
@@ -68,6 +71,9 @@ enum Commands {
 
     /// Living ADR guard and architectural invariant sentinel
     Guard(GuardArgs),
+
+    /// Export, import, or inspect portable LLM-Wiki Memory Packs (.pack.json)
+    Pack(PackArgs),
 
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
@@ -385,6 +391,97 @@ pub struct GcArgs {
     /// Output line-delimited JSON stream
     #[arg(long)]
     pub json_stream: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct PackArgs {
+    #[command(subcommand)]
+    pub command: PackSubcommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum PackSubcommand {
+    /// Export domain knowledge cards and Living ADR invariants into a portable Memory Pack (.pack.json)
+    Export(PackExportArgs),
+
+    /// Import a portable Memory Pack into an LLM-Wiki
+    Import(PackImportArgs),
+
+    /// Inspect a portable Memory Pack structure and predicted target paths
+    Inspect(PackInspectArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackExportArgs {
+    /// Name of the memory pack
+    #[arg(long)]
+    pub name: String,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Version of the memory pack
+    #[arg(long, default_value = "0.1.0")]
+    pub version: String,
+
+    /// Optional description of the memory pack
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Export notes matching specific tag (e.g. topic/redis)
+    #[arg(long)]
+    pub tag: Option<String>,
+
+    /// Export notes matching search query
+    #[arg(long)]
+    pub query: Option<String>,
+
+    /// Specific markdown files to include in export
+    #[arg(long = "files", value_name = "FILE", num_args = 1..)]
+    pub files: Vec<PathBuf>,
+
+    /// Write pack JSON to output file instead of stdout
+    #[arg(short = 'o', long = "output", value_name = "OUTPUT_FILE")]
+    pub output: Option<PathBuf>,
+
+    /// Output raw JSON to stdout (even if --output is specified)
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackImportArgs {
+    /// Path to memory pack JSON file
+    #[arg(value_name = "PACK_FILE")]
+    pub pack_file: PathBuf,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Preview imported notes and target paths without writing to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackInspectArgs {
+    /// Path to memory pack JSON file
+    #[arg(value_name = "PACK_FILE")]
+    pub pack_file: PathBuf,
+
+    /// Target vault path to predict destination paths
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Output report as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
@@ -1368,6 +1465,127 @@ fn run_gc(args: GcArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_pack(args: PackArgs) -> Result<(), Box<dyn std::error::Error>> {
+    match args.command {
+        PackSubcommand::Export(export_args) => {
+            let vault_path = detect_vault_path(export_args.vault);
+            let options = PackExportOptions {
+                vault_path,
+                name: export_args.name,
+                version: export_args.version,
+                description: export_args.description,
+                tag: export_args.tag,
+                query: export_args.query,
+                files: export_args.files,
+            };
+            let pack = export_pack(&options)?;
+            let json_str = serde_json::to_string_pretty(&pack)?;
+
+            if let Some(out_path) = &export_args.output {
+                if let Some(parent) = out_path.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                }
+                std::fs::write(out_path, &json_str)?;
+                if export_args.json {
+                    println!("{}", json_str);
+                } else {
+                    println!(
+                        "📦 Exported memory pack '{}' (v{}) to {}",
+                        pack.name,
+                        pack.version,
+                        out_path.display()
+                    );
+                    println!("   Notes: {}", pack.notes.len());
+                    println!("   Guard rules: {}", pack.guard_rules.len());
+                }
+            } else {
+                println!("{}", json_str);
+            }
+            Ok(())
+        }
+        PackSubcommand::Import(import_args) => {
+            let content = std::fs::read_to_string(&import_args.pack_file).map_err(|e| {
+                format!(
+                    "Failed to read pack file '{}': {}",
+                    import_args.pack_file.display(),
+                    e
+                )
+            })?;
+            let pack: MemoryPack = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse pack file as MemoryPack JSON: {}", e))?;
+            let vault_path = detect_vault_path(import_args.vault);
+            let options = PackImportOptions {
+                vault_path,
+                dry_run: import_args.dry_run,
+            };
+            let result = import_pack(&pack, &options)?;
+
+            if import_args.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let dry_str = if result.dry_run { " [dry-run]" } else { "" };
+                println!("📦 Imported memory pack '{}'{}:", result.pack_name, dry_str);
+                println!("   Vault path: {}", result.vault_path.display());
+                println!("   Notes imported: {}", result.imported_notes.len());
+                for item in &result.imported_notes {
+                    let status = if item.dry_run {
+                        "preview"
+                    } else if item.created {
+                        "created"
+                    } else {
+                        "updated"
+                    };
+                    println!(
+                        "     - {} [{}] -> {} ({})",
+                        item.title,
+                        item.category,
+                        item.relative_path.display(),
+                        status
+                    );
+                }
+                println!("   Guard rules active: {}", result.guard_rules_count);
+            }
+            Ok(())
+        }
+        PackSubcommand::Inspect(inspect_args) => {
+            let content = std::fs::read_to_string(&inspect_args.pack_file).map_err(|e| {
+                format!(
+                    "Failed to read pack file '{}': {}",
+                    inspect_args.pack_file.display(),
+                    e
+                )
+            })?;
+            let pack: MemoryPack = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse pack file as MemoryPack JSON: {}", e))?;
+            let report = inspect_pack(&pack, inspect_args.vault.as_deref());
+
+            if inspect_args.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!("📦 Memory Pack: {} (v{})", report.name, report.version);
+                if let Some(desc) = &report.description {
+                    println!("   Description: {}", desc);
+                }
+                println!("   Notes count: {}", report.notes_count);
+                println!("   Guard rules count: {}", report.guard_rules_count);
+                if !report.note_titles.is_empty() {
+                    println!("   Notes:");
+                    for (i, title) in report.note_titles.iter().enumerate() {
+                        if let Some(predicted) = report.predicted_paths.get(i) {
+                            println!("     - {} -> {}", title, predicted.display());
+                        } else {
+                            println!("     - {}", title);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 fn main() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -1509,6 +1727,12 @@ fn main() {
                 }
             };
             if let Err(e) = rt.block_on(k0maru::ui::run_server(vault_path, port, open)) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Pack(args)) => {
+            if let Err(e) = run_pack(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }

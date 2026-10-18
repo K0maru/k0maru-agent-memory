@@ -153,3 +153,66 @@ diff --git a/src/db.rs b/src/db.rs
         .failure()
         .code(1);
 }
+
+#[test]
+fn test_guard_flat_llm_wiki_and_decisions_folder() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Flat root LLM-Wiki note declaring a Living ADR invariant.
+    fs::write(
+        root.join("adr-001.md"),
+        r#"---
+title: ADR 001 Flat Invariant
+invariants:
+  - id: ADR-FLAT-001
+    title: Flat wiki invariant
+    file_pattern: "*.rs"
+    forbidden: "flat_forbidden_call"
+    remediation: "Use the safe API."
+---
+# ADR 001
+
+## Non-Negotiable Invariants
+"#,
+    )
+    .unwrap();
+
+    // Engineering decisions folder without any SecondBrain 20_Cards tree.
+    let decisions_dir = root.join("decisions");
+    fs::create_dir_all(&decisions_dir).unwrap();
+    fs::write(
+        decisions_dir.join("adr-002.md"),
+        r#"---
+title: ADR 002 Decisions Folder
+invariants:
+  - id: ADR-DECISIONS-002
+    title: Nested decisions invariant
+    file_pattern: "*.go"
+    forbidden: "decisions_forbidden_call"
+    remediation: "Route through the ledger service."
+---
+# ADR 002
+
+## Non-Negotiable Invariants
+"#,
+    )
+    .unwrap();
+
+    assert!(
+        !root.join("20_Cards").exists(),
+        "fixture must not contain a SecondBrain cards folder"
+    );
+
+    let rules = k0maru::resolve_guard_rules(root, None).expect("resolve guard rules");
+    let ids: Vec<&str> = rules.iter().map(|rule| rule.id.as_str()).collect();
+
+    assert!(
+        ids.contains(&"ADR-FLAT-001"),
+        "flat root ADR must contribute rules, got: {ids:?}"
+    );
+    assert!(
+        ids.contains(&"ADR-DECISIONS-002"),
+        "decisions/ folder ADR must contribute rules, got: {ids:?}"
+    );
+}

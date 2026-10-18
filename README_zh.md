@@ -3,7 +3,7 @@
 # K0maru-Agent-Memory
 
 > **面向个人 Markdown 知识库与本地 LLM-Wiki 的轻量化 Agent 记忆中枢与上下文治理工具**  
-> *A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents.*
+> *无感自适应任何 LLM-Wiki 拓扑（Karpathy 扁平 Wiki、工程 ADR、PARA、Johnny.Decimal），毫秒级上下文检索、符号化日志卸载与活体 ADR 架构守卫。*
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -29,8 +29,8 @@
    - 纯 Rust 静态编译，仅 **3.66 MB** 单二进制文件；
    - 冷启动仅需 **3.38 ms**，常驻内存仅 ~11 MB，**不占用任何常驻后台网络端口**；
    - 通过 Unix 管道与标准 stdio 协议即调即走，命令执行完毕瞬间将内存归还系统。
-2. **📝 自备纯文本 Markdown（Bring Your Own Markdown）**：
-   - 用户已有的本地 Markdown 笔记（Obsidian Vault、Karpathy LLM-Wiki）即为唯一真理源泉；
+2. **📝 自备纯文本 Markdown（拓扑无关的 LLM-Wiki 适配）**：
+   - 用户已有的本地 Markdown 笔记即为唯一真理源泉。架构完全与拓扑解耦，原生兼容**任意 LLM-Wiki 组织形态**：Karpathy 式扁平单目录 LLM-Wiki、工程级 `docs/adr/` 或 `decisions/` 维基、PARA 体系（`projects/`、`cards/`、`logs/`）以及 Johnny.Decimal（`10_Projects/`、`20_Cards/`）；
    - 杜绝封闭专有二进制格式，零迁移壁垒，不破坏用户原有的知识库目录树。
 3. **🪓 随时可抛弃的瞬态缓存（Disposable Cache）**：
    - 本地仅维护一个单文件 SQLite（`cache.sqlite`），集成 FTS5 全文倒排索引与 `sqlite-vec` 向量虚表；
@@ -110,11 +110,14 @@ cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
 ### 2. 一键接入本地 AI 智能体客户端（`k0maru install`）
 
-安装二进制后，只需一条指令即可将 K0maru 的 FastMCP 服务安全合并注入到您已安装的智能体配置中（自动识别 Claude Code、Cursor、Gemini CLI、Windsurf、Cline / Roo Code）：
+安装二进制后，只需一条指令即可将 K0maru 的 FastMCP 服务安全合并注入到您已安装的智能体配置中（自动识别 Claude Code、Cursor、Gemini CLI、Windsurf、Cline / Roo Code、Hermes、OpenClaw 以及 Oh My Pi / `omp`）：
 
 ```bash
 # 一键自动发现并配置所有支持的智能体客户端，指向您的 Markdown 知识库
 k0maru install --vault ~/Documents/MyVault
+
+# 或指定单独配置某个客户端（例如 Oh My Pi / omp）
+k0maru install --target omp --vault ~/Documents/MyVault
 
 # 或先通过 --dry-run 预览将要进行的配置改动，不实际写入磁盘
 k0maru install --vault ~/Documents/MyVault --dry-run
@@ -131,6 +134,24 @@ k0maru install --vault ~/Documents/MyVault --dry-run
   }
 }
 ```
+
+### 2.1 Tern 原生插件与 omp / Claude 插件市场安装
+
+K0maru 原生适配现代终端多路复用器与主流智能体插件市场生态：
+
+- **Tern 终端复用器原生插件**：基于 Luau 编写，提供交互式 Cockpit 驾驶舱看板、CLI 命令透镜与 Carly 调色板指令集成：
+  ```bash
+  tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
+  ```
+- **Oh My Pi (`omp`) 插件市场**：
+  ```text
+  /marketplace add K0maru/k0maru-agent-memory
+  /marketplace install k0maru-memory@k0maru-agent-memory
+  ```
+- **Claude Code 插件市场**：
+  ```text
+  /plugin add K0maru/k0maru-agent-memory
+  ```
 
 ---
 
@@ -325,19 +346,21 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 ---
 
 ## 🤖 智能体生态协同与 FastMCP 协议接口总览
+挂载 `k0maru-memory` MCP 后，服务支持两种差异化运行模式：
 
-挂载 `k0maru-memory` MCP 后，大模型即可原生驱动 8 大功能完备的记忆治理工具：
+- **标准全功能模式（8 大工具）**：适用于通用开源智能体与 IDE 客户端（Claude Code、Cursor、Windsurf、Hermes、OpenClaw），提供全套记忆、日志卸载与上下文 GC 能力；
+- **正交 Sidecar 伴生模式（`--sidecar`，5 大核心工具）**：专为 **`omp`** (`Oh My Pi`) 打造。由于 `omp` 原生内置完善的终端流日志管理与会话压缩机制，Sidecar 模式挂载 5 大正交领域记忆工具（`get_project_loadout`、`recall_memory`、`flush_session`、`distill_session_skill`、`guard_check`），主动剔除 `offload_context`、`inspect_log_node` 与 `gc_session_context`，保持流水线正交精简。
 
-| FastMCP 工具名称 | 人类自然语言触发意图示例 | 核心价值与底层动作 |
-| :--- | :--- | :--- |
-| `get_project_loadout` | *“开始新任务”*、*“读一下当前项目架构背景”* | 4 级漏斗精简装配，输出愿景、L3 铁律与近期日志，严格控制在 **< 300 Token**。支持 `--diff` 变更感知。 |
-| `recall_memory` | *“查一下某技术方案”*、*“我们以前怎么配 X 的”* | 混合 RRF 检索（BM25 + 本地向量 + 双链拓扑加权），亚毫秒级精准定位私有知识。 |
-| `offload_context` | 智能体跑测试/编译产生超 30 行大段日志输出时 | 将终端原始文本外置压缩，自动提炼生成带节点 ID 的 Mermaid 状态机图。 |
-| `inspect_log_node` | *“查看 node_xxxx 的具体失败堆栈”* | 根据 Node ID 精准调取保存在本地磁盘上的完整切片。 |
-| `flush_session` | *“记录这个架构决策”*、*“把刚才排障结论存起来”* | 自动按照知识库规约格式化生成包含 Frontmatter 与 WikiLinks 的 ADR 笔记。 |
-| `distill_session_skill`| *“把这次排错过程提炼为可复用的技能手册”* | 解析调用栈与排障上下文，提炼生成标准化故障排除 Skill（支持 Obsidian 与 Hermes Agent）。 |
-| `gc_session_context` | 多轮对话上下文逼近上限时 | 执行 4 级剪枝协议，折叠过往冗长工具输出，维持认知黄金区，达成 **TRR >= 85%**。 |
-| `guard_check` | 提交 Git 前、功能代码实现交付后审查 | 毫秒级审计当前 Diff 与修改，强制阻断违反 ADR 架构不变量的代码合入。 |
+| FastMCP 工具名称 | 运行模式 | 人类自然语言触发意图示例 | 核心价值与底层动作 |
+| :--- | :---: | :--- | :--- |
+| `get_project_loadout` | 全功能 / Sidecar | *“开始新任务”*、*“读一下当前项目架构背景”* | 4 级漏斗精简装配，输出愿景、L3 铁律与近期日志，严格控制在 **< 300 Token**。支持 `--diff` 变更感知。 |
+| `recall_memory` | 全功能 / Sidecar | *“查一下某技术方案”*、*“我们以前怎么配 X 的”* | 混合 RRF 检索（BM25 + 本地向量 + 双链拓扑加权），亚毫秒级精准定位私有知识。 |
+| `offload_context` | 仅全功能 | 智能体跑测试/编译产生超 30 行大段日志输出时 | 将终端原始文本外置压缩，自动提炼生成带节点 ID 的 Mermaid 状态机图。 |
+| `inspect_log_node` | 仅全功能 | *“查看 node_xxxx 的具体失败堆栈”* | 根据 Node ID 精准调取保存在本地磁盘上的完整切片。 |
+| `flush_session` | 全功能 / Sidecar | *“记录这个架构决策”*、*“把刚才排障结论存起来”* | 自动按照知识库规约格式化生成包含 Frontmatter 与 WikiLinks 的 ADR 笔记。 |
+| `distill_session_skill`| 全功能 / Sidecar | *“把这次排错过程提炼为可复用的技能手册”* | 解析调用栈与排障上下文，提炼生成标准化故障排除 Skill（支持 Obsidian 与 Hermes Agent）。 |
+| `gc_session_context` | 仅全功能 | 多轮对话上下文逼近上限时 | 执行 4 级剪枝协议，折叠过往冗长工具输出，维持认知黄金区，达成 **TRR >= 85%**。 |
+| `guard_check` | 全功能 / Sidecar | 提交 Git 前、功能代码实现交付后审查 | 毫秒级审计当前 Diff 与修改，强制阻断违反 ADR 架构不变量的代码合入。 |
 
 > 💡 **进阶技巧：如何让 AI 100% 主动遵守架构规则？**  
 > 在项目根目录的 `AGENTS.md`（或全局 System Prompt）中添加一行：  
@@ -401,7 +424,7 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 | 命令 | 常用参数 | 说明 |
 | :--- | :--- | :--- |
 | `k0maru install` | `--vault <path>` | 一键将 `k0maru-memory` 挂载至智能体客户端配置文件 |
-| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`, `hermes`, `openclaw`, `omp`) |
 | | `--dry-run` | 仅预览配置变更差异，不实际写入磁盘 |
 | `k0maru doctor` | `--vault <path>` | 全面体检二进制环境、知识库、缓存索引与生态挂载健康度 |
 | | `--json` | 输出机器可读的结构化诊断报告 |
@@ -441,6 +464,10 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 | | `--json` | 输出结构化 JSON 审计报告 |
 | `k0maru guard install` | `--path <repo_dir>` | 向指定 Git 仓库安装 `.git/hooks/pre-commit` 自动阻断钩子 |
 | `k0maru mcp` | `--vault <path>` | 启动标准 stdio FastMCP 服务，挂载全部 8 大记忆工具 |
+| | `--sidecar` | 启动面向 `omp` 的正交 5 工具伴生模式（剔除日志卸载与 GC） |
+| `k0maru pack export` | `--name <name> --tag <tag> -o <file.pack.json>` | 导出可移植知识包 (.pack.json)，打包笔记与 ADR 规则 |
+| `k0maru pack import` | `<file.pack.json> [--dry-run]` | 将知识包导入目标 LLM-Wiki，自适应目标目录与规约 |
+| `k0maru pack inspect` | `<file.pack.json>` | 预览知识包内容、元数据与目标路径预测 |
 
 ---
 

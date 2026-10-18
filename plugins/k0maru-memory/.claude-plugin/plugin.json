@@ -1,0 +1,6 @@
+{
+  "name": "k0maru-memory",
+  "version": "1.0.0",
+  "description": "Standalone LLM-Wiki Memory Hub & Living ADR Guard for Claude Code (8 MCP tools)",
+  "mcpServers": "./.mcp.json"
+}

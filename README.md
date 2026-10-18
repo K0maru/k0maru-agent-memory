@@ -3,7 +3,7 @@
 # K0maru-Agent-Memory
 
 > **A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents.**  
-> *Mounting personal Markdown vaults (Obsidian & Karpathy LLM-Wiki) with instant sub-millisecond context retrieval, symbolic log offloading, and living ADR architectural guardrails.*
+> *Topology-agnostic memory hub mounting any Markdown vault or LLM-Wiki (flat Karpathy wikis, engineering ADRs, PARA, Johnny.Decimal) with instant sub-millisecond context retrieval, symbolic log offloading, and living ADR architectural guardrails.*
 
 [![Language: Rust 2021](https://img.shields.io/badge/Language-Rust_2021-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -29,8 +29,8 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
    - Pure Rust, statically compiled into a single **3.66 MB** standalone binary.
    - Cold-starts in just **3.38 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
    - Runs on demand via standard Unix pipes and `stdio` streams, releasing all memory immediately upon process exit.
-2. **📝 Bring Your Own Markdown**:
-   - Your existing local Markdown notes (Obsidian Vault, Karpathy-style flat LLM-Wiki) serve as the **Single Source of Truth**.
+2. **📝 Bring Your Own Markdown (Topology-Agnostic LLM-Wiki)**:
+   - Your existing local Markdown notes serve as the **Single Source of Truth**. Fully topology-agnostic: adapts seamlessly to **any LLM-Wiki shape** — flat Karpathy-style LLM-Wikis, engineering `docs/adr/` or `decisions/` wikis, PARA (`projects/`, `cards/`, `logs/`), and Johnny.Decimal (`10_Projects/`, `20_Cards/`).
    - Zero proprietary binary lock-in, zero migration friction, and zero changes to your existing folder structure.
 3. **🪓 Disposable Transient Cache**:
    - Maintains only a single-file SQLite database (`cache.sqlite`) integrating FTS5 BM25 full-text indices and `sqlite-vec` virtual tables with pluggable embedding dimensions.
@@ -110,11 +110,14 @@ cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
 ### 2. Connect Your Coding Agents (`k0maru install`)
 
-With a single command, inject K0maru's FastMCP service into all detected coding agent configuration files (Claude Code, Cursor, Gemini CLI, Windsurf, Cline / Roo Code):
+With a single command, inject K0maru's FastMCP service into all detected coding agent configuration files (Claude Code, Cursor, Gemini CLI, Windsurf, Cline / Roo Code, Hermes, OpenClaw, and Oh My Pi / `omp`):
 
 ```bash
 # Auto-detect and configure all installed agents pointing to your Markdown vault
 k0maru install --vault ~/Documents/MyVault
+
+# Or configure a specific client (e.g. Oh My Pi / omp)
+k0maru install --target omp --vault ~/Documents/MyVault
 
 # Or preview configuration diffs safely without writing to disk
 k0maru install --vault ~/Documents/MyVault --dry-run
@@ -131,6 +134,24 @@ For manual setup, add this snippet to your IDE's MCP config:
   }
 }
 ```
+
+### 2.1 Tern Native Plugin & omp/Claude Plugin Marketplace
+
+K0maru integrates natively with modern terminal multiplexers and agent plugin marketplaces:
+
+- **Tern Multiplexer Plugin**: Native Luau plugin featuring an interactive cockpit dashboard, CLI lens, and Carly palette integration:
+  ```bash
+  tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
+  ```
+- **Oh My Pi (`omp`) Plugin Marketplace**:
+  ```text
+  /marketplace add K0maru/k0maru-agent-memory
+  /marketplace install k0maru-memory@k0maru-agent-memory
+  ```
+- **Claude Code Plugin Marketplace**:
+  ```text
+  /plugin add K0maru/k0maru-agent-memory
+  ```
 
 ---
 
@@ -325,19 +346,21 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 ---
 
 ## 🤖 Autonomous Agent Ecosystem & FastMCP Protocol
+When connected via FastMCP, K0maru operates in two distinct server modes:
 
-When connected via FastMCP, AI coding agents gain access to 8 purpose-built memory tools:
+- **Default Full Mode (8 Tools)**: For general open-source and IDE agents (Claude Code, Cursor, Windsurf, Hermes, OpenClaw), providing the complete suite of memory, context offloading, and GC tools.
+- **Orthogonal Sidecar Mode (`--sidecar`, 5 Tools)**: Tailored for **`omp`** (`Oh My Pi`). Because `omp` natively manages terminal streams and session compaction, sidecar mode exposes the 5 orthogonal domain tools (`get_project_loadout`, `recall_memory`, `flush_session`, `distill_session_skill`, `guard_check`) while omitting `offload_context`, `inspect_log_node`, and `gc_session_context` to prevent pipeline redundancy.
 
-| FastMCP Tool | Target Intent & Natural Prompt Triggers | Core Value & Mechanics |
-| :--- | :--- | :--- |
-| `get_project_loadout` | *"Start new task"*, *"What are our architectural invariants?"* | Scoped 4-tier retrieval returning mission, rules, and recent logs strictly **< 300 Tokens**. Supports `--diff` dynamic activation. |
-| `recall_memory` | *"How do we configure X?"*, *"Search notes for Y"* | Hybrid BM25 + ONNX vector + RRF $k=60$ + 1-hop WikiLinks graph boost. Instant sub-millisecond retrieval. |
-| `offload_context` | Large tool execution outputs, test logs (>30 lines) | Externalizes verbose terminal text into Mermaid state diagrams and stored disk slices. Prevents attention drift. |
-| `inspect_log_node` | *"Inspect failure stack for node_xxxx"* | Retrieves exact raw stack trace slice on demand by node ID. |
-| `flush_session` | *"Document this decision"*, *"Save milestone to vault"* | Atomically writes structured ADRs or logs into vault matching local naming conventions and frontmatter schemas. |
-| `distill_session_skill`| *"Distill this bug fix into a reusable skill"* | Extracts troubleshooting patterns into structured skill notes (Markdown or Hermes format). |
-| `gc_session_context` | Long multi-turn agent dialogues approaching context limit | Compresses session trajectory with 4-tier pruning protocol, achieving **TRR >= 85%** while preserving hot window. |
-| `guard_check` | Before Git commits, post-implementation code review | Audits diff against Living ADR rules (<10ms). Halts non-compliant code from entering repositories. |
+| FastMCP Tool | Mode | Target Intent & Natural Prompt Triggers | Core Value & Mechanics |
+| :--- | :---: | :--- | :--- |
+| `get_project_loadout` | Full / Sidecar | *"Start new task"*, *"What are our architectural invariants?"* | Scoped 4-tier retrieval returning mission, rules, and recent logs strictly **< 300 Tokens**. Supports `--diff` dynamic activation. |
+| `recall_memory` | Full / Sidecar | *"How do we configure X?"*, *"Search notes for Y"* | Hybrid BM25 + ONNX vector + RRF $k=60$ + 1-hop WikiLinks graph boost. Instant sub-millisecond retrieval. |
+| `offload_context` | Full Only | Large tool execution outputs, test logs (>30 lines) | Externalizes verbose terminal text into Mermaid state diagrams and stored disk slices. Prevents attention drift. |
+| `inspect_log_node` | Full Only | *"Inspect failure stack for node_xxxx"* | Retrieves exact raw stack trace slice on demand by node ID. |
+| `flush_session` | Full / Sidecar | *"Document this decision"*, *"Save milestone to vault"* | Atomically writes structured ADRs or logs into vault matching local naming conventions and frontmatter schemas. |
+| `distill_session_skill`| Full / Sidecar | *"Distill this bug fix into a reusable skill"* | Extracts troubleshooting patterns into structured skill notes (Markdown or Hermes format). |
+| `gc_session_context` | Full Only | Long multi-turn agent dialogues approaching context limit | Compresses session trajectory with 4-tier pruning protocol, achieving **TRR >= 85%** while preserving hot window. |
+| `guard_check` | Full / Sidecar | Before Git commits, post-implementation code review | Audits diff against Living ADR rules (<10ms). Halts non-compliant code from entering repositories. |
 
 > 💡 **Pro-Tip: Autonomous Vault Inspection System Prompt**  
 > Add this single instruction to your `AGENTS.md` or global system prompt:  
@@ -401,7 +424,7 @@ Both `k0maru` and `k0maru-memory` binary names are supported identically.
 | Command | Common Flags | Description |
 | :--- | :--- | :--- |
 | `k0maru install` | `--vault <path>` | Injects `k0maru-memory` into agent client config files |
-| | `--target <client>` | Target client (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--target <client>` | Target client (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`, `hermes`, `openclaw`, `omp`) |
 | | `--dry-run` | Previews configuration changes without touching disk |
 | `k0maru doctor` | `--vault <path>` | Full diagnostic check of binary, vault, cache, and client bindings |
 | | `--json` | Outputs machine-readable JSON diagnostic report |
@@ -441,6 +464,10 @@ Both `k0maru` and `k0maru-memory` binary names are supported identically.
 | | `--json` | Outputs structured JSON guard report |
 | `k0maru guard install` | `--path <repo_dir>` | Installs `.git/hooks/pre-commit` hook to block non-compliant commits |
 | `k0maru mcp` | `--vault <path>` | Starts stdio FastMCP service exposing all 8 memory tools |
+| | `--sidecar` | Orthogonal 5-tool mode for `omp` (omits log offload and GC tools) |
+| `k0maru pack export` | `--name <name> --tag <tag> -o <file.pack.json>` | Exports portable Memory Pack (.pack.json) of notes & ADRs |
+| `k0maru pack import` | `<file.pack.json> [--dry-run]` | Imports Memory Pack into LLM-Wiki adapting to local topology |
+| `k0maru pack inspect` | `<file.pack.json>` | Inspects pack contents, metadata, and predicted destination paths |
 
 ---
 
