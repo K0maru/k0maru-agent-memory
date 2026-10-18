@@ -1619,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "k0maru"
-version = "0.12.0"
+version = "1.0.0"
 dependencies = [
  "arboard",
  "assert_cmd",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "k0maru-core"
-version = "0.12.0"
+version = "1.0.0"
 dependencies = [
  "fastembed",
  "glob",

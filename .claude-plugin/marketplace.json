@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "k0maru-agent-memory",
+  "owner": {
+    "name": "K0maru"
+  },
+  "metadata": {
+    "description": "Standalone zero-daemon LLM-Wiki & Obsidian Agent Memory Hub, Living ADR Guard, and Memory Packs",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "k0maru-memory",
+      "description": "Hybrid BM25 + ONNX vector + WikiLinks RRF memory recall, Living ADR Guard (<10ms), project loadout, and knowledge crystallization",
+      "version": "1.0.0",
+      "category": "development",
+      "tags": ["memory", "obsidian", "llm-wiki", "adr-guard", "mcp"],
+      "repository": "https://github.com/K0maru/k0maru-agent-memory",
+      "license": "MIT",
+      "source": "./plugins/k0maru-memory"
+    }
+  ]
+}

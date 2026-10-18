@@ -1,0 +1,18 @@
+schema = 1
+id = "k0maru-memory"
+name = "K0maru Agent Memory"
+version = "1.0.0"
+description = "LLM-Wiki Hybrid Memory Hub, Living ADR Guard, and Memory Packs for Tern"
+icon = "brain"
+host = "host.luau"
+window = "window.luau"
+
+[[blocks]]
+id = "cockpit"
+title = "K0maru Memory Cockpit"
+icon = "brain"
+palette = true
+
+[[lenses]]
+id = "cli"
+match = ["k0maru *", "k0maru-memory *"]
