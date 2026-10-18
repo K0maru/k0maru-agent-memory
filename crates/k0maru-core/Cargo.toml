@@ -1,6 +1,6 @@
 [package]
 name = "k0maru-core"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary core library for K0maru Agent Memory Hub"
 license = "MIT OR Apache-2.0"
