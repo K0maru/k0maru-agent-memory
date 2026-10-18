@@ -305,3 +305,54 @@ fn test_mcp_gc_session_context_tool() {
             || text.contains("test_mcp_gc")
     );
 }
+
+#[test]
+fn test_mcp_sidecar_mode_filters_context_tools() {
+    let vault = mock_obsidian_vault();
+
+    let tools_req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+    });
+
+    // Default mode exposes all 8 tools.
+    let mut server = McpServer::new(vault.path());
+    assert!(!server.is_sidecar());
+
+    let default_str = server
+        .handle_line(&tools_req.to_string())
+        .expect("Should respond to tools/list");
+    let default_resp: Value = serde_json::from_str(&default_str).unwrap();
+    let default_tools = default_resp["result"]["tools"].as_array().unwrap();
+    assert_eq!(default_tools.len(), 8);
+
+    // Sidecar mode exposes only the 5 core orthogonal tools.
+    let mut server = McpServer::new(vault.path()).with_sidecar(true);
+    assert!(server.is_sidecar());
+
+    let sidecar_str = server
+        .handle_line(&tools_req.to_string())
+        .expect("Should respond to tools/list");
+    let sidecar_resp: Value = serde_json::from_str(&sidecar_str).unwrap();
+    let sidecar_tools = sidecar_resp["result"]["tools"].as_array().unwrap();
+    let sidecar_names: Vec<&str> = sidecar_tools
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+
+    assert_eq!(
+        sidecar_names,
+        vec![
+            "get_project_loadout",
+            "recall_memory",
+            "flush_session",
+            "distill_session_skill",
+            "guard_check",
+        ]
+    );
+    assert_eq!(sidecar_tools.len(), 5);
+    assert!(!sidecar_names.contains(&"offload_context"));
+    assert!(!sidecar_names.contains(&"inspect_log_node"));
+    assert!(!sidecar_names.contains(&"gc_session_context"));
+}

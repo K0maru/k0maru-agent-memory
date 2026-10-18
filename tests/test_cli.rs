@@ -96,3 +96,41 @@ fn test_install_claude_and_cursor_configs() {
     let content = fs::read_to_string(&claude_config).unwrap();
     assert!(content.contains("k0maru-memory"));
 }
+#[test]
+fn test_install_omp_injects_sidecar_flag() {
+    let temp_home = tempdir().unwrap();
+    let home = temp_home.path();
+    let vault = temp_home.path().join("Vault");
+    fs::create_dir_all(&vault).unwrap();
+
+    let opts = InstallOptions {
+        target: InstallTarget::Omp,
+        vault_path: vault.clone(),
+        home_override: Some(home.to_path_buf()),
+        dry_run: false,
+    };
+    let report = run_install(opts.clone()).unwrap();
+    assert_eq!(report.outcomes.len(), 1);
+    assert_eq!(report.outcomes[0].client, McpClient::Omp);
+    assert!(report.outcomes[0].config_path.exists());
+
+    let omp_config = home.join(".omp").join("agent").join("mcp.json");
+    assert!(omp_config.exists());
+    let content = fs::read_to_string(&omp_config).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let args = parsed
+        .get("mcpServers")
+        .and_then(|s| s.get("k0maru-memory"))
+        .and_then(|k| k.get("args"))
+        .and_then(|a| a.as_array())
+        .expect("args array should exist in mcpServers['k0maru-memory']");
+    assert!(
+        args.iter().any(|arg| arg.as_str() == Some("--sidecar")),
+        "args should contain '--sidecar'"
+    );
+
+    // Verify already_configured is detected on subsequent install
+    let report2 = run_install(opts).unwrap();
+    assert_eq!(report2.outcomes.len(), 1);
+    assert!(report2.outcomes[0].already_configured);
+}

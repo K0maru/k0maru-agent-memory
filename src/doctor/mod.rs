@@ -603,6 +603,7 @@ fn target_flag_name(client: McpClient) -> &'static str {
         McpClient::Cline => "cline",
         McpClient::Hermes => "hermes",
         McpClient::OpenClaw => "openclaw",
+        McpClient::Omp => "omp",
     }
 }
 

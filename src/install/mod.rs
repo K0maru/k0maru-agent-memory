@@ -22,6 +22,7 @@ pub enum InstallTarget {
     Cline,
     Hermes,
     OpenClaw,
+    Omp,
 }
 
 impl InstallTarget {
@@ -36,6 +37,7 @@ impl InstallTarget {
             Self::Cline => vec![McpClient::Cline],
             Self::Hermes => vec![McpClient::Hermes],
             Self::OpenClaw => vec![McpClient::OpenClaw],
+            Self::Omp => vec![McpClient::Omp],
         }
     }
 }
@@ -53,8 +55,9 @@ impl std::str::FromStr for InstallTarget {
             "cline" | "roo" | "roo-cline" => Ok(Self::Cline),
             "hermes" | "hermes-agent" => Ok(Self::Hermes),
             "openclaw" | "claw" => Ok(Self::OpenClaw),
+            "omp" | "oh-my-pi" => Ok(Self::Omp),
             other => Err(format!(
-                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw",
+                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw, omp",
                 other
             )),
         }
@@ -72,6 +75,7 @@ impl std::fmt::Display for InstallTarget {
             Self::Cline => write!(f, "cline"),
             Self::Hermes => write!(f, "hermes"),
             Self::OpenClaw => write!(f, "openclaw"),
+            Self::Omp => write!(f, "omp"),
         }
     }
 }
@@ -116,6 +120,17 @@ pub fn inject_k0maru_mcp(
     existing_json_str: Option<&str>,
     vault_path: &Path,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    inject_k0maru_mcp_for_client(existing_json_str, vault_path, McpClient::Claude)
+}
+
+/// Injects or updates `"k0maru-memory"` server entry into existing JSON content for a specific client.
+///
+/// Preserves other servers, custom top-level keys, and ensures `mcpServers` object exists.
+pub fn inject_k0maru_mcp_for_client(
+    existing_json_str: Option<&str>,
+    vault_path: &Path,
+    client: McpClient,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let mut root: serde_json::Value = match existing_json_str {
         Some(s) if !s.trim().is_empty() => serde_json::from_str(s)?,
         _ => serde_json::json!({ "mcpServers": {} }),
@@ -135,9 +150,14 @@ pub fn inject_k0maru_mcp(
         .ok_or("Field 'mcpServers' must be a JSON object")?;
 
     let vault_str = vault_path.to_string_lossy().to_string();
+    let args = if client == McpClient::Omp {
+        vec!["mcp", "--vault", vault_str.as_str(), "--sidecar"]
+    } else {
+        vec!["mcp", "--vault", vault_str.as_str()]
+    };
     let server_entry = serde_json::json!({
         "command": "k0maru",
-        "args": ["mcp", "--vault", vault_str]
+        "args": args
     });
 
     servers.insert("k0maru-memory".to_string(), server_entry);
@@ -147,7 +167,11 @@ pub fn inject_k0maru_mcp(
 }
 
 /// Checks whether the existing JSON already mounts `k0maru-memory` targeting `target_vault`.
-fn check_already_configured(existing_content: Option<&str>, target_vault: &Path) -> bool {
+fn check_already_configured(
+    existing_content: Option<&str>,
+    target_vault: &Path,
+    client: McpClient,
+) -> bool {
     let content = match existing_content {
         Some(c) if !c.trim().is_empty() => c,
         _ => return false,
@@ -172,6 +196,12 @@ fn check_already_configured(existing_content: Option<&str>, target_vault: &Path)
         Some(a) => a,
         None => return false,
     };
+    if client == McpClient::Omp {
+        let has_sidecar = args.iter().any(|a| a.as_str() == Some("--sidecar"));
+        if !has_sidecar {
+            return false;
+        }
+    }
 
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -264,9 +294,11 @@ pub fn run_install(
             None
         };
 
-        let already_configured = check_already_configured(existing_content.as_deref(), &vault_path);
+        let already_configured =
+            check_already_configured(existing_content.as_deref(), &vault_path, client);
 
-        let merged_json = inject_k0maru_mcp(existing_content.as_deref(), &vault_path)?;
+        let merged_json =
+            inject_k0maru_mcp_for_client(existing_content.as_deref(), &vault_path, client)?;
 
         let (updated, preview_json) = if options.dry_run {
             (false, Some(merged_json))

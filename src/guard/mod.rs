@@ -52,10 +52,6 @@ pub struct GuardCheckArgs {
     #[arg(long)]
     pub strict: bool,
 
-    /// Audit K-DSL wire packet or JSON envelope against Living ADR rules
-    #[arg(long, value_name = "KDSL")]
-    pub kdsl: Option<String>,
-
     /// Specific file paths to check directly
     #[arg(value_name = "FILES")]
     pub files: Vec<PathBuf>,
@@ -235,18 +231,7 @@ pub fn run_guard_check(
 ) -> Result<GuardReport, Box<dyn std::error::Error>> {
     let rules = resolve_guard_rules(vault_path, args.project.as_deref())?;
 
-    let mut report = if let Some(ref kdsl_raw) = args.kdsl {
-        let kdsl_str = if kdsl_raw == "-" {
-            let mut s = String::new();
-            std::io::stdin().read_to_string(&mut s)?;
-            s
-        } else if Path::new(kdsl_raw).is_file() {
-            fs::read_to_string(kdsl_raw)?
-        } else {
-            kdsl_raw.clone()
-        };
-        GuardEngine::check_kdsl(&kdsl_str, &rules)
-    } else if !args.files.is_empty() {
+    let mut report = if !args.files.is_empty() {
         let mut file_tuples = Vec::new();
         for file in &args.files {
             if file.exists() {

@@ -30,6 +30,7 @@ pub struct McpServer {
     refs_dir: PathBuf,
     storage: Option<SqliteStorage>,
     embedder: Option<Arc<dyn EmbeddingEngine>>,
+    sidecar: bool,
 }
 
 impl McpServer {
@@ -54,7 +55,19 @@ impl McpServer {
             refs_dir,
             storage: None,
             embedder,
+            sidecar: false,
         }
+    }
+
+    /// Enables or disables orthogonal sidecar mode (exposes only 5 core tools in tools/list).
+    pub fn with_sidecar(mut self, sidecar: bool) -> Self {
+        self.sidecar = sidecar;
+        self
+    }
+
+    /// Returns whether sidecar mode is enabled.
+    pub fn is_sidecar(&self) -> bool {
+        self.sidecar
     }
 
     /// Sets custom refs directory for offloaded logs.
@@ -697,24 +710,19 @@ impl McpServer {
 
     fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
         let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
-        let kdsl_arg = arguments.get("kdsl").and_then(|v| v.as_str());
         let project_name = arguments.get("project_name").and_then(|v| v.as_str());
 
         let rules = crate::guard::resolve_guard_rules(&self.vault_path, project_name)
             .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
 
-        let report = if let Some(kdsl_text) = kdsl_arg {
-            crate::guard::GuardEngine::check_kdsl(kdsl_text, &rules)
+        let diff_text = if let Some(d) = diff_arg {
+            d.to_string()
         } else {
-            let diff_text = if let Some(d) = diff_arg {
-                d.to_string()
-            } else {
-                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                crate::guard::get_git_diff(&cwd, None)
-                    .map_err(|e| format!("Failed to inspect git diff: {}", e))?
-            };
-            crate::guard::GuardEngine::check_diff(&diff_text, &rules)
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            crate::guard::get_git_diff(&cwd, None)
+                .map_err(|e| format!("Failed to inspect git diff: {}", e))?
         };
+        let report = crate::guard::GuardEngine::check_diff(&diff_text, &rules);
 
         let formatted = crate::guard::format_guard_report(&report);
         let json_report = serde_json::to_string_pretty(&report)
@@ -741,219 +749,228 @@ impl McpServer {
     }
 
     fn handle_tools_list(&self, id: Value) -> Value {
+        let mut tools = json!([
+            {
+                "name": "get_project_loadout",
+                "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "project_name": {
+                            "type": "string",
+                            "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
+                        },
+                        "diff": {
+                            "type": "boolean",
+                            "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
+                        }
+                    },
+                    "required": ["project_name"]
+                }
+            },
+            {
+                "name": "recall_memory",
+                "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (SecondBrain / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. '给我xxx相关信息', '查找xxx', 'xxx怎么配置', 'what did we do with xxx'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return (default: 5)"
+                        },
+                        "full": {
+                            "type": "boolean",
+                            "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "offload_context",
+                "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_text": {
+                            "type": "string",
+                            "description": "Raw log or output text to be offloaded"
+                        },
+                        "task_name": {
+                            "type": "string",
+                            "description": "Optional task identifier prefix"
+                        }
+                    },
+                    "required": ["raw_text"]
+                }
+            },
+            {
+                "name": "inspect_log_node",
+                "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "node_id": {
+                            "type": "string",
+                            "description": "Offloaded log node identifier (e.g. node_1a2b3c4d)"
+                        }
+                    },
+                    "required": ["node_id"]
+                }
+            },
+            {
+                "name": "flush_session",
+                "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Title of the decision or log note"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Detailed Markdown content"
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "Brief one-line summary or executive conclusion"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Associated tags"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Related existing notes to link via WikiLinks"
+                        }
+                    },
+                    "required": ["title", "content"]
+                }
+            },
+            {
+                "name": "distill_session_skill",
+                "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_trace": {
+                            "type": "string",
+                            "description": "Raw execution log, error stack trace, or debugging terminal output"
+                        },
+                        "node_id": {
+                            "type": "string",
+                            "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional explicit skill title (auto-inferred if omitted)"
+                        },
+                        "context_hint": {
+                            "type": "string",
+                            "description": "Optional context hint or explanation describing what was happening"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Target category (defaults to 'skill')"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional related notes or WikiLinks array"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, simulates distillation and returns preview without writing to vault"
+                        },
+                        "target": {
+                            "type": "string",
+                            "enum": ["default", "hermes"],
+                            "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "gc_session_context",
+                "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "trajectory_json": {
+                            "type": "string",
+                            "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
+                        },
+                        "threshold": {
+                            "type": "integer",
+                            "description": "Line threshold before tool output is folded (default: 20)"
+                        },
+                        "hot_window": {
+                            "type": "integer",
+                            "description": "Number of recent turns preserved untouched in hot window (default: 5)"
+                        },
+                        "context_window": {
+                            "type": "integer",
+                            "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
+                        }
+                    },
+                    "required": ["trajectory_json"]
+                }
+            },
+            {
+                "name": "guard_check",
+                "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "diff": {
+                            "type": "string",
+                            "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                        },
+                        "project_name": {
+                            "type": "string",
+                            "description": "Optional target project name to filter ADR invariants for."
+                        }
+                    }
+                }
+            }
+        ]);
+
+        if self.sidecar {
+            if let Some(tool_list) = tools.as_array_mut() {
+                tool_list.retain(|tool| {
+                    !matches!(
+                        tool["name"].as_str().unwrap_or(""),
+                        "offload_context" | "inspect_log_node" | "gc_session_context"
+                    )
+                });
+            }
+        }
+
         json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "tools": [
-                    {
-                        "name": "get_project_loadout",
-                        "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "project_name": {
-                                    "type": "string",
-                                    "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
-                                },
-                                "diff": {
-                                    "type": "boolean",
-                                    "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
-                                },
-                                "branch": {
-                                    "type": "string",
-                                    "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
-                                }
-                            },
-                            "required": ["project_name"]
-                        }
-                    },
-                    {
-                        "name": "recall_memory",
-                        "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (SecondBrain / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. '给我xxx相关信息', '查找xxx', 'xxx怎么配置', 'what did we do with xxx'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
-                                },
-                                "limit": {
-                                    "type": "integer",
-                                    "description": "Maximum number of results to return (default: 5)"
-                                },
-                                "full": {
-                                    "type": "boolean",
-                                    "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    },
-                    {
-                        "name": "offload_context",
-                        "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "raw_text": {
-                                    "type": "string",
-                                    "description": "Raw log or output text to be offloaded"
-                                },
-                                "task_name": {
-                                    "type": "string",
-                                    "description": "Optional task identifier prefix"
-                                }
-                            },
-                            "required": ["raw_text"]
-                        }
-                    },
-                    {
-                        "name": "inspect_log_node",
-                        "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "node_id": {
-                                    "type": "string",
-                                    "description": "Offloaded log node identifier (e.g. node_1a2b3c4d)"
-                                }
-                            },
-                            "required": ["node_id"]
-                        }
-                    },
-                    {
-                        "name": "flush_session",
-                        "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "title": {
-                                    "type": "string",
-                                    "description": "Title of the decision or log note"
-                                },
-                                "content": {
-                                    "type": "string",
-                                    "description": "Detailed Markdown content"
-                                },
-                                "summary": {
-                                    "type": "string",
-                                    "description": "Brief one-line summary or executive conclusion"
-                                },
-                                "category": {
-                                    "type": "string",
-                                    "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Associated tags"
-                                },
-                                "related_notes": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Related existing notes to link via WikiLinks"
-                                }
-                            },
-                            "required": ["title", "content"]
-                        }
-                    },
-                    {
-                        "name": "distill_session_skill",
-                        "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "raw_trace": {
-                                    "type": "string",
-                                    "description": "Raw execution log, error stack trace, or debugging terminal output"
-                                },
-                                "node_id": {
-                                    "type": "string",
-                                    "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
-                                },
-                                "title": {
-                                    "type": "string",
-                                    "description": "Optional explicit skill title (auto-inferred if omitted)"
-                                },
-                                "context_hint": {
-                                    "type": "string",
-                                    "description": "Optional context hint or explanation describing what was happening"
-                                },
-                                "category": {
-                                    "type": "string",
-                                    "description": "Target category (defaults to 'skill')"
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
-                                },
-                                "related_notes": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Optional related notes or WikiLinks array"
-                                },
-                                "dry_run": {
-                                    "type": "boolean",
-                                    "description": "If true, simulates distillation and returns preview without writing to vault"
-                                },
-                                "target": {
-                                    "type": "string",
-                                    "enum": ["default", "hermes"],
-                                    "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "gc_session_context",
-                        "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "trajectory_json": {
-                                    "type": "string",
-                                    "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
-                                },
-                                "threshold": {
-                                    "type": "integer",
-                                    "description": "Line threshold before tool output is folded (default: 20)"
-                                },
-                                "hot_window": {
-                                    "type": "integer",
-                                    "description": "Number of recent turns preserved untouched in hot window (default: 5)"
-                                },
-                                "context_window": {
-                                    "type": "integer",
-                                    "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
-                                }
-                            },
-                            "required": ["trajectory_json"]
-                        }
-                    },
-                    {
-                        "name": "guard_check",
-                        "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "diff": {
-                                    "type": "string",
-                                    "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
-                                },
-                                "kdsl": {
-                                    "type": "string",
-                                    "description": "Optional K-DSL 0.1 wire packet or JSON envelope to symbolically audit against Living ADR invariants (<5ms)."
-                                },
-                                "project_name": {
-                                    "type": "string",
-                                    "description": "Optional target project name to filter ADR invariants for."
-                                }
-                            }
-                        }
-                    }
-                ]
+                "tools": tools
             }
         })
     }

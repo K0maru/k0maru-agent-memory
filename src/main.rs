@@ -88,53 +88,6 @@ enum Commands {
         #[arg(long, visible_alias = "embedder", help = "Embedding model to use")]
         embed_model: Option<String>,
     },
-
-    /// Listen for or consume TASK_COMPLETED Linda tuples and crystallize outcomes to 01_AI_Logs
-    #[command(visible_alias = "tuple-crystal")]
-    Crystal(CrystalArgs),
-}
-
-#[derive(Args, Debug)]
-pub struct CrystalArgs {
-    /// Path to vault root directory (defaults to current dir or detects nearest vault)
-    #[arg(short, long, value_name = "PATH")]
-    pub vault: Option<PathBuf>,
-
-    /// Path to Linda tuple space directory (defaults to ~/.k0maru/tuples)
-    #[arg(short, long, value_name = "PATH")]
-    pub tuple_dir: Option<PathBuf>,
-
-    /// Target tuple kind to match (default: TASK_COMPLETED)
-    #[arg(short, long, default_value = "TASK_COMPLETED")]
-    pub kind: String,
-
-    /// Filter by domain (e.g. MEMORY, AUTH-SRV)
-    #[arg(short, long, value_name = "DOMAIN")]
-    pub domain: Option<String>,
-
-    /// Filter by specific task ID
-    #[arg(long, value_name = "TASK_ID")]
-    pub task_id: Option<String>,
-
-    /// Atomically consume (delete) the tuple after crystallization (Linda 'in' primitive)
-    #[arg(short, long)]
-    pub consume: bool,
-
-    /// Continuously watch for new completed tuples and crystallize automatically
-    #[arg(short, long)]
-    pub watch: bool,
-
-    /// Polling interval in seconds when in watch mode (default: 2)
-    #[arg(long, default_value_t = 2)]
-    pub interval: u64,
-
-    /// Preview crystallization without modifying vault or consuming tuples
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Output machine-readable JSON array of crystallization results
-    #[arg(long)]
-    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -211,6 +164,10 @@ pub struct McpArgs {
     /// Embedding model to use for semantic vector retrieval (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
     #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
     pub embed_model: Option<String>,
+
+    /// Run in orthogonal sidecar mode (omits offload_context, inspect_log_node, and gc_session_context tools)
+    #[arg(long)]
+    pub sidecar: bool,
 }
 
 #[derive(Args, Debug)]
@@ -288,7 +245,7 @@ pub struct InstallArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw
+    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw, omp
     #[arg(short, long, default_value = "all")]
     pub target: String,
 
@@ -920,7 +877,7 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let mut server = k0maru::mcp::McpServer::new(&vault_path);
+    let mut server = k0maru::mcp::McpServer::new(&vault_path).with_sidecar(args.sidecar);
     let model_cache = if vault_path.join(".k0maru").join("models").exists() {
         Some(vault_path.join(".k0maru").join("models"))
     } else {
@@ -1411,66 +1368,6 @@ fn run_gc(args: GcArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_crystal(args: CrystalArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let vault_root = detect_vault_path(args.vault);
-    let crystallizer = k0maru::crystal::TupleCrystallizer::new(&vault_root, args.tuple_dir);
-
-    if args.watch {
-        safe_println(&format!(
-            "👀 启动 Linda 元组结晶监听器 (Tuple Directory: {}, Vault: {})...",
-            crystallizer.tuple_dir().display(),
-            crystallizer.vault_root().display()
-        ));
-        crystallizer.watch(
-            Some(&args.kind),
-            args.domain.as_deref(),
-            args.task_id.as_deref(),
-            args.consume,
-            std::time::Duration::from_secs(args.interval.max(1)),
-        )?;
-        return Ok(());
-    }
-
-    let results = crystallizer.crystallize_all(
-        Some(&args.kind),
-        args.domain.as_deref(),
-        args.task_id.as_deref(),
-        args.consume,
-        args.dry_run,
-    )?;
-
-    if args.json {
-        safe_println(&serde_json::to_string_pretty(&results)?);
-        return Ok(());
-    }
-
-    if results.is_empty() {
-        safe_println(&format!(
-            "ℹ️ 未发现匹配 kind='{}' 的待结晶元组 (目录: {})",
-            args.kind,
-            crystallizer.tuple_dir().display()
-        ));
-        return Ok(());
-    }
-
-    safe_println(&format!(
-        "✨ 成功自主结晶 {} 个任务元组至 01_AI_Logs:",
-        results.len()
-    ));
-    for res in &results {
-        safe_println(&format!(
-            "  • [{}] Task: {} (Domain: {}) -> {} (已消费: {})",
-            if res.dry_run { "DRY-RUN" } else { "✓" },
-            res.task_id,
-            res.domain,
-            res.relative_path.display(),
-            res.consumed
-        ));
-    }
-
-    Ok(())
-}
-
 fn main() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -1612,12 +1509,6 @@ fn main() {
                 }
             };
             if let Err(e) = rt.block_on(k0maru::ui::run_server(vault_path, port, open)) {
-                eprintln!("❌ 错误: {}", e);
-                std::process::exit(1);
-            }
-        }
-        Some(Commands::Crystal(args)) => {
-            if let Err(e) = run_crystal(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }
