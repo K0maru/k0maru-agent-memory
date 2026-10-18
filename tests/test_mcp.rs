@@ -73,6 +73,83 @@ fn test_mcp_tool_recall_memory_hybrid() {
 }
 
 #[test]
+fn test_mcp_recall_memory_compact_wire_vs_full() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    // 1. Default (full omitted or full: false): compact single-line K-DSL wire
+    let res_default = server.handle_tool_call(
+        json!(20),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions"
+            }
+        }),
+    );
+    let text_default = res_default["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text_default.starts_with("!μ:"),
+        "Default should be compact K-DSL wire starting with !μ:"
+    );
+    assert!(text_default.contains("20_Cards/Architecture_Decisions.md"));
+    assert!(text_default.contains("|score:"));
+    assert!(text_default.contains("|links:"));
+    assert!(text_default.contains(" § "));
+    assert!(
+        !text_default.contains("## "),
+        "Compact wire format should not contain markdown headers"
+    );
+    assert!(
+        text_default.len() < 1200,
+        "Compact wire output must be under 1200 characters"
+    );
+    for line in text_default.lines() {
+        assert!(
+            line.starts_with("!μ:"),
+            "Every line in compact wire format must start with !μ:"
+        );
+        assert!(!line.contains('\n'), "Each hit must be a single line");
+    }
+
+    // 2. Explicit full: false
+    let res_compact = server.handle_tool_call(
+        json!(21),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions",
+                "full": false
+            }
+        }),
+    );
+    let text_compact = res_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text_compact.starts_with("!μ:"));
+    assert_eq!(text_compact, text_default);
+
+    // 3. Explicit full: true -> verbose markdown format
+    let res_full = server.handle_tool_call(
+        json!(22),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Architecture Decisions",
+                "full": true
+            }
+        }),
+    );
+    let text_full = res_full["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text_full.contains("## Architecture Decisions"));
+    assert!(text_full.contains("Score: "));
+    assert!(text_full.contains("Hierarchy: L3Evergreen"));
+    assert_ne!(text_compact, text_full);
+}
+
+#[test]
 fn test_mcp_tool_get_project_loadout() {
     let vault = mock_obsidian_vault();
     let mut server = McpServer::new(vault.path());
@@ -227,4 +304,55 @@ fn test_mcp_gc_session_context_tool() {
             || text.contains("compacted_turns")
             || text.contains("test_mcp_gc")
     );
+}
+
+#[test]
+fn test_mcp_sidecar_mode_filters_context_tools() {
+    let vault = mock_obsidian_vault();
+
+    let tools_req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+    });
+
+    // Default mode exposes all 8 tools.
+    let mut server = McpServer::new(vault.path());
+    assert!(!server.is_sidecar());
+
+    let default_str = server
+        .handle_line(&tools_req.to_string())
+        .expect("Should respond to tools/list");
+    let default_resp: Value = serde_json::from_str(&default_str).unwrap();
+    let default_tools = default_resp["result"]["tools"].as_array().unwrap();
+    assert_eq!(default_tools.len(), 8);
+
+    // Sidecar mode exposes only the 5 core orthogonal tools.
+    let mut server = McpServer::new(vault.path()).with_sidecar(true);
+    assert!(server.is_sidecar());
+
+    let sidecar_str = server
+        .handle_line(&tools_req.to_string())
+        .expect("Should respond to tools/list");
+    let sidecar_resp: Value = serde_json::from_str(&sidecar_str).unwrap();
+    let sidecar_tools = sidecar_resp["result"]["tools"].as_array().unwrap();
+    let sidecar_names: Vec<&str> = sidecar_tools
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+
+    assert_eq!(
+        sidecar_names,
+        vec![
+            "get_project_loadout",
+            "recall_memory",
+            "flush_session",
+            "distill_session_skill",
+            "guard_check",
+        ]
+    );
+    assert_eq!(sidecar_tools.len(), 5);
+    assert!(!sidecar_names.contains(&"offload_context"));
+    assert!(!sidecar_names.contains(&"inspect_log_node"));
+    assert!(!sidecar_names.contains(&"gc_session_context"));
 }

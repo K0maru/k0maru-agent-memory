@@ -17,6 +17,7 @@ pub enum McpClient {
     Cline,
     Hermes,
     OpenClaw,
+    Omp,
 }
 
 impl McpClient {
@@ -30,6 +31,7 @@ impl McpClient {
             Self::Cline => "Cline / Roo Code",
             Self::Hermes => "Hermes Agent",
             Self::OpenClaw => "OpenClaw",
+            Self::Omp => "omp (Oh My Pi)",
         }
     }
 
@@ -43,6 +45,7 @@ impl McpClient {
             Self::Cline,
             Self::Hermes,
             Self::OpenClaw,
+            Self::Omp,
         ]
     }
 
@@ -204,6 +207,14 @@ impl McpClient {
                     Some(cfg_json)
                 }
             }
+            Self::Omp => {
+                if home_override.is_none() {
+                    if let Ok(omp_home) = std::env::var("OMP_HOME") {
+                        return Some(PathBuf::from(omp_home).join("mcp.json"));
+                    }
+                }
+                Some(home.join(".omp").join("agent").join("mcp.json"))
+            }
         }
     }
 
@@ -330,6 +341,7 @@ fn check_installed(client: McpClient, config_path: &Path, home: Option<&Path>) -
         McpClient::OpenClaw => {
             home.join(".openclaw").exists() || std::env::var("OPENCLAW_HOME").is_ok()
         }
+        McpClient::Omp => home.join(".omp").exists() || std::env::var("OMP_HOME").is_ok(),
     }
 }
 

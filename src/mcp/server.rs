@@ -14,6 +14,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::core::models::HierarchyLevel;
 use crate::core::traits::CacheStorage;
 use crate::loadout::LoadoutBuilder;
 use crate::offload::{inspect_node, OffloadEngine};
@@ -29,6 +30,7 @@ pub struct McpServer {
     refs_dir: PathBuf,
     storage: Option<SqliteStorage>,
     embedder: Option<Arc<dyn EmbeddingEngine>>,
+    sidecar: bool,
 }
 
 impl McpServer {
@@ -53,7 +55,19 @@ impl McpServer {
             refs_dir,
             storage: None,
             embedder,
+            sidecar: false,
         }
+    }
+
+    /// Enables or disables orthogonal sidecar mode (exposes only 5 core tools in tools/list).
+    pub fn with_sidecar(mut self, sidecar: bool) -> Self {
+        self.sidecar = sidecar;
+        self
+    }
+
+    /// Returns whether sidecar mode is enabled.
+    pub fn is_sidecar(&self) -> bool {
+        self.sidecar
     }
 
     /// Sets custom refs directory for offloaded logs.
@@ -244,6 +258,11 @@ impl McpServer {
             .map(|v| v as usize)
             .unwrap_or(5);
 
+        let full = arguments
+            .get("full")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         if let Err(e) = self.sync_cache() {
             return Err(format!("Cache sync failed: {}", e));
         }
@@ -265,30 +284,56 @@ impl McpServer {
                 return Ok(format!("No memories found matching query: '{}'", query));
             }
 
-            let mut formatted = Vec::new();
-            for res in &results {
-                let mut item = format!("## {} ({})\n", res.title, res.path);
-                item.push_str(&format!("Score: {:.4}\n", res.score));
+            if full {
+                let mut formatted = Vec::new();
+                for res in &results {
+                    let mut item = format!("## {} ({})\n", res.title, res.path);
+                    item.push_str(&format!("Score: {:.4}\n", res.score));
 
-                let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
-                if !backlinks.is_empty() {
-                    let bl_strs: Vec<String> =
-                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
-                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
-                }
-
-                if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
-                    if !doc.tags.is_empty() {
-                        item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                    let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
+                    if !backlinks.is_empty() {
+                        let bl_strs: Vec<String> =
+                            backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                        item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
                     }
-                    item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
+
+                    if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
+                        if !doc.tags.is_empty() {
+                            item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                        }
+                        item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
+                    }
+
+                    item.push_str(&format!("\n{}", res.snippet));
+                    formatted.push(item);
                 }
 
-                item.push_str(&format!("\n{}", res.snippet));
-                formatted.push(item);
+                Ok(formatted.join("\n\n---\n\n"))
+            } else {
+                let mut hits = Vec::with_capacity(results.len());
+                for res in &results {
+                    let in_links = retrieve_backlinks(storage, &res.title, &res.path).len();
+                    let (tier, out_links) = match storage.get_document(Path::new(&res.path)) {
+                        Ok(Some(doc)) => (hierarchy_to_tier(doc.hierarchy), doc.links.len()),
+                        _ => (
+                            infer_tier_from_path(&res.path),
+                            storage
+                                .get_outgoing_links(Path::new(&res.path))
+                                .map(|l| l.len())
+                                .unwrap_or(0),
+                        ),
+                    };
+                    hits.push(CompactRecallHit {
+                        tier,
+                        path: res.path.as_str(),
+                        score: res.score,
+                        in_links,
+                        out_links,
+                        raw_snippet: res.snippet.as_str(),
+                    });
+                }
+                Ok(format_compact_kdsl_hits(&hits))
             }
-
-            Ok(formatted.join("\n\n---\n\n"))
         } else {
             let docs = storage
                 .search_fts(query, limit)
@@ -298,30 +343,55 @@ impl McpServer {
                 return Ok(format!("No memories found matching query: '{}'", query));
             }
 
-            let mut formatted = Vec::new();
-            for (i, doc) in docs.iter().enumerate() {
-                let rank = i + 1;
-                let score = 1.0 / (60.0 + rank as f32);
-                let path_str = doc.path.to_string_lossy();
-                let mut item = format!("## {} ({})\n", doc.title, doc.path.display());
-                item.push_str(&format!("Score: {:.4}\n", score));
+            if full {
+                let mut formatted = Vec::new();
+                for (i, doc) in docs.iter().enumerate() {
+                    let rank = i + 1;
+                    let score = 1.0 / (60.0 + rank as f32);
+                    let path_str = doc.path.to_string_lossy();
+                    let mut item = format!("## {} ({})\n", doc.title, doc.path.display());
+                    item.push_str(&format!("Score: {:.4}\n", score));
 
-                let backlinks = retrieve_backlinks(storage, &doc.title, &path_str);
-                if !backlinks.is_empty() {
-                    let bl_strs: Vec<String> =
-                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
-                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
+                    let backlinks = retrieve_backlinks(storage, &doc.title, &path_str);
+                    if !backlinks.is_empty() {
+                        let bl_strs: Vec<String> =
+                            backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                        item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
+                    }
+
+                    if !doc.tags.is_empty() {
+                        item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                    }
+                    item.push_str(&format!("Hierarchy: {}\n\n", doc.hierarchy));
+                    item.push_str(&doc.body);
+                    formatted.push(item);
                 }
 
-                if !doc.tags.is_empty() {
-                    item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                Ok(formatted.join("\n\n---\n\n"))
+            } else {
+                let path_strings: Vec<String> = docs
+                    .iter()
+                    .map(|doc| doc.path.to_string_lossy().replace('\\', "/"))
+                    .collect();
+                let mut hits = Vec::with_capacity(docs.len());
+                for (i, doc) in docs.iter().enumerate() {
+                    let rank = i + 1;
+                    let score = 1.0 / (60.0 + rank as f32);
+                    let path_str = &path_strings[i];
+                    let in_links = retrieve_backlinks(storage, &doc.title, path_str).len();
+                    let out_links = doc.links.len();
+                    let tier = hierarchy_to_tier(doc.hierarchy);
+                    hits.push(CompactRecallHit {
+                        tier,
+                        path: path_str.as_str(),
+                        score,
+                        in_links,
+                        out_links,
+                        raw_snippet: doc.body.as_str(),
+                    });
                 }
-                item.push_str(&format!("Hierarchy: {}\n\n", doc.hierarchy));
-                item.push_str(&doc.body);
-                formatted.push(item);
+                Ok(format_compact_kdsl_hits(&hits))
             }
-
-            Ok(formatted.join("\n\n---\n\n"))
         }
     }
 
@@ -652,7 +722,6 @@ impl McpServer {
             crate::guard::get_git_diff(&cwd, None)
                 .map_err(|e| format!("Failed to inspect git diff: {}", e))?
         };
-
         let report = crate::guard::GuardEngine::check_diff(&diff_text, &rules);
 
         let formatted = crate::guard::format_guard_report(&report);
@@ -680,211 +749,228 @@ impl McpServer {
     }
 
     fn handle_tools_list(&self, id: Value) -> Value {
+        let mut tools = json!([
+            {
+                "name": "get_project_loadout",
+                "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "project_name": {
+                            "type": "string",
+                            "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
+                        },
+                        "diff": {
+                            "type": "boolean",
+                            "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
+                        }
+                    },
+                    "required": ["project_name"]
+                }
+            },
+            {
+                "name": "recall_memory",
+                "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (SecondBrain / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. '给我xxx相关信息', '查找xxx', 'xxx怎么配置', 'what did we do with xxx'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return (default: 5)"
+                        },
+                        "full": {
+                            "type": "boolean",
+                            "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "offload_context",
+                "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_text": {
+                            "type": "string",
+                            "description": "Raw log or output text to be offloaded"
+                        },
+                        "task_name": {
+                            "type": "string",
+                            "description": "Optional task identifier prefix"
+                        }
+                    },
+                    "required": ["raw_text"]
+                }
+            },
+            {
+                "name": "inspect_log_node",
+                "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "node_id": {
+                            "type": "string",
+                            "description": "Offloaded log node identifier (e.g. node_1a2b3c4d)"
+                        }
+                    },
+                    "required": ["node_id"]
+                }
+            },
+            {
+                "name": "flush_session",
+                "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Title of the decision or log note"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Detailed Markdown content"
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "Brief one-line summary or executive conclusion"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Associated tags"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Related existing notes to link via WikiLinks"
+                        }
+                    },
+                    "required": ["title", "content"]
+                }
+            },
+            {
+                "name": "distill_session_skill",
+                "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_trace": {
+                            "type": "string",
+                            "description": "Raw execution log, error stack trace, or debugging terminal output"
+                        },
+                        "node_id": {
+                            "type": "string",
+                            "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional explicit skill title (auto-inferred if omitted)"
+                        },
+                        "context_hint": {
+                            "type": "string",
+                            "description": "Optional context hint or explanation describing what was happening"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Target category (defaults to 'skill')"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional related notes or WikiLinks array"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, simulates distillation and returns preview without writing to vault"
+                        },
+                        "target": {
+                            "type": "string",
+                            "enum": ["default", "hermes"],
+                            "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "gc_session_context",
+                "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "trajectory_json": {
+                            "type": "string",
+                            "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
+                        },
+                        "threshold": {
+                            "type": "integer",
+                            "description": "Line threshold before tool output is folded (default: 20)"
+                        },
+                        "hot_window": {
+                            "type": "integer",
+                            "description": "Number of recent turns preserved untouched in hot window (default: 5)"
+                        },
+                        "context_window": {
+                            "type": "integer",
+                            "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
+                        }
+                    },
+                    "required": ["trajectory_json"]
+                }
+            },
+            {
+                "name": "guard_check",
+                "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "diff": {
+                            "type": "string",
+                            "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                        },
+                        "project_name": {
+                            "type": "string",
+                            "description": "Optional target project name to filter ADR invariants for."
+                        }
+                    }
+                }
+            }
+        ]);
+
+        if self.sidecar {
+            if let Some(tool_list) = tools.as_array_mut() {
+                tool_list.retain(|tool| {
+                    !matches!(
+                        tool["name"].as_str().unwrap_or(""),
+                        "offload_context" | "inspect_log_node" | "gc_session_context"
+                    )
+                });
+            }
+        }
+
         json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "tools": [
-                    {
-                        "name": "get_project_loadout",
-                        "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "project_name": {
-                                    "type": "string",
-                                    "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
-                                },
-                                "diff": {
-                                    "type": "boolean",
-                                    "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
-                                },
-                                "branch": {
-                                    "type": "string",
-                                    "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
-                                }
-                            },
-                            "required": ["project_name"]
-                        }
-                    },
-                    {
-                        "name": "recall_memory",
-                        "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (SecondBrain / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. '给我xxx相关信息', '查找xxx', 'xxx怎么配置', 'what did we do with xxx'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
-                                },
-                                "limit": {
-                                    "type": "integer",
-                                    "description": "Maximum number of results to return (default: 5)"
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    },
-                    {
-                        "name": "offload_context",
-                        "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "raw_text": {
-                                    "type": "string",
-                                    "description": "Raw log or output text to be offloaded"
-                                },
-                                "task_name": {
-                                    "type": "string",
-                                    "description": "Optional task identifier prefix"
-                                }
-                            },
-                            "required": ["raw_text"]
-                        }
-                    },
-                    {
-                        "name": "inspect_log_node",
-                        "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "node_id": {
-                                    "type": "string",
-                                    "description": "Offloaded log node identifier (e.g. node_1a2b3c4d)"
-                                }
-                            },
-                            "required": ["node_id"]
-                        }
-                    },
-                    {
-                        "name": "flush_session",
-                        "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "title": {
-                                    "type": "string",
-                                    "description": "Title of the decision or log note"
-                                },
-                                "content": {
-                                    "type": "string",
-                                    "description": "Detailed Markdown content"
-                                },
-                                "summary": {
-                                    "type": "string",
-                                    "description": "Brief one-line summary or executive conclusion"
-                                },
-                                "category": {
-                                    "type": "string",
-                                    "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Associated tags"
-                                },
-                                "related_notes": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Related existing notes to link via WikiLinks"
-                                }
-                            },
-                            "required": ["title", "content"]
-                        }
-                    },
-                    {
-                        "name": "distill_session_skill",
-                        "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "raw_trace": {
-                                    "type": "string",
-                                    "description": "Raw execution log, error stack trace, or debugging terminal output"
-                                },
-                                "node_id": {
-                                    "type": "string",
-                                    "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
-                                },
-                                "title": {
-                                    "type": "string",
-                                    "description": "Optional explicit skill title (auto-inferred if omitted)"
-                                },
-                                "context_hint": {
-                                    "type": "string",
-                                    "description": "Optional context hint or explanation describing what was happening"
-                                },
-                                "category": {
-                                    "type": "string",
-                                    "description": "Target category (defaults to 'skill')"
-                                },
-                                "tags": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
-                                },
-                                "related_notes": {
-                                    "type": "array",
-                                    "items": { "type": "string" },
-                                    "description": "Optional related notes or WikiLinks array"
-                                },
-                                "dry_run": {
-                                    "type": "boolean",
-                                    "description": "If true, simulates distillation and returns preview without writing to vault"
-                                },
-                                "target": {
-                                    "type": "string",
-                                    "enum": ["default", "hermes"],
-                                    "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "gc_session_context",
-                        "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "trajectory_json": {
-                                    "type": "string",
-                                    "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
-                                },
-                                "threshold": {
-                                    "type": "integer",
-                                    "description": "Line threshold before tool output is folded (default: 20)"
-                                },
-                                "hot_window": {
-                                    "type": "integer",
-                                    "description": "Number of recent turns preserved untouched in hot window (default: 5)"
-                                },
-                                "context_window": {
-                                    "type": "integer",
-                                    "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
-                                }
-                            },
-                            "required": ["trajectory_json"]
-                        }
-                    },
-                    {
-                        "name": "guard_check",
-                        "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "diff": {
-                                    "type": "string",
-                                    "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
-                                },
-                                "project_name": {
-                                    "type": "string",
-                                    "description": "Optional target project name to filter ADR invariants for."
-                                }
-                            }
-                        }
-                    }
-                ]
+                "tools": tools
             }
         })
     }
@@ -1162,4 +1248,168 @@ fn retrieve_backlinks(storage: &SqliteStorage, title: &str, path_str: &str) -> V
     }
     all.sort();
     all
+}
+
+/// Helper struct representing a search hit to be formatted into compact K-DSL wire format.
+#[derive(Debug, Clone)]
+pub struct CompactRecallHit<'a> {
+    pub tier: &'a str,
+    pub path: &'a str,
+    pub score: f32,
+    pub in_links: usize,
+    pub out_links: usize,
+    pub raw_snippet: &'a str,
+}
+
+/// Converts a HierarchyLevel into its standard compact K-DSL tier code (L0..L3).
+pub fn hierarchy_to_tier(hierarchy: HierarchyLevel) -> &'static str {
+    match hierarchy {
+        HierarchyLevel::L0Ephemeral => "L0",
+        HierarchyLevel::L1Resource => "L1",
+        HierarchyLevel::L2Log => "L2",
+        HierarchyLevel::L3Evergreen => "L3",
+    }
+}
+
+/// Fallback tier inference based on document path conventions.
+pub fn infer_tier_from_path(path: &str) -> &'static str {
+    let p = path.replace('\\', "/");
+    if p.starts_with("00_") || p.contains("/00_") || p.contains("Daily") {
+        "L0"
+    } else if p.starts_with("10_") || p.contains("/10_") || p.contains("Projects") {
+        "L1"
+    } else if p.starts_with("01_") || p.contains("/01_") || p.contains("AI_Logs") {
+        "L2"
+    } else {
+        "L3"
+    }
+}
+
+/// Flattens multi-line snippet into a clean single line with collapsed whitespace.
+pub fn clean_single_line_snippet(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Formats search hits into compact single-line K-DSL wire format:
+/// `!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet_single_line_max_220_chars>`
+/// ensuring each line is a single line, snippets do not exceed 220 characters,
+/// and total output length is strictly under 1200 characters.
+pub fn format_compact_kdsl_hits(hits: &[CompactRecallHit]) -> String {
+    if hits.is_empty() {
+        return String::new();
+    }
+
+    let n = hits.len();
+    let normalized_paths: Vec<String> = hits.iter().map(|h| h.path.replace('\\', "/")).collect();
+
+    let headers: Vec<String> = hits
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            format!(
+                "!μ:{}|{}|score:{:.4}|links:{}/{} § ",
+                h.tier, normalized_paths[i], h.score, h.in_links, h.out_links
+            )
+        })
+        .collect();
+
+    let total_headers_len: usize = headers.iter().map(|h| h.len()).sum();
+    let newlines_len = n.saturating_sub(1);
+    let target_max_total: usize = 1190;
+    let available_for_snippets = target_max_total.saturating_sub(total_headers_len + newlines_len);
+    let max_per_snippet = (available_for_snippets / n).clamp(40, 220);
+
+    let mut lines = Vec::with_capacity(n);
+    for (i, hit) in hits.iter().enumerate() {
+        let cleaned = clean_single_line_snippet(hit.raw_snippet);
+        let snippet: String = cleaned.chars().take(max_per_snippet).collect();
+        lines.push(format!("{}{}", headers[i], snippet.trim()));
+    }
+
+    let output = lines.join("\n");
+    if output.len() >= 1200 {
+        output.chars().take(1190).collect()
+    } else {
+        output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hierarchy_to_tier_mapping() {
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L0Ephemeral), "L0");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L1Resource), "L1");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L2Log), "L2");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L3Evergreen), "L3");
+    }
+
+    #[test]
+    fn test_clean_single_line_snippet() {
+        let raw = "  # Title\n\n  Line 1   with   spaces\r\n\tLine 2  ";
+        let cleaned = clean_single_line_snippet(raw);
+        assert_eq!(cleaned, "# Title Line 1 with spaces Line 2");
+        assert!(!cleaned.contains('\n'));
+    }
+
+    #[test]
+    fn test_format_compact_kdsl_hits_wire_and_length_budget() {
+        let long_body = "word ".repeat(100);
+        let hits = vec![
+            CompactRecallHit {
+                tier: "L3",
+                path: "20_Cards/Arch.md",
+                score: 0.8542,
+                in_links: 4,
+                out_links: 2,
+                raw_snippet: &long_body,
+            },
+            CompactRecallHit {
+                tier: "L2",
+                path: "01_AI_Logs/Log1.md",
+                score: 0.1234,
+                in_links: 1,
+                out_links: 0,
+                raw_snippet: "Short log snippet",
+            },
+        ];
+
+        let formatted = format_compact_kdsl_hits(&hits);
+        let lines: Vec<&str> = formatted.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        // Check line 1 format
+        assert!(lines[0].starts_with("!μ:L3|20_Cards/Arch.md|score:0.8542|links:4/2 § "));
+        assert!(!lines[0].contains('\n'));
+
+        // Check line 2 format
+        assert!(lines[1]
+            .starts_with("!μ:L2|01_AI_Logs/Log1.md|score:0.1234|links:1/0 § Short log snippet"));
+
+        // Check length budget < 1200
+        assert!(formatted.len() < 1200);
+
+        // Verify with 5 hits
+        let mut five_hits = Vec::new();
+        for i in 0..5 {
+            five_hits.push(CompactRecallHit {
+                tier: "L3",
+                path: "20_Cards/Doc.md",
+                score: 0.5,
+                in_links: i,
+                out_links: i + 1,
+                raw_snippet: &long_body,
+            });
+        }
+        let five_formatted = format_compact_kdsl_hits(&five_hits);
+        assert!(five_formatted.len() < 1200);
+        for l in five_formatted.lines() {
+            assert!(l.starts_with("!μ:"));
+            let parts: Vec<&str> = l.split(" § ").collect();
+            assert_eq!(parts.len(), 2);
+            assert!(parts[1].chars().count() <= 220);
+        }
+    }
 }

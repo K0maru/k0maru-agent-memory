@@ -164,6 +164,10 @@ pub struct McpArgs {
     /// Embedding model to use for semantic vector retrieval (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
     #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
     pub embed_model: Option<String>,
+
+    /// Run in orthogonal sidecar mode (omits offload_context, inspect_log_node, and gc_session_context tools)
+    #[arg(long)]
+    pub sidecar: bool,
 }
 
 #[derive(Args, Debug)]
@@ -241,7 +245,7 @@ pub struct InstallArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw
+    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw, omp
     #[arg(short, long, default_value = "all")]
     pub target: String,
 
@@ -873,7 +877,7 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let mut server = k0maru::mcp::McpServer::new(&vault_path);
+    let mut server = k0maru::mcp::McpServer::new(&vault_path).with_sidecar(args.sidecar);
     let model_cache = if vault_path.join(".k0maru").join("models").exists() {
         Some(vault_path.join(".k0maru").join("models"))
     } else {

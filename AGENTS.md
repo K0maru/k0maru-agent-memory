@@ -29,13 +29,12 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - 知识库中包含了关于各种平台与技术栈的深度调研（例如 Google Colab 算力权益与 CLI 无头调度、A100 实测看板、Redis 分布式锁、Docker 容器规范等），模型切勿直接忽略或调用无关外部工具。
 2. **会话起步加载（Session Loadout）**：
    - 在开始一个新任务、复杂重构或方案设计前，必须优先调用 `get_project_loadout` 获取系统上下文不变量与架构基线（<300 Token）。
-3. **日志截断卸载（Context Offloading）**：
-   - 终端命令产生长编译输出、崩溃调用栈或测试转储（>30 行）时，必须调用 `offload_context` 进行符号化压缩，严禁大段日志塞入会话上下文。
+3. **原生上下文卸载（omp Native Artifact Offloading）**：
+   - 在 `Tern + omp` 环境中，终端长输出直接依赖 `omp` `bash` 默认自动截断与 `artifact://<id>:N-M` 按需切片读取，无需调用外部 `offload_context` / `inspect_log_node`。
 4. **决策自愈结晶（Decision Crystallization）**：
-   - 攻克疑难缺陷、敲定关键架构决策或获得新配置经验后，必须调用 `flush_session` 或 `distill_session_skill` 将解法原子落盘回知识库。
+   - 攻克疑难缺陷、敲定关键架构决策或获得新配置经验后，调用 `flush_session` 将解法原子落盘回知识库。
 5. **活体架构守卫哨兵（Living ADR Guard）**：
    - 在完成工单、提交代码（`git commit`）或发起评审前，必须调用 `guard_check` 工具或执行 `k0maru guard check --diff`，确保当前工作树及 Diff 未破坏既定 ADR 架构不变量与设计准则。
-
 
 ---
 
@@ -51,10 +50,11 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
      2. **执行 `/to-spec`**：将讨论与上下文提炼为完整规格文档（落地至 `.scratch/k0maru-agent-memory/spec.md`）；
      3. **执行 `/to-tickets`**：将规格拆解为纵向穿透型工单（Tracer-bullet Tickets），声明明确的依赖阻断关系（`Blocked by`），按依赖顺序写入 `.scratch/k0maru-agent-memory/issues/<NN>-<slug>.md`；
      4. **工单确认**：向人类呈现 Ticket DAG，确认后进入实现阶段；
-     5. **启动 Subagent 执行 `/implement`**：派发子代理或在干净上下文执行 `/implement`（使用 `/tdd` 编写测试、驱动代码实现、跑类型检查并由 `/code-review` 审查）。
+     5. **启动 `omp` 原生 Subagent 执行实现**：使用 `omp` 原生 `task`（配合 `solutionSpace` 及 `scout`/`sonic`/`reviewer` 角色）或 `eval` 中的 `agent(isolated=True, apply=..., merge=...)` 并发执行工单、TDD 与双轨代码审查。
 
 2. **从 Agent 职责 (Worker / Implementor Agent)**：
-   - 在独立的上下文窗口中只负责单一工单；
+   - 在独立的上下文窗口（及 `isolated=True` Worktree 沙箱）中只负责单一工单；
+   - 优先使用裸 `read` 获取 AST 声明骨架、Hashline `edit`（`[PATH#TAG]`）与 `xd://lsp` 精确修改代码；
    - 严格遵循测试驱动开发（TDD）：先写失败测试，再写最小实现代码，最后重构；
    - 保证单测 100% 通过且 `cargo test`、`cargo clippy`、`cargo fmt` 零报错后提交。
 

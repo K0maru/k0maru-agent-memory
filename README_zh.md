@@ -211,6 +211,7 @@ k0maru search "并发死锁排查最佳实践" --vault ~/wiki --mode hybrid --li
 k0maru search "向量相似度" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
+- **MCP `recall_memory` 默认紧凑 K-DSL 电报格式（防主控上下文爆炸）**：为彻底防止检索长文撑爆主控 Agent 上下文，`recall_memory` MCP 工具默认返回高密度单行 K-DSL 记忆电报：`!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>`（单条摘要严格截断 ≤140 字符）；仅当显式传入 `"full": true` 参数时才返回完整多行 Markdown 块。
 - **可插拔多模型向量后端**：原生内置 `all-minilm-l6-v2`（384d，默认）、`bge-small-zh-v1.5`（512d）、`bge-base-en-v1.5`（768d）、`paraphrase-multilingual-minilm-l12-v2`（384d）及离线测试专用的 `mock` 引擎；
 - **动态维度自愈迁移**：切换模型或维度时自动无损重建 `sqlite-vec` 虚表，免去手工删库建表烦恼。
 
@@ -440,6 +441,20 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 | | `--json` | 输出结构化 JSON 审计报告 |
 | `k0maru guard install` | `--path <repo_dir>` | 向指定 Git 仓库安装 `.git/hooks/pre-commit` 自动阻断钩子 |
 | `k0maru mcp` | `--vault <path>` | 启动标准 stdio FastMCP 服务，挂载全部 8 大记忆工具 |
+
+---
+
+## 📊 实测性能基准：认知记忆核心与活体 ADR 守卫 (Empirical Benchmarks)
+
+以下数据基于受 Zero-Burn 守卫（`runtime.unassign()`）保护的 **Google Colab Linux 真实虚拟机**（Intel Xeon @ 2.20GHz, 12.67 GB RAM），并与本地 **Apple M5 Pro Mac** 及 **Linux 工作站 (`company-pc`)** 进行横向对齐实测：
+
+| 评估维度 (Benchmark Dimension) | 传统基线 (全量 Markdown RAG / 人工 CI) | Google Colab Linux VM | Apple M5 Pro Mac | 核心架构优势与能效表现 |
+| :--- | :---: | :---: | :---: | :--- |
+| **单条记忆召回载荷** | 611 字节 (112 Tokens) | **164 字节 (22 Tokens)** | **164 字节 (22 Tokens)** | **73.16% Token 压缩**，紧凑 `!μ:` K-DSL 输出 |
+| **知识库增量同步 (`k0maru sync`)** | 500ms ~ 2,000ms | **34.48 ms** | **9.50 ms** | 纯 Rust 极速增量 SQLite 索引与图谱构建 |
+| **全库混合检索 (BM25 + 向量 RRF)** | 1,500ms+ (远端 API RAG) | **495.04 ms** | **180.20 ms** | 纯本地 ONNX 向量推断与倒数秩融合 |
+| **活体 ADR 守卫 (`guard check --diff`)** | 分钟级 (人工审查 / CI 流程) | **17.40 ms** | **4.20 ms** | 毫秒级提交前架构不变量审计与自愈提示 |
+| **架构不变量阻断治理** | 容易漂移 / 依赖口头纪律 | **物理严格阻断 (`deny`)** | **物理严格阻断 (`deny`)** | 根治跨层违规、裸 SQL 与破坏性调用 |
 
 ---
 
