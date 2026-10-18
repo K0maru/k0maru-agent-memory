@@ -9,6 +9,8 @@ pub enum DistillTarget {
     Default,
     /// Nous Research Hermes Agent dynamic skill format with actionable schema frontmatter.
     Hermes,
+    /// omp (Oh My Pi) native skill directory format (`SKILL.md`).
+    Omp,
 }
 
 impl std::str::FromStr for DistillTarget {
@@ -18,8 +20,9 @@ impl std::str::FromStr for DistillTarget {
         match s.trim().to_lowercase().as_str() {
             "default" => Ok(DistillTarget::Default),
             "hermes" => Ok(DistillTarget::Hermes),
+            "omp" | "oh-my-pi" => Ok(DistillTarget::Omp),
             other => Err(format!(
-                "Unknown distill target '{}'. Supported targets: default, hermes",
+                "Unknown distill target '{}'. Supported targets: default, hermes, omp",
                 other
             )),
         }
@@ -31,6 +34,7 @@ impl std::fmt::Display for DistillTarget {
         match self {
             DistillTarget::Default => write!(f, "default"),
             DistillTarget::Hermes => write!(f, "hermes"),
+            DistillTarget::Omp => write!(f, "omp"),
         }
     }
 }
@@ -137,6 +141,48 @@ impl DistilledSkill {
         }
         md.push_str("---\n\n");
 
+        md.push_str(&self.render_body());
+        md
+    }
+
+    /// Format the distilled skill into the omp (Oh My Pi) native `SKILL.md` format.
+    ///
+    /// omp discovers skills at `<home>/.omp/agent/skills/<slug>/SKILL.md`; the
+    /// frontmatter carries a slugged `name` and a single-line `description`
+    /// combining the title and trigger context.
+    pub fn to_omp_skill_markdown(&self) -> String {
+        let raw_slug = crate::convention::slugify(&self.title);
+        let name = if raw_slug.is_empty() {
+            "distilled-skill".to_string()
+        } else {
+            raw_slug
+        };
+
+        // Collapse all whitespace so the description stays a single YAML scalar line.
+        let title = self.title.split_whitespace().collect::<Vec<_>>().join(" ");
+        let trigger = self
+            .trigger_context
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let summary = match (title.is_empty(), trigger.is_empty()) {
+            (true, true) => "Distilled skill".to_string(),
+            (false, true) => title,
+            (true, false) => trigger,
+            (false, false) => format!("{} — {}", title, trigger),
+        };
+
+        const MAX_DESCRIPTION_CHARS: usize = 240;
+        let capped: String = summary.chars().take(MAX_DESCRIPTION_CHARS).collect();
+        let capped = capped.trim_end();
+        let description = capped.replace('\\', "\\\\").replace('"', "\\\"");
+
+        let mut md = String::new();
+        md.push_str("---\n");
+        md.push_str(&format!("name: {}\n", name));
+        md.push_str(&format!("description: \"{}\"\n", description));
+        md.push_str("---\n\n");
         md.push_str(&self.render_body());
         md
     }

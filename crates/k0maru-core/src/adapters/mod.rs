@@ -48,6 +48,39 @@ pub(crate) fn scan_markdown_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn s
             }
         }
     }
+
+    // The primary walk intentionally skips hidden directories, so pack-provided
+    // markdown under `.k0maru/packs/` must be indexed explicitly.
+    let packs_root = root.join(".k0maru").join("packs");
+    if packs_root.is_dir() {
+        let pack_walker = walkdir::WalkDir::new(&packs_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                if entry.depth() == 0 {
+                    return true;
+                }
+                !entry.file_name().to_string_lossy().starts_with('.')
+            });
+
+        for entry in pack_walker {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if let Some(ext) = entry.path().extension() {
+                if ext.eq_ignore_ascii_case("md") {
+                    if let Ok(rel_path) = entry.path().strip_prefix(root) {
+                        paths.push(rel_path.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
     paths.sort();
     Ok(paths)
 }
@@ -271,4 +304,38 @@ where
         mtime,
         body: body.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn scan_markdown_files_includes_pack_markdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        fs::write(root.join("Root.md"), "# Root\n").unwrap();
+        let pack_dir = root.join(".k0maru").join("packs").join("demo");
+        fs::create_dir_all(pack_dir.join("skills")).unwrap();
+        fs::write(pack_dir.join("AGENTS.md"), "# Pack\n").unwrap();
+        fs::write(pack_dir.join("skills").join("demo.md"), "# Skill\n").unwrap();
+        fs::write(pack_dir.join(".hidden.md"), "# Hidden\n").unwrap();
+
+        let paths = scan_markdown_files(root).unwrap();
+        let relative: Vec<String> = paths
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+
+        assert_eq!(
+            relative,
+            vec![
+                ".k0maru/packs/demo/AGENTS.md",
+                ".k0maru/packs/demo/skills/demo.md",
+                "Root.md",
+            ]
+        );
+    }
 }

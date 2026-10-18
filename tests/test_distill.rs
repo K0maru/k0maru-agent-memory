@@ -80,6 +80,54 @@ fn test_distilled_skill_to_hermes_markdown_and_target() {
 }
 
 #[test]
+fn test_distill_target_omp_creates_skill_md() {
+    assert_eq!(DistillTarget::from_str("omp").unwrap(), DistillTarget::Omp);
+    assert_eq!(
+        DistillTarget::from_str("oh-my-pi").unwrap(),
+        DistillTarget::Omp
+    );
+    assert_eq!(DistillTarget::Omp.to_string(), "omp");
+
+    let vault_tmp = tempdir().unwrap();
+    let home_tmp = tempdir().unwrap();
+    let refs_tmp = tempdir().unwrap();
+
+    let engine = DistillEngine::new(vault_tmp.path(), refs_tmp.path());
+    let opts = DistillOptions {
+        title: Some("OMP Skill Export".to_string()),
+        context_hint: Some("Exporting a distilled skill into omp".to_string()),
+        target: DistillTarget::Omp,
+        home_override: Some(home_tmp.path().to_path_buf()),
+        dry_run: false,
+        ..Default::default()
+    };
+
+    let result = engine
+        .distill_text(
+            "error[E0432]: unresolved import `k0maru::distill`\n$ touch src/distill/mod.rs\n",
+            opts,
+        )
+        .unwrap();
+
+    let expected = home_tmp
+        .path()
+        .join(".omp")
+        .join("agent")
+        .join("skills")
+        .join("omp-skill-export")
+        .join("SKILL.md");
+
+    assert_eq!(result.export_path.as_deref(), Some(expected.as_path()));
+    assert!(expected.exists());
+
+    let content = fs::read_to_string(&expected).unwrap();
+    assert!(content.starts_with("---\n"));
+    assert!(content.contains("name: omp-skill-export\n"));
+    assert!(content.contains("description: "));
+    assert!(content.contains("# OMP Skill Export"));
+}
+
+#[test]
 fn test_flush_engine_dry_run_and_live_write() {
     let temp = tempdir().unwrap();
     let vault_root = temp.path();

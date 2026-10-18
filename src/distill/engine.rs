@@ -23,8 +23,11 @@ pub struct DistillOptions {
     pub related_notes: Vec<String>,
     /// Preview only, do not write to vault.
     pub dry_run: bool,
-    /// Target schema format (e.g. Default or Hermes).
+    /// Target schema format (e.g. Default, Hermes or Omp).
     pub target: DistillTarget,
+    /// Optional home directory override for ecosystem skill exports.
+    #[serde(default)]
+    pub home_override: Option<PathBuf>,
 }
 
 /// Result of distilling an execution trace into a crystallized skill.
@@ -101,6 +104,7 @@ impl DistillEngine {
         let markdown = match opts.target {
             DistillTarget::Default => skill.to_markdown(),
             DistillTarget::Hermes => skill.to_hermes_markdown(),
+            DistillTarget::Omp => skill.to_omp_skill_markdown(),
         };
 
         // 3. Delegate to FlushEngine for safe write-back and auto-indexing
@@ -119,11 +123,48 @@ impl DistillEngine {
 
         let flush_result = flush_engine.flush(flush_req)?;
 
+        // 4. Export directly to the omp native skill layout when requested.
+        let export_path = if opts.target == DistillTarget::Omp {
+            let base_home = opts
+                .home_override
+                .clone()
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("."));
+
+            let skills_dir = if opts.home_override.is_none() {
+                if let Ok(omp_home) = std::env::var("OMP_HOME") {
+                    PathBuf::from(omp_home).join("skills")
+                } else {
+                    base_home.join(".omp").join("agent").join("skills")
+                }
+            } else {
+                base_home.join(".omp").join("agent").join("skills")
+            };
+
+            let raw_slug = crate::convention::slugify(&skill.title);
+            let slug = if raw_slug.is_empty() {
+                "distilled-skill".to_string()
+            } else {
+                raw_slug
+            };
+
+            let skill_file_path = skills_dir.join(&slug).join("SKILL.md");
+            if !opts.dry_run {
+                if let Some(parent) = skill_file_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&skill_file_path, &markdown)?;
+            }
+            Some(skill_file_path)
+        } else {
+            None
+        };
+
         Ok(DistillResult {
             skill,
             flush_result,
             preview_markdown: markdown,
-            export_path: None,
+            export_path,
         })
     }
 

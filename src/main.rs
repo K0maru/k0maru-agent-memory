@@ -16,7 +16,8 @@ use k0maru::install::{format_install_report, run_install, InstallOptions, Instal
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
 use k0maru::offload::{inspect_node, OffloadEngine};
 use k0maru::pack::{
-    export_pack, import_pack, inspect_pack, MemoryPack, PackExportOptions, PackImportOptions,
+    export_pack, import_pack, inspect_pack, install_pack, list_installed_packs, uninstall_pack,
+    MemoryPack, PackExportOptions, PackImportOptions, PackInstallOptions,
 };
 use k0maru::scanner::IncrementalScanner;
 use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
@@ -349,13 +350,17 @@ pub struct DistillArgs {
     #[arg(long, value_name = "PATH")]
     pub home: Option<PathBuf>,
 
-    /// Target ecosystem schema: default, hermes
+    /// Target ecosystem schema: default, hermes, omp
     #[arg(long, default_value = "default")]
     pub target: String,
 
     /// Export crystallized dynamic skill directly to Hermes skill directory
     #[arg(long)]
     pub export_hermes: bool,
+
+    /// Export crystallized skill directly to omp skill directory (~/.omp/agent/skills/<slug>/SKILL.md)
+    #[arg(long)]
+    pub export_omp: bool,
 
     /// Preview the generated skill note without writing to disk
     #[arg(long)]
@@ -409,6 +414,15 @@ pub enum PackSubcommand {
 
     /// Inspect a portable Memory Pack structure and predicted target paths
     Inspect(PackInspectArgs),
+
+    /// Install a portable Memory Pack (.pack.json) or OpenHarness DSH directory into isolated pack storage
+    Install(PackInstallArgs),
+
+    /// Uninstall an installed Memory Pack or OpenHarness DSH and clean up skills
+    Uninstall(PackUninstallArgs),
+
+    /// List all installed Memory Packs and OpenHarness DSH packs
+    List(PackListArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -480,6 +494,59 @@ pub struct PackInspectArgs {
     pub vault: Option<PathBuf>,
 
     /// Output report as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackInstallArgs {
+    /// Path to .pack.json file or OpenHarness DSH directory
+    #[arg(value_name = "SOURCE")]
+    pub source: PathBuf,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Override home directory for skill mounting (sandbox testing)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
+    /// Preview installed pack files without writing to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackUninstallArgs {
+    /// Name or slug of the pack to uninstall
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Override home directory for skill removal (sandbox testing)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct PackListArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Output list as JSON
     #[arg(long)]
     pub json: bool,
 }
@@ -1291,6 +1358,8 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let target = if args.export_hermes && args.target == "default" {
         DistillTarget::Hermes
+    } else if args.export_omp && args.target == "default" {
+        DistillTarget::Omp
     } else {
         std::str::FromStr::from_str(&args.target)?
     };
@@ -1304,6 +1373,7 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
         related_notes: args.related,
         dry_run: args.dry_run,
         target,
+        home_override: args.home.clone(),
     };
 
     let mut result = if let Some(ref nid) = args.node {
@@ -1358,8 +1428,12 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("Path: {}", result.flush_result.file_path.display());
         println!("Relative: {}", result.flush_result.relative_path.display());
         println!("Category: {}", result.flush_result.category);
-        if let Some(ref ep) = result.export_path {
-            println!("Hermes Export: {} (simulated)", ep.display());
+        if let Some(ep) = &result.export_path {
+            if target == DistillTarget::Omp {
+                println!("omp Export: {} (simulated)", ep.display());
+            } else {
+                println!("Hermes Export: {} (simulated)", ep.display());
+            }
         }
         println!("--------------------------------------------------");
         println!("{}", result.preview_markdown);
@@ -1369,8 +1443,12 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
             "ℹ️  Skill content identical to existing note; no write needed: {}",
             result.flush_result.relative_path.display()
         );
-        if let Some(ref ep) = result.export_path {
-            println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+        if let Some(ep) = &result.export_path {
+            if target == DistillTarget::Omp {
+                println!("✓ Exported omp skill to: {}", ep.display());
+            } else {
+                println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+            }
         }
     } else {
         println!(
@@ -1381,8 +1459,12 @@ fn run_distill(args: DistillArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!("Target: {}", target);
         println!("Path: {}", result.flush_result.file_path.display());
         println!("Category: {}", result.flush_result.category);
-        if let Some(ref ep) = result.export_path {
-            println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+        if let Some(ep) = &result.export_path {
+            if target == DistillTarget::Omp {
+                println!("✓ Exported omp skill to: {}", ep.display());
+            } else {
+                println!("✓ Exported Hermes dynamic skill to: {}", ep.display());
+            }
         }
     }
 
@@ -1578,6 +1660,86 @@ fn run_pack(args: PackArgs) -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             println!("     - {}", title);
                         }
+                    }
+                }
+            }
+            Ok(())
+        }
+        PackSubcommand::Install(install_args) => {
+            let vault_path = detect_vault_path(install_args.vault);
+            let options = PackInstallOptions {
+                vault_path,
+                source_path: install_args.source,
+                home_override: install_args.home,
+                dry_run: install_args.dry_run,
+            };
+            let result = install_pack(&options)?;
+            if install_args.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let dry_str = if result.dry_run { " [dry-run]" } else { "" };
+                println!(
+                    "📦 Installed pack '{}' ({}){}",
+                    result.manifest.name, result.manifest.source_kind, dry_str
+                );
+                println!("   Install dir: {}", result.install_dir.display());
+                println!("   Version: {}", result.manifest.version);
+                if let Some(desc) = &result.manifest.description {
+                    println!("   Description: {}", desc);
+                }
+                println!("   Notes: {}", result.manifest.notes_count);
+                println!("   Guard rules: {}", result.manifest.guard_rules_count);
+                if !result.skill_paths.is_empty() {
+                    println!("   Mounted skills: {}", result.skill_paths.len());
+                    for sp in &result.skill_paths {
+                        println!("     - {}", sp.display());
+                    }
+                }
+            }
+            Ok(())
+        }
+        PackSubcommand::Uninstall(uninstall_args) => {
+            let vault_path = detect_vault_path(uninstall_args.vault);
+            let result = uninstall_pack(
+                &vault_path,
+                &uninstall_args.name,
+                uninstall_args.home.as_deref(),
+            )?;
+            if uninstall_args.json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("🗑️  Uninstalled pack '{}'", result.name);
+                println!("   Removed dir: {}", result.removed_dir.display());
+                if !result.removed_skills.is_empty() {
+                    println!("   Removed skills: {}", result.removed_skills.len());
+                    for skill in &result.removed_skills {
+                        println!("     - {}", skill);
+                    }
+                }
+            }
+            Ok(())
+        }
+        PackSubcommand::List(list_args) => {
+            let vault_path = detect_vault_path(list_args.vault);
+            let packs = list_installed_packs(&vault_path)?;
+            if list_args.json {
+                println!("{}", serde_json::to_string_pretty(&packs)?);
+            } else if packs.is_empty() {
+                println!("No packs currently installed in {}", vault_path.display());
+            } else {
+                println!("📦 Installed packs in {}:", vault_path.display());
+                for p in &packs {
+                    println!(
+                        "   - {} (v{}, source: {}, notes: {}, rules: {}, skills: {})",
+                        p.name,
+                        p.version,
+                        p.source_kind,
+                        p.notes_count,
+                        p.guard_rules_count,
+                        p.installed_skills.len()
+                    );
+                    if let Some(desc) = &p.description {
+                        println!("       {}", desc);
                     }
                 }
             }

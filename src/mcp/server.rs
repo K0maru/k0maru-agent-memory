@@ -598,6 +598,7 @@ impl McpServer {
             related_notes: related_notes.clone(),
             dry_run,
             target,
+            home_override: None,
         };
 
         let result = if let Some(trace) = raw_trace {
@@ -633,28 +634,37 @@ impl McpServer {
                 .join(", ")
         };
 
+        let export_line = result
+            .export_path
+            .as_ref()
+            .map(|ep| format!("Export Path: {}\n", ep.display()))
+            .unwrap_or_default();
+
         if dry_run {
             Ok(format!(
-                "[Dry Run] Generated skill preview:\n\nTitle: {}\nCategory: {}\nRelative Path: {}\nWikiLinks: {}\n\n---\n{}",
+                "[Dry Run] Generated skill preview:\n\nTitle: {}\nCategory: {}\nRelative Path: {}\nWikiLinks: {}\n{}\n---\n{}",
                 result.skill.title,
                 result.flush_result.category,
                 result.flush_result.relative_path.display(),
                 links_str,
+                export_line,
                 result.preview_markdown
             ))
         } else if !result.flush_result.created {
             Ok(format!(
-                "Skill note already up to date with identical content.\nPath: {}\nCategory: {}",
+                "Skill note already up to date with identical content.\nPath: {}\nCategory: {}\n{}",
                 result.flush_result.relative_path.display(),
-                result.flush_result.category
+                result.flush_result.category,
+                export_line
             ))
         } else {
             Ok(format!(
-                "✓ Crystallized skill note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                "✓ Crystallized skill note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}\n{}",
                 result.skill.title,
                 result.flush_result.relative_path.display(),
                 result.flush_result.category,
-                links_str
+                links_str,
+                export_line
             ))
         }
     }
@@ -905,8 +915,8 @@ impl McpServer {
                         },
                         "target": {
                             "type": "string",
-                            "enum": ["default", "hermes"],
-                            "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain) or 'hermes' (Nous Research Hermes dynamic skill)"
+                            "enum": ["default", "hermes", "omp"],
+                            "description": "Optional target ecosystem schema: 'default' (Obsidian SecondBrain), 'hermes' (Nous Research Hermes dynamic skill), or 'omp' (Oh My Pi native skill://<name>)"
                         }
                     }
                 }

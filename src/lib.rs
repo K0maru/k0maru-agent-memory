@@ -62,8 +62,10 @@ pub use loadout::{
 pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
 pub use pack::{
-    export_pack, import_pack, inspect_pack, normalize_wikilinks, MemoryPack, PackExportOptions,
-    PackImportItem, PackImportOptions, PackImportResult, PackInspectReport, PackNote,
+    export_pack, import_pack, inspect_pack, install_pack, list_installed_packs,
+    normalize_wikilinks, uninstall_pack, InstalledPackManifest, MemoryPack, PackExportOptions,
+    PackImportItem, PackImportOptions, PackImportResult, PackInspectReport, PackInstallOptions,
+    PackInstallResult, PackNote, PackUninstallResult,
 };
 pub use ui::run_server;
 
