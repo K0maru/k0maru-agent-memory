@@ -30,6 +30,7 @@ pub mod install;
 pub mod loadout;
 pub mod mcp;
 pub mod offload;
+pub mod pack;
 pub mod ui;
 
 pub use convention::{
@@ -60,6 +61,10 @@ pub use loadout::{
 };
 pub use mcp::McpServer;
 pub use offload::{inspect_node, OffloadEngine, OffloadResult};
+pub use pack::{
+    export_pack, import_pack, inspect_pack, normalize_wikilinks, MemoryPack, PackExportOptions,
+    PackImportItem, PackImportOptions, PackImportResult, PackInspectReport, PackNote,
+};
 pub use ui::run_server;
 
 #[cfg(test)]

@@ -56,12 +56,17 @@ fn substitute_template(
     let replacements = [
         ("{{title}}", request.title.as_str()),
         ("{{Title}}", request.title.as_str()),
+        ("<% tp.file.title %>", request.title.as_str()),
+        ("<%tp.file.title%>", request.title.as_str()),
         ("{{summary}}", summary),
         ("{{Summary}}", summary),
         ("{{content}}", request.content.as_str()),
         ("{{Content}}", request.content.as_str()),
         ("{{date}}", date_str),
         ("{{Date}}", date_str),
+        ("<% tp.date.now(\"YYYY-MM-DD\") %>", date_str),
+        ("<% tp.date.now('YYYY-MM-DD') %>", date_str),
+        ("<% tp.date.now() %>", date_str),
         ("{{category}}", request.category.as_str()),
         ("{{Category}}", request.category.as_str()),
         ("{{tags}}", tags_comma.as_str()),
@@ -74,6 +79,18 @@ fn substitute_template(
 
     for (needle, val) in replacements {
         rendered = rendered.replace(needle, val);
+    }
+
+    if !request.content.trim().is_empty()
+        && !template.contains("{{content}}")
+        && !template.contains("{{Content}}")
+    {
+        if !rendered.ends_with('\n') {
+            rendered.push('\n');
+        }
+        rendered.push('\n');
+        rendered.push_str(request.content.trim());
+        rendered.push('\n');
     }
 
     // If template didn't include {{related}} or {{related_notes}} and there are related notes, append section

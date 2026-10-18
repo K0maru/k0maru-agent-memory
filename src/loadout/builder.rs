@@ -260,6 +260,51 @@ fn is_subsequence(needle: &str, haystack: &str) -> bool {
     current_needle.is_none()
 }
 
+/// Folder segments that identify project notes across SecondBrain, PARA,
+/// and flat LLM-Wiki topologies.
+const PROJECT_DIR_SEGMENTS: &[&str] = &["10_projects", "projects", "1_projects"];
+
+/// Folder segments that identify log/journal notes.
+const LOG_DIR_SEGMENTS: &[&str] = &[
+    "01_ai_logs",
+    "30_logs",
+    "logs",
+    "ai_logs",
+    "journal",
+    "records",
+    "postmortems",
+];
+
+/// Folder segments that identify ephemeral notes.
+const DAILY_DIR_SEGMENTS: &[&str] = &["00_daily", "daily", "dailies", "inbox", "fleeting"];
+
+/// Returns true when any path segment matches one of the candidates
+/// (case-insensitive).
+fn path_has_segment(path: &str, candidates: &[&str]) -> bool {
+    path.split('/')
+        .any(|segment| candidates.contains(&segment.to_lowercase().as_str()))
+}
+
+/// Returns true when the path lives in a project, log, or daily folder.
+fn is_non_knowledge_path(path: &str) -> bool {
+    path_has_segment(path, PROJECT_DIR_SEGMENTS)
+        || path_has_segment(path, LOG_DIR_SEGMENTS)
+        || path_has_segment(path, DAILY_DIR_SEGMENTS)
+}
+
+/// Strips a leading folder prefix (e.g. `20_Cards/`, `cards/`, `logs/`)
+/// from a wikilink target, preserving the remainder verbatim.
+fn strip_folder_prefix<'a>(target: &'a str, prefixes: &[&str]) -> &'a str {
+    let lower = target.to_lowercase();
+    for prefix in prefixes {
+        let prefix_lower = prefix.to_lowercase();
+        if lower.starts_with(&prefix_lower) {
+            return &target[prefix.len()..];
+        }
+    }
+    target
+}
+
 /// Sub-300-token context loadout builder.
 pub struct LoadoutBuilder<'a, A: VaultAdapter, S: CacheStorage> {
     pub(crate) adapter: &'a A,
@@ -287,12 +332,18 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
     fn discover_project_paths(&self) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
         let all_files = self.adapter.scan_files()?;
 
-        // 1. Check if there are files in 10_Projects/
+        // 1. Check if there are files in any known project folder
+        //    (`10_Projects/`, `projects/`, `Projects/`, `1_Projects/`).
         let mut project_files: Vec<PathBuf> = all_files
             .iter()
             .filter(|p| {
                 let s = p.to_string_lossy().replace('\\', "/");
-                s.contains("10_Projects/")
+                s.split('/').any(|segment| {
+                    matches!(
+                        segment.to_lowercase().as_str(),
+                        "10_projects" | "projects" | "1_projects"
+                    )
+                })
             })
             .cloned()
             .collect();
@@ -570,37 +621,85 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         Ok(None)
     }
 
-    /// Resolves an L3 card note from a link target name.
+    /// Resolves an L3 card note from a link target name across heterogeneous
+    /// vault topologies (`20_Cards/`, `cards/`, `decisions/`, `adr/`,
+    /// `concepts/`, `notes/`, `wiki/`, or flat root notes).
     fn resolve_l3_card(&self, raw_target: &str) -> Option<(String, PathBuf, Option<String>)> {
-        let mut clean = raw_target.trim();
-        if let Some(stripped) = clean.strip_prefix("20_Cards/") {
-            clean = stripped;
-        }
-        if let Some(stripped) = clean.strip_suffix(".md") {
-            clean = stripped;
-        }
-        clean = clean.trim();
+        let normalized = raw_target.trim().replace('\\', "/");
+        let without_extension = normalized.strip_suffix(".md").unwrap_or(&normalized);
+        let stripped = strip_folder_prefix(
+            without_extension,
+            &[
+                "20_Cards/",
+                "cards/",
+                "decisions/",
+                "adr/",
+                "concepts/",
+                "notes/",
+                "wiki/",
+            ],
+        );
+        let clean = stripped.rsplit('/').next().unwrap_or("").trim();
 
         if clean.is_empty() {
             return None;
         }
 
-        let candidate_paths = [
-            PathBuf::from(format!("20_Cards/{}.md", clean)),
-            PathBuf::from(format!("{}.md", clean)),
-            PathBuf::from(clean),
+        let candidate_dirs = [
+            "20_Cards",
+            "cards",
+            "decisions",
+            "adr",
+            "concepts",
+            "notes",
+            "wiki",
+            "",
         ];
 
-        for cand in &candidate_paths {
-            let cand_str = cand.to_string_lossy();
-            if cand_str.contains("10_Projects") {
+        for dir in candidate_dirs {
+            let candidate = if dir.is_empty() {
+                PathBuf::from(format!("{clean}.md"))
+            } else {
+                PathBuf::from(format!("{dir}/{clean}.md"))
+            };
+            let candidate_lower = candidate.to_string_lossy().to_lowercase();
+            if is_non_knowledge_path(&candidate_lower) {
                 continue;
             }
-            if let Ok(doc) = self.adapter.read_document(cand) {
-                let doc_path_str = doc.path.to_string_lossy();
-                if (doc.hierarchy == HierarchyLevel::L3Evergreen || cand_str.contains("20_Cards"))
-                    && !doc_path_str.contains("10_Projects")
-                {
+            if let Ok(doc) = self.adapter.read_document(&candidate) {
+                let doc_path_lower = doc.path.to_string_lossy().replace('\\', "/").to_lowercase();
+                if is_non_knowledge_path(&doc_path_lower) {
+                    continue;
+                }
+                // Explicit card folders are accepted as-is; root notes must
+                // resolve to an evergreen hierarchy.
+                if doc.hierarchy == HierarchyLevel::L3Evergreen || !dir.is_empty() {
+                    let concept = extract_card_concept(&doc.body);
+                    return Some((clean.to_string(), doc.path, concept));
+                }
+            }
+        }
+
+        // Topology-agnostic fallback: scan every note outside project/log/daily
+        // folders for a matching file stem.
+        if let Ok(files) = self.adapter.scan_files() {
+            for relative_path in files {
+                let path_lower = relative_path
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .to_lowercase();
+                if is_non_knowledge_path(&path_lower) {
+                    continue;
+                }
+                let stem_matches = relative_path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|stem| stem.eq_ignore_ascii_case(clean))
+                    .unwrap_or(false);
+                if !stem_matches {
+                    continue;
+                }
+                if let Ok(doc) = self.adapter.read_document(&relative_path) {
                     let concept = extract_card_concept(&doc.body);
                     return Some((clean.to_string(), doc.path, concept));
                 }
@@ -610,33 +709,60 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         None
     }
 
-    /// Resolves an L2 log note from a link target name.
+    /// Resolves an L2 log note from a link target name across heterogeneous
+    /// vault topologies (`01_AI_Logs/`, `logs/`, `journal/`, `records/`).
     fn resolve_l2_log(&self, raw_target: &str) -> Option<(String, PathBuf)> {
-        let mut clean = raw_target.trim();
-        if let Some(stripped) = clean.strip_prefix("01_AI_Logs/") {
-            clean = stripped;
-        }
-        if let Some(stripped) = clean.strip_suffix(".md") {
-            clean = stripped;
-        }
-        clean = clean.trim();
+        let normalized = raw_target.trim().replace('\\', "/");
+        let without_extension = normalized.strip_suffix(".md").unwrap_or(&normalized);
+        let stripped = strip_folder_prefix(
+            without_extension,
+            &["01_AI_Logs/", "logs/", "journal/", "records/"],
+        );
+        let clean = stripped.rsplit('/').next().unwrap_or("").trim();
 
         if clean.is_empty() {
             return None;
         }
 
-        let candidate_paths = [
-            PathBuf::from(format!("01_AI_Logs/{}.md", clean)),
-            PathBuf::from(format!("{}.md", clean)),
-            PathBuf::from(clean),
-        ];
+        let candidate_dirs = ["01_AI_Logs", "logs", "journal", "records", ""];
 
-        for cand in &candidate_paths {
-            if let Ok(doc) = self.adapter.read_document(cand) {
-                if doc.hierarchy == HierarchyLevel::L2Log
-                    || cand.to_string_lossy().contains("01_AI_Logs")
-                {
+        for dir in candidate_dirs {
+            let candidate = if dir.is_empty() {
+                PathBuf::from(format!("{clean}.md"))
+            } else {
+                PathBuf::from(format!("{dir}/{clean}.md"))
+            };
+            if let Ok(doc) = self.adapter.read_document(&candidate) {
+                // Explicit log folders are accepted as-is; root notes must
+                // resolve to a log hierarchy.
+                if doc.hierarchy == HierarchyLevel::L2Log || !dir.is_empty() {
                     return Some((clean.to_string(), doc.path));
+                }
+            }
+        }
+
+        // Topology-agnostic fallback: scan for a matching stem in any log-like
+        // folder or a note explicitly declared as L2Log.
+        if let Ok(files) = self.adapter.scan_files() {
+            for relative_path in files {
+                let path_lower = relative_path
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .to_lowercase();
+                let stem_matches = relative_path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|stem| stem.eq_ignore_ascii_case(clean))
+                    .unwrap_or(false);
+                if !stem_matches {
+                    continue;
+                }
+                if let Ok(doc) = self.adapter.read_document(&relative_path) {
+                    if doc.hierarchy == HierarchyLevel::L2Log
+                        || path_has_segment(&path_lower, LOG_DIR_SEGMENTS)
+                    {
+                        return Some((clean.to_string(), doc.path));
+                    }
                 }
             }
         }

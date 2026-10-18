@@ -98,56 +98,65 @@ pub fn resolve_guard_rules(
         }
     }
 
-    // 2. Scan vault notes for living ADR invariants
+    // 2. Scan vault notes for living ADR invariants (topology-agnostic)
     if vault_path.is_dir() {
         let adapter = GenericWikiAdapter::new(vault_path);
 
-        // Check 20_Cards directory
-        let cards_dir = vault_path.join("20_Cards");
-        if cards_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(&cards_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                        if let Ok(rel) = path.strip_prefix(vault_path) {
-                            if let Ok(doc) = adapter.read_document(rel) {
-                                for r in extract_rules_from_document(&doc) {
-                                    if seen.insert((r.id.clone(), format!("{:?}", r.condition))) {
-                                        rules.push(r);
-                                    }
-                                }
-                            }
+        if let Ok(files) = adapter.scan_files() {
+            for relative_path in files {
+                let path_lower = relative_path
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .to_lowercase();
+                let segments: Vec<&str> = path_lower.split('/').collect();
+
+                // Skip ephemeral and log directories: they never own invariants.
+                if segments.iter().any(|segment| {
+                    matches!(
+                        *segment,
+                        "00_daily" | "01_ai_logs" | "30_logs" | "daily" | "logs" | "journal"
+                    )
+                }) {
+                    continue;
+                }
+
+                let doc = match adapter.read_document(&relative_path) {
+                    Ok(doc) => doc,
+                    Err(_) => continue,
+                };
+
+                let in_project_dir = segments
+                    .iter()
+                    .any(|segment| matches!(*segment, "10_projects" | "projects" | "1_projects"));
+                let is_project_note = in_project_dir
+                    || doc
+                        .tags
+                        .iter()
+                        .any(|tag| tag.eq_ignore_ascii_case("project"))
+                    || doc
+                        .frontmatter
+                        .get("type")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value.eq_ignore_ascii_case("project"))
+                        .unwrap_or(false);
+
+                // Project notes only contribute when they match the active filter.
+                if let Some(filter) = project_filter {
+                    if is_project_note {
+                        let stem = relative_path
+                            .file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .unwrap_or_default()
+                            .to_lowercase();
+                        if !stem.contains(&filter.to_lowercase()) {
+                            continue;
                         }
                     }
                 }
-            }
-        }
 
-        // Check 10_Projects directory
-        let projects_dir = vault_path.join("10_Projects");
-        if projects_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(&projects_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                        if let Some(filter) = project_filter {
-                            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                            if !stem.eq_ignore_ascii_case(filter)
-                                && !stem.to_lowercase().contains(&filter.to_lowercase())
-                            {
-                                continue;
-                            }
-                        }
-
-                        if let Ok(rel) = path.strip_prefix(vault_path) {
-                            if let Ok(doc) = adapter.read_document(rel) {
-                                for r in extract_rules_from_document(&doc) {
-                                    if seen.insert((r.id.clone(), format!("{:?}", r.condition))) {
-                                        rules.push(r);
-                                    }
-                                }
-                            }
-                        }
+                for rule in extract_rules_from_document(&doc) {
+                    if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                        rules.push(rule);
                     }
                 }
             }

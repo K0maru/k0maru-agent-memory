@@ -233,7 +233,14 @@ fn probe_template_in_dir(tdir: &Path) -> Option<String> {
 fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<String, PathBuf>) {
     // Decision candidates
     if !target_subdirs.contains_key("decision") {
-        let decision_candidates = ["decisions", "adr", "docs/adr", "architecture"];
+        let decision_candidates = [
+            "decisions",
+            "adr",
+            "docs/adr",
+            "architecture",
+            "20_Cards",
+            "cards",
+        ];
         let mut found = None;
         for cand in decision_candidates {
             if vault_root.join(cand).is_dir() {
@@ -249,7 +256,14 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
 
     // Log candidates
     if !target_subdirs.contains_key("log") {
-        let log_candidates = ["logs", "journal", "daily", "records"];
+        let log_candidates = [
+            "logs",
+            "journal",
+            "daily",
+            "records",
+            "01_AI_Logs",
+            "30_Logs",
+        ];
         let mut found = None;
         for cand in log_candidates {
             if vault_root.join(cand).is_dir() {
@@ -265,7 +279,7 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
 
     // Concept candidates
     if !target_subdirs.contains_key("concept") {
-        let concept_candidates = ["concepts", "cards", "wiki", "notes"];
+        let concept_candidates = ["concepts", "cards", "wiki", "notes", "20_Cards"];
         let mut found = None;
         for cand in concept_candidates {
             if vault_root.join(cand).is_dir() {
@@ -388,7 +402,10 @@ fn probe_naming_and_frontmatter(
         }
     }
 
-    let dominant_style = if date_slug_count > 0 && date_slug_count >= slug_only_count {
+    let dominant_style = if date_slug_count > 0
+        && date_slug_count >= slug_only_count
+        && date_slug_count > title_case_count
+    {
         NamingStyle::DateSlug
     } else if slug_only_count > 0 && slug_only_count >= title_case_count {
         NamingStyle::SlugOnly

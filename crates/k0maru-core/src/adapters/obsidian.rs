@@ -23,15 +23,19 @@ impl ObsidianAdapter {
         &self.root
     }
 
-    /// Determines the hierarchy level for a document in an Obsidian vault.
+    /// Determines the hierarchy level for a document in a vault.
     ///
     /// Priority order:
     /// 1. Explicit frontmatter `hierarchy:` or `level:` declaration.
-    /// 2. Folder taxonomy heuristics:
-    ///    - `20_Cards` or `10_Projects` -> `L3Evergreen`
-    ///    - `01_AI_Logs` -> `L2Log`
-    ///    - `00_Daily` -> `L0Ephemeral`
+    /// 2. Folder taxonomy heuristics (case-insensitive, topology-agnostic):
+    ///    - Evergreen/project/decision folders -> `L3Evergreen`
+    ///    - Log/journal folders -> `L2Log`
+    ///    - Daily/inbox folders -> `L0Ephemeral`
     ///    - Default -> `L1Resource`
+    ///
+    /// This keeps SecondBrain (`10_Projects`, `20_Cards`, `01_AI_Logs`, `00_Daily`)
+    /// fully supported while also accepting flat LLM-Wikis, engineering
+    /// `docs/adr` trees, and PARA layouts.
     fn determine_hierarchy(
         frontmatter: &serde_json::Value,
         relative_path: &Path,
@@ -41,13 +45,46 @@ impl ObsidianAdapter {
         }
 
         let path_str = relative_path.to_string_lossy().replace('\\', "/");
-        let segments: Vec<&str> = path_str.split('/').collect();
+        let segments: Vec<String> = path_str
+            .split('/')
+            .map(|segment| segment.to_lowercase())
+            .collect();
 
-        if segments.contains(&"20_Cards") || segments.contains(&"10_Projects") {
+        const EVERGREEN_SEGMENTS: &[&str] = &[
+            "20_cards",
+            "10_projects",
+            "cards",
+            "concepts",
+            "decisions",
+            "adr",
+            "wiki",
+            "rules",
+            "skills",
+            "playbooks",
+            "evergreen",
+        ];
+        const LOG_SEGMENTS: &[&str] = &[
+            "01_ai_logs",
+            "30_logs",
+            "logs",
+            "ai_logs",
+            "journal",
+            "records",
+            "postmortems",
+        ];
+        const EPHEMERAL_SEGMENTS: &[&str] = &["00_daily", "daily", "dailies", "inbox", "fleeting"];
+
+        let has_segment = |candidates: &[&str]| {
+            segments
+                .iter()
+                .any(|segment| candidates.contains(&segment.as_str()))
+        };
+
+        if has_segment(EVERGREEN_SEGMENTS) {
             HierarchyLevel::L3Evergreen
-        } else if segments.contains(&"01_AI_Logs") {
+        } else if has_segment(LOG_SEGMENTS) {
             HierarchyLevel::L2Log
-        } else if segments.contains(&"00_Daily") {
+        } else if has_segment(EPHEMERAL_SEGMENTS) {
             HierarchyLevel::L0Ephemeral
         } else {
             HierarchyLevel::L1Resource

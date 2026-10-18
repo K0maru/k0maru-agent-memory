@@ -291,10 +291,19 @@ pub fn probe_vault(vault_path: &Path) -> Vec<DiagnosticItem> {
     let hierarchy_dirs = [
         "10_Projects",
         "20_Cards",
+        "01_AI_Logs",
         "30_Logs",
         "40_Archives",
         "Projects",
+        "projects",
         "Cards",
+        "cards",
+        "decisions",
+        "adr",
+        "notes",
+        "wiki",
+        "logs",
+        "docs",
         "Archive",
     ];
     let detected: Vec<&str> = hierarchy_dirs
@@ -308,6 +317,12 @@ pub fn probe_vault(vault_path: &Path) -> Vec<DiagnosticItem> {
             cat,
             "Knowledge Hierarchy",
             format!("Detected structure: {}", detected.join(", ")),
+        ));
+    } else if md_count > 0 {
+        items.push(DiagnosticItem::pass(
+            cat,
+            "Knowledge Hierarchy",
+            "Detected structure: Flat LLM-Wiki (root markdown topology)".to_string(),
         ));
     } else {
         items.push(DiagnosticItem::warn(
