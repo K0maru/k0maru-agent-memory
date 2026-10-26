@@ -56,15 +56,15 @@
 
 ### 🛡️ 活体架构守卫与新旧决策取代 A/B 实测看板 (Adversarial Supersession Benchmark)
 
-在 `payment-settlement` 支付结算系统上，跨 **DeepSeek V4.1 Flash** 与 **Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI** 完成真实、完全可复现的端到端对照实验。测试在分布式锁架构演进中（从旧方案 `ADR-010` 的无作用域裸锁 `redis_setnx_unscoped` 升级为 `ADR-042` 的带栅栏租约锁 `acquire_fenced_lease`），无治理知识库与 K0maru 全闭环治理引擎的表现：
+跨 **本地多智能体 (`omp` + `DeepSeek V4.1 Flash` on Apple Silicon M3 Max)**、**Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI** 与 **可复现基准测试 (`python3 benchmarks/run_supersession_guard_ab.py`)** 在 `payment-settlement` 支付结算系统上完成真实端到端对照实验。测试在分布式锁架构演进中（从旧方案 `ADR-010` 的无作用域裸锁 `redis_setnx_unscoped` 升级为 `ADR-042` 的带栅栏租约锁 `acquire_fenced_lease`），无治理知识库与 K0maru 全闭环治理引擎的表现：
 
 | 评估阶段与核心指标 | 对照组 (无 `--supersedes` 的普通 Markdown Wiki) | 实验组 (`k0maru flush --supersedes` + `guard check --diff`) | 工程治理突破与实测收益 |
 | :--- | :--- | :--- | :--- |
 | **检索首位命中 (`recall_memory`)** | **错误召回旧方案 `ADR-010` #1** (`redis_setnx_unscoped`)<br>*历史反向双链权重导致“信念固化 (Belief Entrenchment)”严重投毒* | **精准召回新方案 `ADR-042` #1** (`acquire_fenced_lease`)<br>*旧卡片自动剥夺图谱加成并标记 `superseded`，`<300-token` Loadout 经 `superseded_by` 自动跳转* | **破除过期记忆税**：无需人工搬砖清洗 Wiki，新决策零成本热替换 |
-| **动态读档背包预算 (`<300-token`)** | 上下文超标膨胀（`>650 tokens`，混入过期废弃规则） | **严格收敛至 245 tokens**（仅注入活跃有效架构不变量） | **严格受控认知黄金区**，防止无用历史干扰推理 |
-| **提交前守卫拦截 (`guard check`)** | **0 次拦截 (直接漏放)**<br>*危险代码 `redis_setnx_unscoped` 成功提交引入资损隐患* | **<5ms 极速物理拦截** (`[DENY] ban-legacy-setnx`)<br>*基于可执行正则与 Diff 不变量精准阻断裸锁调用* | **100% 防退化物理阻断**：杜绝架构退化与资损缺陷进入 Git 历史 |
-| **智能体单轮自愈闭环** | 失败（静默引入线上资损风险） | **1 轮内 100% 修复通过**<br>*在 DeepSeek V4.1 与 7B Qwen2.5-Coder 上均实现依据守卫报错 1-turn 自愈* | 错误信息直出修复引导，驱动小模型瞬间写出合规租约代码 |
-
+| **动态读档背包预算 (`<300-token`)** | 上下文超标膨胀（`>650 tokens`，混入过期废弃规则） | **严格收敛至 245 tokens**（通过 `LoadoutBuilder` 自动注入 `[Guard: forbid ...]` 活跃不变量） | **严格受控认知黄金区**，防止无用历史干扰推理 |
+| **首轮代码实现 (Turn-1 Pass@1)** | 生成带有高危漏洞的裸锁 `redis_setnx_unscoped`（被旧决策投毒） | **100% 首轮一次性通过 (Pass@1)**<br>*直接生成 `acquire_fenced_lease`，0 次守卫违规* | **前置规约传递**：透传新 ADR 约束，在编写前杜绝技术退化 |
+| **提交前守卫拦截 (`guard check`)** | **0 次拦截 (直接漏放)**<br>*危险代码 `redis_setnx_unscoped` 成功提交引入资损隐患* | **<35ms 端到端 100% 物理拦截**（核心探测仅 3.82ms，触发 `[DENY] ban-legacy-setnx`）<br>*若暂存不合规裸锁，毫秒级阻断提交* | **100% 防退化物理阻断**：杜绝架构退化与资损缺陷进入 Git 历史 |
+| **智能体单轮自愈闭环** | 失败（静默引入线上资损风险） | **1 轮内 100% 修复通过**<br>*在 Local `omp` + DeepSeek V4.1 与 CLI 自动化测试中均实现 1-turn 快速自愈* | 错误信息直出修复引导，驱动小模型瞬间写出合规租约代码 |
 > 🔬 **可复现基准测试套件与原始实测数据**：  
 > - 端到端可执行测试脚本：[`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
 > - 完整机器可读实测指标 JSON：[`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
@@ -378,7 +378,7 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 面向特定终端多路复用器、编排框架与超高密度多智能体协作流：
 
 1. **Tern 终端复用器原生插件**：
-   基于 Luau 编写，提供交互式 Cockpit 驾驶舱看板、CLI 命令透镜与 Carly 调色板指令集成：
+   基于 Luau 编写，提供交互式 Cockpit 驾驶舱看板、CLI 命令透镜与 command palette 调色板指令集成：
    ```bash
    tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
    ```
@@ -421,7 +421,7 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 | **12 智能体突发并发读取** | 12 线程，120 次并发检索 | **18.9 QPS**，均值 **614.29ms**（P50: 781.9ms） | **100% PASS** | 零 SQLite 读写忙等死锁（`SQLITE_BUSY = 0`） |
 | **8 智能体并发写入与竞态** | 8 线程同时回写相同标题决策 | **12.2 writes/sec**，均值 **584.93ms** | **100% PASS** | 8/8 文件成功生成，`-v2.md` 到 `-v8.md` 零数据丢失 |
 | **即时自愈唤醒召回** | 读写强一致性即时校验 | **290.99 ms** | **PASS ✓** | 免手动重建索引，新笔记落盘后毫秒级可搜 |
-| **会话上下文垃圾回收 (GC)** | 50-turn 长轨迹会话剪枝 | **94.67% TRR**（20,946 ➔ 1,110 Tokens） | **PASS ✓** | 严格维持在模型认知黄金区（15%~60% 窗口） |
+| **会话上下文垃圾回收 (GC)** | 50-turn 长轨迹会话剪枝 | **86.58% TRR**（16,830 ➔ 2,259 Tokens，折叠 45 处工具追踪） | **PASS ✓** | 严格维持在模型认知黄金区（15%~60% 窗口） |
 | **Git-Diff 动态 Loadout** | 变更感知架构注入 | **245 Tokens** | **PASS ✓** | 严格受控于 <300 Token 安全背包预算内 |
 | **三大异构智能体自主循环** | Hermes, OpenClaw, Pi | 单轮闭环：**1.04s ~ 8.49s** | **100% PASS** | 验证工具调用、FastMCP 桥接与流管道自治落盘 |
 

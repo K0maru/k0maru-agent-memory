@@ -365,6 +365,50 @@ fn test_guard_install_hook_is_fail_closed_and_vault_bound() {
         content.contains(".k0maru/wiki\""),
         "hook must default to the repo-local .k0maru/wiki vault, got:\n{content}"
     );
+    assert!(
+        content.contains("guard check --diff --staged"),
+        "hook must audit only staged changes, got:\n{content}"
+    );
+    assert!(
+        content.contains("# --- k0maru guard sentinel ---"),
+        "hook must carry the sentinel marker, got:\n{content}"
+    );
+}
+
+#[test]
+fn test_guard_install_replaces_echo_only_mention_with_real_sentinel() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let hooks_dir = root.join(".git").join("hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    let hook_path = hooks_dir.join("pre-commit");
+    fs::write(
+        &hook_path,
+        "#!/bin/sh\n# echo k0maru guard check --diff for manual audits\necho \"run k0maru guard check --diff\"\nexit 0\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("k0maru").unwrap();
+    cmd.current_dir(root)
+        .args(["guard", "install", "--path", root.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&hook_path).unwrap();
+    assert!(
+        content.contains("# --- k0maru guard sentinel ---"),
+        "a textual mention inside an echo must not suppress installation, got:\n{content}"
+    );
+    assert!(
+        content.contains("guard check --diff --staged"),
+        "the real sentinel must be installed, got:\n{content}"
+    );
+    assert!(
+        content.contains("for manual audits"),
+        "existing hook logic must be preserved, got:\n{content}"
+    );
 }
 
 #[test]
@@ -403,7 +447,9 @@ invariants:
         assert!(out.status.success(), "git {:?} failed", args);
     }
 
-    // Same changeset: retire the ADR and ship the violation it forbids.
+    // Same changeset: retire the ADR and ship the violation it forbids. The
+    // `superseded_by` target does not exist, so this is not a legitimate
+    // supersession and the rule must still be enforced.
     fs::write(
         decisions.join("adr-001.md"),
         r#"---
@@ -421,9 +467,77 @@ invariants:
 "#,
     )
     .unwrap();
+
+    let repo_root = k0maru::guard::resolve_repo_root(root);
+    let rules =
+        k0maru::guard::resolve_guard_rules_with_repo(&vault, None, Some(&repo_root)).unwrap();
+    assert!(
+        rules.iter().any(|rule| rule.id == "ADR-S1-001"),
+        "an ADR retired in the same commit without an active replacement must still be enforced, got: {:?}",
+        rules
+            .iter()
+            .map(|rule| rule.id.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_guard_legitimate_same_commit_supersession_is_honored() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    let decisions = vault.join("decisions");
+    fs::create_dir_all(&decisions).unwrap();
+
+    fs::write(
+        decisions.join("adr-001.md"),
+        r#"---
+title: ADR 001 Lock Invariant
+status: active
+invariants:
+  - id: ADR-S2-001
+    title: Mandatory distributed lock
+    file_pattern: "*.rs"
+    forbidden: "exec_without_lock_legacy"
+    remediation: "Acquire the Redis lock first."
+---
+# ADR 001
+"#,
+    )
+    .unwrap();
     fs::write(
         decisions.join("adr-002.md"),
         "---\ntitle: ADR 002\nstatus: active\n---\n# ADR 002\n",
+    )
+    .unwrap();
+
+    for args in [vec!["add", "."], vec!["commit", "-m", "adr"]] {
+        let out = StdCommand::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed", args);
+    }
+
+    // Legitimate retirement: adr-002 is active and exists in the working tree.
+    fs::write(
+        decisions.join("adr-001.md"),
+        r#"---
+title: ADR 001 Lock Invariant
+status: superseded
+superseded_by: "[[adr-002]]"
+invariants:
+  - id: ADR-S2-001
+    title: Mandatory distributed lock
+    file_pattern: "*.rs"
+    forbidden: "exec_without_lock_legacy"
+    remediation: "Acquire the Redis lock first."
+---
+# ADR 001
+"#,
     )
     .unwrap();
 
@@ -431,11 +545,230 @@ invariants:
     let rules =
         k0maru::guard::resolve_guard_rules_with_repo(&vault, None, Some(&repo_root)).unwrap();
     assert!(
-        rules.iter().any(|rule| rule.id == "ADR-S1-001"),
-        "an ADR retired in the same commit must still be enforced, got: {:?}",
+        !rules.iter().any(|rule| rule.id == "ADR-S2-001"),
+        "a legitimate supersession must not resurrect the retired HEAD rule, got: {:?}",
         rules
             .iter()
             .map(|rule| rule.id.as_str())
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn test_guard_same_commit_rule_deletion_is_resurrected() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    fs::create_dir_all(vault.join("20_Cards")).unwrap();
+    let card = vault.join("20_Cards").join("adr-050.md");
+
+    fs::write(
+        &card,
+        r#"---
+title: ADR 050 SQL Guard
+status: active
+invariants:
+  - id: ADR-S3-050
+    title: No raw SQL
+    file_pattern: "*.rs"
+    forbidden: "execute_raw_s3"
+    remediation: "Use the query builder."
+---
+# ADR 050
+"#,
+    )
+    .unwrap();
+
+    for args in [vec!["add", "."], vec!["commit", "-m", "adr"]] {
+        let out = StdCommand::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed", args);
+    }
+
+    // Delete just the rule (document stays active) in the same changeset.
+    fs::write(
+        &card,
+        "---\ntitle: ADR 050 SQL Guard\nstatus: active\n---\n# ADR 050\n",
+    )
+    .unwrap();
+
+    let repo_root = k0maru::guard::resolve_repo_root(root);
+    let rules =
+        k0maru::guard::resolve_guard_rules_with_repo(&vault, None, Some(&repo_root)).unwrap();
+    assert!(
+        rules.iter().any(|rule| rule.id == "ADR-S3-050"),
+        "rules deleted by the same commit must still be enforced, got: {:?}",
+        rules
+            .iter()
+            .map(|rule| rule.id.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_guard_staged_only_ignores_untracked_and_unstaged_files() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    fs::write(root.join("db.rs"), "fn ok() {}\n").unwrap();
+    for args in [vec!["add", "db.rs"], vec!["commit", "-m", "init"]] {
+        let out = StdCommand::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed", args);
+    }
+
+    // Untracked scratch file and an unstaged edit, both containing a violation.
+    fs::write(
+        root.join("scratch.rs"),
+        "fn leak() { db.execute_raw(\"x\"); }\n",
+    )
+    .unwrap();
+    fs::write(root.join("db.rs"), "fn leak() { db.execute_raw(\"y\"); }\n").unwrap();
+
+    let staged = k0maru::guard::get_git_diff_with_mode(root, None, true).unwrap();
+    assert!(
+        !staged.contains("execute_raw"),
+        "staged-only mode must ignore untracked and unstaged changes, got: {staged}"
+    );
+
+    let full = k0maru::guard::get_git_diff(root, None).unwrap();
+    assert!(
+        full.contains("execute_raw"),
+        "full mode must audit untracked and unstaged changes, got: {full}"
+    );
+
+    // A staged violation is still audited (and detected) in staged-only mode.
+    let add = StdCommand::new("git")
+        .args(["add", "scratch.rs"])
+        .current_dir(root)
+        .output()
+        .expect("git add failed");
+    assert!(add.status.success());
+    let staged = k0maru::guard::get_git_diff_with_mode(root, None, true).unwrap();
+    assert!(
+        staged.contains("execute_raw"),
+        "staged-only mode must audit staged changes, got: {staged}"
+    );
+}
+
+#[test]
+fn test_guard_check_staged_ignores_untracked_scratch_and_unstaged_edits() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    fs::create_dir_all(root.join(".k0maru")).unwrap();
+    fs::write(
+        root.join(".k0maru").join("guard.toml"),
+        r#"
+[[rules]]
+id = "ADR-STAGED-001"
+title = "No raw SQL"
+file_pattern = "*.rs"
+severity = "deny"
+forbidden = "execute_raw"
+remediation = "Use the query builder."
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("README.md"), "# repo\n").unwrap();
+
+    for args in [vec!["add", "."], vec!["commit", "-m", "init"]] {
+        let out = StdCommand::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed", args);
+    }
+
+    // Untracked scratch violation plus an unrelated staged change.
+    fs::create_dir_all(root.join("scratch")).unwrap();
+    fs::write(
+        root.join("scratch").join("notes.rs"),
+        "fn leak() { db.execute_raw(\"x\"); }\n",
+    )
+    .unwrap();
+    fs::write(root.join("README.md"), "# repo\n\nunrelated edit\n").unwrap();
+    let add = StdCommand::new("git")
+        .args(["add", "README.md"])
+        .current_dir(root)
+        .output()
+        .expect("git add failed");
+    assert!(add.status.success());
+
+    // Pre-commit mode: only the staged, clean change is audited.
+    let mut cmd = Command::cargo_bin("k0maru").unwrap();
+    cmd.current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--vault",
+            root.to_str().unwrap(),
+            "--diff",
+            "--staged",
+        ])
+        .assert()
+        .success();
+
+    // Full mode still audits untracked files.
+    let mut cmd = Command::cargo_bin("k0maru").unwrap();
+    cmd.current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--vault",
+            root.to_str().unwrap(),
+            "--diff",
+        ])
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn test_guard_repo_root_project_isolation_no_cross_project_leak() {
+    let dir = tempdir().unwrap();
+    let vault = dir.path().join("vault");
+    fs::create_dir_all(vault.join("20_Cards")).unwrap();
+
+    fs::write(
+        vault.join("20_Cards").join("alpha-card.md"),
+        "---\ntitle: Alpha\nproject: alpha\ninvariants:\n  - id: ALPHA-ISO-001\n    title: Alpha only\n    file_pattern: \"*.rs\"\n    forbidden: \"alpha_iso_bad\"\n    remediation: \"Alpha remedy\"\n---\n# Alpha\n",
+    )
+    .unwrap();
+    fs::write(
+        vault.join("20_Cards").join("adr-001-repository-guardrails.md"),
+        "---\ntitle: Global\ninvariants:\n  - id: GLOBAL-ISO-001\n    title: Global\n    file_pattern: \"*.rs\"\n    forbidden: \"global_iso_bad\"\n    remediation: \"Global remedy\"\n---\n# Global\n",
+    )
+    .unwrap();
+
+    for repo_name in ["gamma", "beta"] {
+        let repo = dir.path().join(repo_name);
+        fs::create_dir_all(&repo).unwrap();
+        let rules = k0maru::guard::resolve_guard_rules_with_repo(&vault, None, Some(&repo))
+            .expect("resolve guard rules");
+        let ids: Vec<&str> = rules.iter().map(|rule| rule.id.as_str()).collect();
+        assert!(
+            !ids.contains(&"ALPHA-ISO-001"),
+            "project alpha rules must never leak into {repo_name}, got: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"GLOBAL-ISO-001"),
+            "vault-global rules must still apply in {repo_name}, got: {ids:?}"
+        );
+    }
+
+    // Explicit --project still selects the project card.
+    let alpha = k0maru::guard::resolve_guard_rules_with_repo(&vault, Some("alpha"), None).unwrap();
+    assert!(alpha.iter().any(|rule| rule.id == "ALPHA-ISO-001"));
 }

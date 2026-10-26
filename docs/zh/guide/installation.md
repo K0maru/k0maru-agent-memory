@@ -141,14 +141,14 @@ k0maru doctor
 ```text
 K0maru Health & Diagnostic Report
 =================================
-[✓] Binary in System PATH: /Users/k0maru3/.local/bin/k0maru (v0.8.0)
-[✓] Target Vault Detected: /Users/k0maru3/workspace/SecondBrain
+[✓] Binary in System PATH: ~/.local/bin/k0maru (v1.0.0)
+[✓] Target Vault Detected: ~/workspace/SecondBrain
 [✓] SQLite Cache Integrity: .k0maru/cache.sqlite (Healthy, 74ms rebuildable)
 [✓] FTS5 BM25 Inverted Index: 521 documents indexed
 [✓] Vector Embeddings: all-MiniLM-L6-v2 (384-dim, FastEmbed ready)
-[✓] Claude Code MCP Config: Mounted (/Users/k0maru3/.claude.json)
-[✓] Cursor MCP Config: Mounted (/Users/k0maru3/.cursor/mcp.json)
-[✓] Windsurf MCP Config: Mounted (/Users/k0maru3/.codeium/windsurf/mcp_config.json)
+[✓] Claude Code MCP Config: Mounted (~/.claude.json)
+[✓] Cursor MCP Config: Mounted (~/.cursor/mcp.json)
+[✓] Windsurf MCP Config: Mounted (~/.codeium/windsurf/mcp_config.json)
 
 Status: ALL CHECKS PASSED. Ready for agent orchestration.
 ```

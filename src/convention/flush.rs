@@ -113,11 +113,12 @@ impl FlushEngine {
         if candidate_path.exists() {
             // Check if existing content is identical
             if let Ok(existing_content) = fs::read_to_string(&candidate_path) {
-                if existing_content == content {
+                if existing_content.trim() == content.trim() {
                     let rel_path = candidate_path
                         .strip_prefix(&self.vault_root)
                         .unwrap_or(&candidate_path)
                         .to_path_buf();
+                    let superseded_files = self.apply_supersedes(&request, &rel_path)?;
                     return Ok(FlushResult {
                         file_path: candidate_path,
                         relative_path: rel_path,
@@ -126,7 +127,7 @@ impl FlushEngine {
                         appended: false,
                         content_preview: content,
                         dry_run: request.dry_run,
-                        superseded_files: Vec::new(),
+                        superseded_files,
                     });
                 }
             }
@@ -141,11 +142,12 @@ impl FlushEngine {
                     break;
                 }
                 if let Ok(existing_content) = fs::read_to_string(&next_candidate) {
-                    if existing_content == content {
+                    if existing_content.trim() == content.trim() {
                         let rel_path = next_candidate
                             .strip_prefix(&self.vault_root)
                             .unwrap_or(&next_candidate)
                             .to_path_buf();
+                        let superseded_files = self.apply_supersedes(&request, &rel_path)?;
                         return Ok(FlushResult {
                             file_path: next_candidate,
                             relative_path: rel_path,
@@ -154,7 +156,7 @@ impl FlushEngine {
                             appended: false,
                             content_preview: content,
                             dry_run: request.dry_run,
-                            superseded_files: Vec::new(),
+                            superseded_files,
                         });
                     }
                 }
@@ -172,7 +174,11 @@ impl FlushEngine {
             .unwrap_or(&candidate_path)
             .to_path_buf();
 
-        // 6. Dry run handling
+        // 6. Pre-validate every supersedes target BEFORE writing anything, so a
+        // typo or ambiguous reference never leaves an orphan note on disk.
+        let resolved_supersedes = self.resolve_supersedes(&request, &rel_path)?;
+
+        // 6b. Dry run handling
         if request.dry_run {
             return Ok(FlushResult {
                 file_path: candidate_path,
@@ -195,22 +201,7 @@ impl FlushEngine {
         fs::write(&candidate_path, &content)?;
 
         // 7b. Mark superseded notes before cache sync
-        let mut superseded_files = Vec::new();
-        if !request.dry_run && !request.supersedes.is_empty() {
-            for target in &request.supersedes {
-                match mark_note_superseded(&self.vault_root, target, &rel_path) {
-                    Ok(Some(superseded_rel)) => superseded_files.push(superseded_rel),
-                    Ok(None) => {}
-                    Err(_) => {
-                        return Err(format!(
-                            "Supersedes target '{}' not found or ambiguous",
-                            target
-                        )
-                        .into())
-                    }
-                }
-            }
-        }
+        let superseded_files = Self::apply_resolved_supersedes(&resolved_supersedes, &rel_path)?;
 
         // 8. Auto-sync cache if SQLite cache exists
         let cache_path = self.vault_root.join(".k0maru").join("cache.sqlite");
@@ -262,6 +253,49 @@ impl FlushEngine {
             superseded_files,
         })
     }
+
+    /// Resolves every `--supersedes` reference without touching the disk.
+    fn resolve_supersedes(
+        &self,
+        request: &FlushRequest,
+        new_note_rel_path: &Path,
+    ) -> Result<Vec<(PathBuf, PathBuf)>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut resolved = Vec::new();
+        for target in &request.supersedes {
+            if let Some(entry) =
+                resolve_supersede_target(&self.vault_root, target, Some(new_note_rel_path))?
+            {
+                resolved.push(entry);
+            }
+        }
+        Ok(resolved)
+    }
+
+    /// Resolves then marks all superseded notes (idempotent early-return path).
+    fn apply_supersedes(
+        &self,
+        request: &FlushRequest,
+        new_note_rel_path: &Path,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+        if request.dry_run || request.supersedes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let resolved = self.resolve_supersedes(request, new_note_rel_path)?;
+        Self::apply_resolved_supersedes(&resolved, new_note_rel_path)
+    }
+
+    /// Rewrites pre-resolved supersede targets and returns their relative paths.
+    fn apply_resolved_supersedes(
+        resolved: &[(PathBuf, PathBuf)],
+        new_note_rel_path: &Path,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut files = Vec::new();
+        for (canonical_target, rel_path) in resolved {
+            rewrite_superseded_note(canonical_target, new_note_rel_path)?;
+            files.push(rel_path.clone());
+        }
+        Ok(files)
+    }
 }
 
 fn collect_markdown_files(dir: &Path, results: &mut Vec<PathBuf>) {
@@ -282,18 +316,16 @@ fn collect_markdown_files(dir: &Path, results: &mut Vec<PathBuf>) {
     }
 }
 
-/// Marks an existing note/ADR as superseded by a newly flushed note.
-/// Updates YAML frontmatter `status: superseded`, `superseded_by: "[[{new_wikilink}]]"`,
-/// and inserts `> [SUPERSEDED] Superseded by [[{new_wikilink}]]` into the body.
+/// Resolves a `--supersedes` target to `(canonical_path, vault_relative_path)`.
 ///
 /// Returns `Ok(None)` when the target resolves to the note being written
 /// (a self-reference is a no-op). Missing and ambiguous targets are hard
 /// errors so a typo in `supersedes` never silently leaves a stale ADR active.
-pub fn mark_note_superseded(
+fn resolve_supersede_target(
     vault_root: &Path,
     target: &str,
-    new_note_rel_path: &Path,
-) -> Result<Option<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+    new_note_rel_path: Option<&Path>,
+) -> Result<Option<(PathBuf, PathBuf)>, Box<dyn std::error::Error + Send + Sync>> {
     let ambiguous = || -> Box<dyn std::error::Error + Send + Sync> {
         format!(
             "Supersedes target '{}' not found or ambiguous",
@@ -357,7 +389,11 @@ pub fn mark_note_superseded(
                 .filter(|path| match path.canonicalize() {
                     Ok(canonical) => canonical
                         .strip_prefix(&canonical_root)
-                        .map(|rel| rel != new_note_rel_path)
+                        .map(|rel| {
+                            new_note_rel_path
+                                .map(|new_note| rel != new_note)
+                                .unwrap_or(true)
+                        })
                         .unwrap_or(true),
                     Err(_) => true,
                 })
@@ -423,14 +459,25 @@ pub fn mark_note_superseded(
         .strip_prefix(&canonical_root)
         .map_err(|_| ambiguous())?
         .to_path_buf();
-    if rel_path == new_note_rel_path {
+    if new_note_rel_path.map(|new_note| new_note == rel_path.as_path()) == Some(true) {
         return Ok(None);
     }
 
+    Ok(Some((canonical_target, rel_path)))
+}
+
+/// Rewrites an already-resolved note so its frontmatter and body mark it as
+/// superseded by the newly flushed note.
+fn rewrite_superseded_note(
+    canonical_target: &Path,
+    new_note_rel_path: &Path,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let without_ext = new_note_rel_path.with_extension("");
     let new_wikilink = without_ext.to_string_lossy().replace('\\', "/");
 
-    let content = fs::read_to_string(&canonical_target)?;
+    let content = fs::read_to_string(canonical_target)?;
+    // A UTF-8 BOM must not hide the frontmatter delimiter.
+    let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
 
     let updated_content = if content.starts_with("---\n") || content.starts_with("---\r\n") {
         let line_ending = if content.contains("\r\n") {
@@ -522,6 +569,27 @@ pub fn mark_note_superseded(
         )
     };
 
-    fs::write(&canonical_target, updated_content)?;
-    Ok(Some(rel_path))
+    fs::write(canonical_target, updated_content)?;
+    Ok(())
+}
+
+/// Marks an existing note/ADR as superseded by a newly flushed note.
+/// Updates YAML frontmatter `status: superseded`, `superseded_by: "[[{new_wikilink}]]"`,
+/// and inserts `> [SUPERSEDED] Superseded by [[{new_wikilink}]]` into the body.
+///
+/// Returns `Ok(None)` when the target resolves to the note being written
+/// (a self-reference is a no-op). Missing and ambiguous targets are hard
+/// errors so a typo in `supersedes` never silently leaves a stale ADR active.
+pub fn mark_note_superseded(
+    vault_root: &Path,
+    target: &str,
+    new_note_rel_path: &Path,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
+    match resolve_supersede_target(vault_root, target, Some(new_note_rel_path))? {
+        Some((canonical_target, rel_path)) => {
+            rewrite_superseded_note(&canonical_target, new_note_rel_path)?;
+            Ok(Some(rel_path))
+        }
+        None => Ok(None),
+    }
 }

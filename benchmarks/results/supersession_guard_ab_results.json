@@ -1,7 +1,7 @@
 {
   "benchmark_name": "Adversarial Supersession & Living ADR Guard A/B Benchmark",
   "scenario": "payment-settlement",
-  "timestamp": "2026-10-26T16:20:29Z",
+  "timestamp": "2026-10-26T17:06:46Z",
   "live_run": {
     "control": {
       "retrieval_rank_1": {
@@ -49,13 +49,13 @@
         "blocked": true,
         "has_deny_tag": true,
         "exit_code": 1,
-        "latency_ms": 31.85,
+        "latency_ms": 31.47,
         "status": "intercepted_before_git_commit"
       },
       "remediation_verification": {
         "clean_exit_code": 0,
         "passed": true,
-        "latency_ms": 30.73,
+        "latency_ms": 30.08,
         "status": "clean_compliance"
       },
       "autonomous_self_healing": {
@@ -249,7 +249,7 @@
     "control_overall_pass_rate": 0.0,
     "treatment_overall_pass_rate": 1.0,
     "guard_interception_latency_ms": {
-      "live": 31.85,
+      "live": 31.47,
       "target_ceiling_ms": 10.0,
       "compliant": false
     },

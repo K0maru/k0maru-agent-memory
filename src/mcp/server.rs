@@ -36,6 +36,15 @@ pub struct McpServer {
 impl McpServer {
     /// Creates a new `McpServer` targeting the given vault path.
     pub fn new(vault_path: impl Into<PathBuf>) -> Self {
+        Self::new_with_model(vault_path, None)
+    }
+
+    /// Creates a new `McpServer` with an explicit embedding model.
+    ///
+    /// `Some("mock")` resolves straight to the deterministic mock engine, so
+    /// tests and offline runs never touch (or attempt to download) the default
+    /// `all-minilm-l6-v2` weights.
+    pub fn new_with_model(vault_path: impl Into<PathBuf>, embed_model: Option<&str>) -> Self {
         let vault_path = vault_path.into();
         let refs_dir = if vault_path.join(".k0maru").join("refs").exists() {
             vault_path.join(".k0maru").join("refs")
@@ -48,7 +57,7 @@ impl McpServer {
         } else {
             None
         };
-        let embedder = resolve_embedding_engine(None, model_cache).ok();
+        let embedder = resolve_embedding_engine(embed_model, model_cache).ok();
 
         Self {
             vault_path,
@@ -725,12 +734,17 @@ impl McpServer {
         let repo_dir = match arguments.get("repo_path").and_then(|v| v.as_str()) {
             Some(explicit) => crate::guard::resolve_repo_root(Path::new(explicit)),
             None => {
+                // Prefer the repository the agent is actually working in over
+                // the vault mount, which may live in an unrelated repo.
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let cwd_root = crate::guard::resolve_repo_root(&cwd);
                 let vault_root = crate::guard::resolve_repo_root(&self.vault_path);
-                if vault_root.join(".git").exists() {
+                if cwd_root.join(".git").exists() && cwd_root != vault_root {
+                    cwd_root
+                } else if vault_root.join(".git").exists() {
                     vault_root
                 } else {
-                    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                    crate::guard::resolve_repo_root(&cwd)
+                    cwd_root
                 }
             }
         };
@@ -745,12 +759,18 @@ impl McpServer {
         let report = if !files.is_empty() {
             let mut file_tuples: Vec<(PathBuf, String)> = Vec::new();
             for file in &files {
-                if !file.exists() {
-                    return Err(format!("Target file does not exist: '{}'", file.display()));
+                // MCP clients usually send repository-relative paths.
+                let path = if file.is_absolute() {
+                    file.clone()
+                } else {
+                    repo_dir.join(file)
+                };
+                if !path.exists() {
+                    return Err(format!("Target file does not exist: '{}'", path.display()));
                 }
-                let content = std::fs::read_to_string(file)
-                    .map_err(|e| format!("Failed to read '{}': {}", file.display(), e))?;
-                file_tuples.push((file.clone(), content));
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
+                file_tuples.push((path, content));
             }
             crate::guard::GuardEngine::check_files(&file_tuples, &rules)
         } else {
@@ -776,6 +796,19 @@ impl McpServer {
             )
         };
 
+        // A non-empty diff that matched no file headers is malformed (or was
+        // mangled in transit): fail closed instead of reporting a clean pass.
+        if files.is_empty() {
+            if let Some(d) = diff_arg {
+                if !d.trim().is_empty() && report.checked_files == 0 {
+                    return Err(
+                        "Invalid unified diff: no file headers (diff --git or +++ b/) matched"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
         let formatted = crate::guard::format_guard_report(&report);
         let json_report = serde_json::to_string_pretty(&report)
             .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
@@ -790,10 +823,16 @@ impl McpServer {
     }
 
     fn handle_initialize(&self, id: Value, params: Option<&Value>) -> Value {
-        let protocol_version = params
+        // Echo versions we actually speak; anything unknown falls back to the
+        // original 2024-11-05 revision.
+        let requested = params
             .and_then(|p| p.get("protocolVersion"))
             .and_then(|v| v.as_str())
             .unwrap_or("2024-11-05");
+        let protocol_version = match requested {
+            "2024-11-05" | "2025-03-26" | "2025-06-18" => requested,
+            _ => "2024-11-05",
+        };
 
         json!({
             "jsonrpc": "2.0",

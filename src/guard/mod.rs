@@ -38,6 +38,10 @@ pub struct GuardCheckArgs {
     #[arg(short, long)]
     pub diff: bool,
 
+    /// Only audit staged changes (`git diff --cached`); used by the pre-commit hook
+    #[arg(long)]
+    pub staged: bool,
+
     /// Target project name to filter ADR invariants for
     #[arg(short, long, value_name = "PROJECT")]
     pub project: Option<String>,
@@ -398,29 +402,31 @@ pub fn resolve_guard_rules_with_repo(
 
     // 2b. Project isolation. `--project` (or the repository the check runs in)
     // selects exactly one slug: `beta` never matches `payment-beta-legacy`, and
-    // a `project: alpha` card never leaks into the `beta` repository.
+    // a `project: alpha` card never leaks into the `beta` repository. Notes
+    // without project frontmatter are vault-global and always apply.
     let active_project_slug: Option<String> = if let Some(filter) = project_filter {
         Some(crate::convention::slugify(filter))
     } else if let Some(root) = repo_root {
-        root.file_name()
-            .and_then(|name| name.to_str())
-            .map(crate::convention::slugify)
-            .filter(|root_slug| {
-                all_vault_projects.contains(root_slug)
-                    || (!root_slug.starts_with("tmp") && all_vault_projects.len() > 1)
-            })
+        if all_vault_projects.is_empty() {
+            None
+        } else {
+            root.file_name()
+                .and_then(|name| name.to_str())
+                .map(crate::convention::slugify)
+                .filter(|slug| !slug.is_empty())
+        }
     } else {
         None
     };
 
-    for (_relative_path, doc, doc_projects) in scanned {
+    for (_relative_path, doc, doc_projects) in &scanned {
         if let Some(target_slug) = &active_project_slug {
             if !doc_projects.is_empty() && !doc_projects.iter().any(|p| p == target_slug) {
                 continue;
             }
         }
 
-        for rule in extract_rules_from_document(&doc) {
+        for rule in extract_rules_from_document(doc) {
             if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
                 rules.push(rule);
             }
@@ -431,35 +437,201 @@ pub fn resolve_guard_rules_with_repo(
     // to `status: superseded` while also introducing the violation must still
     // be audited against the ADR that was active at HEAD.
     if let Some(root) = repo_root {
-        collect_head_active_rules(root, vault_path, &mut seen, &mut rules);
+        collect_head_active_rules(root, vault_path, &scanned, &mut seen, &mut rules);
     }
 
     Ok(rules)
 }
 
+/// Normalizes a wiki-link / path reference from `superseded_by` or `supersedes`
+/// frontmatter into an exact slug (`[[20_Cards/ADR-002|alias]]` -> `adr-002`).
+fn normalize_doc_ref(raw: &str) -> String {
+    let mut clean = raw.trim();
+    if let Some(stripped) = clean.strip_prefix("[[") {
+        clean = stripped;
+    }
+    if let Some(stripped) = clean.strip_suffix("]]") {
+        clean = stripped;
+    }
+    if let Some((before_alias, _)) = clean.split_once('|') {
+        clean = before_alias.trim();
+    }
+    clean = clean.trim();
+    if let Some(stripped) = clean.strip_suffix(".md") {
+        clean = stripped.trim();
+    }
+    let name = clean.rsplit('/').next().unwrap_or(clean);
+    let slug = crate::convention::slugify(name);
+    if slug == "untitled" {
+        String::new()
+    } else {
+        slug
+    }
+}
+
+/// Slug of a document path's file stem, used for supersession matching.
+fn doc_path_slug(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(crate::convention::slugify)
+        .unwrap_or_default()
+}
+
+/// Normalized vault-relative path used for comparisons (forward slashes).
+fn normalized_rel(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Finds the working-tree document whose vault-relative path matches `vault_rel`.
+fn find_working_doc<'a>(
+    scanned: &'a [(PathBuf, crate::Document, Vec<String>)],
+    vault_rel: &Path,
+) -> Option<&'a crate::Document> {
+    let target = normalized_rel(vault_rel);
+    scanned
+        .iter()
+        .find(|(path, _, _)| normalized_rel(path) == target)
+        .map(|(_, doc, _)| doc)
+}
+
+/// True when an active working-tree document explicitly declares `supersedes`
+/// for `vault_rel`'s stem/slug.
+fn has_active_superseder(
+    scanned: &[(PathBuf, crate::Document, Vec<String>)],
+    vault_rel: &Path,
+) -> bool {
+    let own_slug = doc_path_slug(vault_rel);
+    if own_slug.is_empty() {
+        return false;
+    }
+    scanned.iter().any(|(path, doc, _)| {
+        doc.is_active()
+            && normalized_rel(path) != normalized_rel(vault_rel)
+            && doc
+                .supersedes()
+                .iter()
+                .any(|target| normalize_doc_ref(target) == own_slug)
+    })
+}
+
+/// True when a superseded working-tree document points at an active
+/// replacement, or an active document declares it supersedes this note.
+fn is_legitimately_superseded(
+    current_doc: &crate::Document,
+    vault_rel: &Path,
+    scanned: &[(PathBuf, crate::Document, Vec<String>)],
+) -> bool {
+    if let Some(targets) = current_doc.superseded_by() {
+        for raw in targets.split(',') {
+            let slug = normalize_doc_ref(raw);
+            if slug.is_empty() {
+                continue;
+            }
+            let replacement_exists = scanned.iter().any(|(path, doc, _)| {
+                doc.is_active()
+                    && doc_path_slug(path) == slug
+                    && normalized_rel(path) != normalized_rel(vault_rel)
+            });
+            if replacement_exists {
+                return true;
+            }
+        }
+    }
+    has_active_superseder(scanned, vault_rel)
+}
+
+/// True for guard configuration paths whose `HEAD` rules must not silently
+/// disappear in the same commit (`.k0maru/guard.toml`, `.k0maru/rules/*`).
+fn is_guard_config_path(rel: &str) -> bool {
+    let lower = rel.replace('\\', "/").to_lowercase();
+    let file_name = lower.rsplit('/').next().unwrap_or("");
+    let under_k0maru = lower.contains(".k0maru/");
+    let is_guard_config = matches!(file_name, "guard.toml" | "guard.yaml" | "guard.yml");
+    let under_rules = lower.contains(".k0maru/rules/");
+    under_k0maru && (is_guard_config || under_rules)
+}
+
+/// Builds a transient [`crate::Document`] from raw markdown content.
+fn document_from_content(path: &Path, content: &str) -> crate::Document {
+    let (frontmatter, body) = k0maru_core::parser::parse_frontmatter(content);
+    crate::Document {
+        path: path.to_path_buf(),
+        title: String::new(),
+        hierarchy: crate::HierarchyLevel::L3Evergreen,
+        frontmatter,
+        links: Vec::new(),
+        tags: Vec::new(),
+        content_hash: String::new(),
+        mtime: 0,
+        body: body.to_string(),
+    }
+}
+
+/// Extracts rules from `HEAD` guard-configuration content.
+fn extract_rules_from_config_content(rel_path: &str, content: &str) -> Vec<GuardRule> {
+    let extension = Path::new(rel_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if extension == "md" {
+        let doc = document_from_content(Path::new(rel_path), content);
+        return extract_rules_from_document(&doc);
+    }
+    if !matches!(extension.as_str(), "toml" | "yaml" | "yml") {
+        return Vec::new();
+    }
+
+    // `extract_rules_from_config` reads from disk, so stage the HEAD blob in a
+    // uniquely named temporary file and clean it up immediately.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = std::env::temp_dir().join(format!(
+        "k0maru-head-rules-{}-{}.{}",
+        std::process::id(),
+        nanos,
+        extension
+    ));
+    if fs::write(&tmp_path, content).is_err() {
+        return Vec::new();
+    }
+    let extracted = extract_rules_from_config(&tmp_path).unwrap_or_default();
+    let _ = fs::remove_file(&tmp_path);
+    extracted
+}
+
 /// Re-adds invariants declared by documents that were active at `HEAD` but are
-/// no longer active (or were deleted) in the working tree.
+/// no longer active (or were deleted/weakened) in the working tree.
 ///
-/// Without this, `status: active -> superseded` in the very same commit as a
-/// violating change would silently disable the rule being violated.
+/// Without this, `status: active -> superseded`, or deleting a `forbidden:`
+/// line, in the very same commit as a violating change would silently disable
+/// the rule being violated. A *legitimate* supersession (an active replacement
+/// ADR that exists in the working tree, or an active ADR declaring
+/// `supersedes`) is honored and does not resurrect the old rule.
 fn collect_head_active_rules(
     repo_root: &Path,
     vault_path: &Path,
+    scanned: &[(PathBuf, crate::Document, Vec<String>)],
     seen: &mut HashSet<(String, String)>,
     rules: &mut Vec<GuardRule>,
 ) {
     // Only notes inside the vault can own invariants; map the vault onto the
-    // repository so `git show HEAD:<path>` paths can be filtered.
+    // repository so `git show HEAD:<path>` paths can be filtered. Guard config
+    // files are repository-relative and audited even when the vault is mounted
+    // outside the repository.
     let canonical_vault = vault_path
         .canonicalize()
         .unwrap_or_else(|_| vault_path.to_path_buf());
     let canonical_root = repo_root
         .canonicalize()
         .unwrap_or_else(|_| repo_root.to_path_buf());
-    let vault_prefix = match canonical_vault.strip_prefix(&canonical_root) {
-        Ok(prefix) => prefix.to_path_buf(),
-        Err(_) => return,
-    };
+    let vault_prefix = canonical_vault
+        .strip_prefix(&canonical_root)
+        .ok()
+        .map(|prefix| prefix.to_path_buf());
 
     let mut changed: Vec<String> = Vec::new();
     for args in [
@@ -477,11 +649,22 @@ fn collect_head_active_rules(
 
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let rel = line.trim();
-            if rel.is_empty() || !rel.ends_with(".md") {
+            if rel.is_empty() {
                 continue;
             }
-            if !Path::new(rel).starts_with(&vault_prefix) {
+            let is_markdown = rel.ends_with(".md");
+            let is_config = is_guard_config_path(rel);
+            if !is_markdown && !is_config {
                 continue;
+            }
+            if is_markdown {
+                let inside_vault = vault_prefix
+                    .as_ref()
+                    .map(|prefix| Path::new(rel).starts_with(prefix))
+                    .unwrap_or(false);
+                if !inside_vault && !is_config {
+                    continue;
+                }
             }
             if !changed.iter().any(|existing| existing == rel) {
                 changed.push(rel.to_string());
@@ -498,43 +681,57 @@ fn collect_head_active_rules(
             Ok(output) if output.status.success() => output,
             _ => continue,
         };
-
         let head_content = String::from_utf8_lossy(&output.stdout).to_string();
-        let (frontmatter, body) = k0maru_core::parser::parse_frontmatter(&head_content);
-        let head_doc = crate::Document {
-            path: PathBuf::from(&rel_path),
-            title: String::new(),
-            hierarchy: crate::HierarchyLevel::L3Evergreen,
-            frontmatter,
-            links: Vec::new(),
-            tags: Vec::new(),
-            content_hash: String::new(),
-            mtime: 0,
-            body: body.to_string(),
-        };
 
+        // Guard configuration (including `.k0maru/rules/*.md`) is audited from
+        // HEAD regardless of where the vault is mounted.
+        if is_guard_config_path(&rel_path) {
+            for mut rule in extract_rules_from_config_content(&rel_path, &head_content) {
+                // Report the repository path, not the transient HEAD temp file.
+                rule.source_note = rel_path.clone();
+                if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                    rules.push(rule);
+                }
+            }
+            continue;
+        }
+
+        if !rel_path.ends_with(".md") {
+            continue;
+        }
+
+        let Some(prefix) = vault_prefix.as_ref() else {
+            continue;
+        };
+        let Ok(vault_rel) = Path::new(&rel_path).strip_prefix(prefix) else {
+            continue;
+        };
+        let vault_rel = vault_rel.to_path_buf();
+
+        let head_doc = document_from_content(Path::new(&rel_path), &head_content);
         if !head_doc.is_active() {
             continue;
         }
 
-        // Still active in the working tree: its rules were already collected.
-        let working_copy = repo_root.join(&rel_path);
-        if working_copy.is_file() {
-            if let Ok(current_content) = fs::read_to_string(&working_copy) {
-                let (current_fm, current_body) =
-                    k0maru_core::parser::parse_frontmatter(&current_content);
-                let current_doc = crate::Document {
-                    path: PathBuf::from(&rel_path),
-                    title: String::new(),
-                    hierarchy: crate::HierarchyLevel::L3Evergreen,
-                    frontmatter: current_fm,
-                    links: Vec::new(),
-                    tags: Vec::new(),
-                    content_hash: String::new(),
-                    mtime: 0,
-                    body: current_body.to_string(),
-                };
-                if current_doc.is_active() {
+        match find_working_doc(scanned, &vault_rel) {
+            Some(current_doc) => {
+                // A legitimate same-commit supersession (retiring an ADR and
+                // replacing it with an active one) must not resurrect the old
+                // rule. A bare `status: superseded` flip without a valid
+                // replacement still must.
+                if !current_doc.is_active()
+                    && is_legitimately_superseded(current_doc, &vault_rel, scanned)
+                {
+                    continue;
+                }
+                // Active in the working tree is not enough: the commit may
+                // have deleted or weakened the rule itself, so HEAD's missing
+                // rules are re-added (deduplicated against `seen`).
+            }
+            None => {
+                // Deleted in the working tree: resurrect unless an active
+                // document explicitly supersedes it.
+                if has_active_superseder(scanned, &vault_rel) {
                     continue;
                 }
             }
@@ -548,10 +745,25 @@ fn collect_head_active_rules(
     }
 }
 
+/// Flags that force `git diff` to emit plain, parseable unified diffs.
+///
+/// Without these, `git config color.ui always`, `diff.mnemonicPrefix`,
+/// `.gitattributes -diff`, `textconv` filters, or binary NUL bytes can hide a
+/// violation from [`GuardEngine::check_diff`].
+const HARDENED_DIFF_FLAGS: [&str; 6] = [
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--text",
+];
+
 /// Runs `git diff` with extra arguments, returning stdout on success.
 fn git_diff_output(repo_root: &Path, extra_args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .arg("diff")
+        .args(HARDENED_DIFF_FLAGS)
         .args(extra_args)
         .current_dir(repo_root)
         .output()
@@ -577,8 +789,27 @@ pub fn get_git_diff(
     repo_root: &Path,
     branch: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    get_git_diff_with_mode(repo_root, branch, false)
+}
+
+/// Obtains git diff output, optionally restricted to the staged index.
+///
+/// `staged_only = true` inspects only `git diff --cached` (staged changes vs
+/// `HEAD`). The pre-commit hook uses this so an untracked scratch file or an
+/// unstaged edit cannot falsely block an unrelated `git commit`.
+pub fn get_git_diff_with_mode(
+    repo_root: &Path,
+    branch: Option<&str>,
+    staged_only: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
     let root = resolve_repo_root(repo_root);
     let mut combined = String::new();
+
+    // Pre-commit audits only what is actually being committed.
+    if staged_only {
+        combined.push_str(&git_diff_output(&root, &["--cached"]).unwrap_or_default());
+        return Ok(combined);
+    }
 
     if let Some(target_branch) = branch {
         let verified = Command::new("git")
@@ -592,12 +823,12 @@ pub fn get_git_diff(
         }
 
         let range = format!("{}...HEAD", target_branch);
-        combined.push_str(&git_diff_output(&root, &["--no-ext-diff", &range]).unwrap_or_default());
+        combined.push_str(&git_diff_output(&root, &[&range]).unwrap_or_default());
     }
 
     // Staged index vs HEAD, then working tree vs index.
-    combined.push_str(&git_diff_output(&root, &["--cached", "--no-ext-diff"]).unwrap_or_default());
-    combined.push_str(&git_diff_output(&root, &["--no-ext-diff"]).unwrap_or_default());
+    combined.push_str(&git_diff_output(&root, &["--cached"]).unwrap_or_default());
+    combined.push_str(&git_diff_output(&root, &[]).unwrap_or_default());
 
     // Untracked files never appear in `git diff`; audit them explicitly.
     if let Ok(output) = Command::new("git")
@@ -623,10 +854,14 @@ pub fn get_git_diff(
                     _ => continue,
                 }
 
-                let content = match fs::read_to_string(&full_path) {
-                    Ok(content) => content,
+                // Read bytes and decode lossily: a NUL byte must not make an
+                // untracked file invisible to the audit.
+                let bytes = match fs::read(&full_path) {
+                    Ok(bytes) => bytes,
                     Err(_) => continue,
                 };
+                let content = String::from_utf8_lossy(&bytes);
+                let content = content.trim_start_matches('\u{feff}');
 
                 let lines: Vec<&str> = content.lines().collect();
                 if lines.is_empty() {
@@ -720,10 +955,10 @@ pub fn run_guard_check(
             if !stdin_str.trim().is_empty() {
                 stdin_str
             } else {
-                get_git_diff(&root, args.branch.as_deref())?
+                get_git_diff_with_mode(&root, args.branch.as_deref(), args.staged)?
             }
         } else {
-            get_git_diff(&root, args.branch.as_deref())?
+            get_git_diff_with_mode(&root, args.branch.as_deref(), args.staged)?
         };
 
         // Resolve "does this file still satisfy the invariant?" against the
@@ -794,16 +1029,30 @@ fn build_guard_sentinel(vault: Option<&Path>) -> String {
         None => String::new(),
     };
 
+    // Fall back to the binary that installed the hook: PATH may not include the
+    // non-standard location the user is currently running from.
+    let exe_fallback = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string())
+        .filter(|path| !path.is_empty())
+        .map(|path| {
+            format!(
+                "elif [ -x \"{path}\" ]; then\n    K0MARU_BIN=\"{path}\"\n",
+                path = path
+            )
+        })
+        .unwrap_or_default();
+
     format!(
         r#"# --- k0maru guard sentinel ---
-# k0maru guard check --diff (fail-closed)
+# k0maru guard check --diff --staged (fail-closed)
 if command -v k0maru >/dev/null 2>&1; then
     K0MARU_BIN="$(command -v k0maru)"
 elif [ -x "$HOME/.local/bin/k0maru" ]; then
     K0MARU_BIN="$HOME/.local/bin/k0maru"
 elif [ -x "$HOME/.cargo/bin/k0maru" ]; then
     K0MARU_BIN="$HOME/.cargo/bin/k0maru"
-else
+{exe_fallback}else
     K0MARU_BIN=""
 fi
 
@@ -816,9 +1065,10 @@ if [ -z "$K0MARU_BIN" ]; then
         exit 1
     fi
 else
-    "$K0MARU_BIN" guard check --diff{vault_arg} || exit 1
+    "$K0MARU_BIN" guard check --diff --staged{vault_arg} || exit 1
 fi
-# --- end k0maru guard sentinel ---"#
+# --- end k0maru guard sentinel ---"#,
+        exe_fallback = exe_fallback
     )
 }
 
@@ -851,12 +1101,22 @@ pub fn run_guard_install(args: GuardInstallArgs) -> Result<PathBuf, Box<dyn std:
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
-        let already_installed = existing.lines().any(|line| {
-            let trimmed = line.trim_start();
-            !trimmed.starts_with('#') && trimmed.contains("k0maru guard check")
-        });
-        if already_installed {
+
+        // The marker — not a textual mention of `k0maru guard check` inside an
+        // echo or comment — is the source of truth for "already installed".
+        const SENTINEL_START: &str = "# --- k0maru guard sentinel ---";
+        const SENTINEL_END: &str = "# --- end k0maru guard sentinel ---";
+        if existing.contains(sentinel.as_str()) {
             return Ok(hook_path);
+        }
+        if let Some(start) = existing.find(SENTINEL_START) {
+            if let Some(end_rel) = existing[start..].find(SENTINEL_END) {
+                // Upgrade an older sentinel in place (`--diff` -> `--diff --staged`).
+                let end = start + end_rel + SENTINEL_END.len();
+                let rewritten = format!("{}{}{}", &existing[..start], sentinel, &existing[end..]);
+                fs::write(&hook_path, rewritten)?;
+                return Ok(hook_path);
+            }
         }
 
         // Insert before a trailing `exit 0` so the guard actually executes.

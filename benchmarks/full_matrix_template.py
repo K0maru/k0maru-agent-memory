@@ -818,25 +818,35 @@ def run_concurrency_stress_suite(k0maru_bin: str, model_tag: str, vault_path: Pa
     # Test 3: Simultaneous Context GC Stress (50-Turn Trajectory Compaction)
     # ----------------------------------------------------
     print("\n[TEST 3] Simultaneous Context GC Stress (50-Turn Trajectory Compaction)...")
-    raw_trajectory = []
-    raw_trajectory.append({"role": "system", "content": "You are a payment worker guarding ADR-SETTLE-001 idempotency and Redis lock invariants."})
+    turns = []
+    turns.append({"turn_index": 0, "role": "system", "content": "You are a payment worker guarding ADR-SETTLE-001 idempotency and Redis lock invariants."})
     
+    t_idx = 1
     for i in range(1, 46):
-        raw_trajectory.append({"role": "user", "content": f"Turn {i}: Process payment callback #{i} with idempotency key stripe_evt_{i}."})
+        turns.append({"turn_index": t_idx, "role": "user", "content": f"Turn {i}: Process payment callback #{i} with idempotency key stripe_evt_{i}."})
+        t_idx += 1
         warn_block = "\n".join([f"warning: unused variable `temp_{j}` at file.go:{j*10}" for j in range(30)])
-        raw_trajectory.append({
+        turns.append({
+            "turn_index": t_idx,
             "role": "tool",
-            "name": "bash",
+            "tool_name": "bash",
             "content": f"=== COMPILER OUTPUT TURN {i} ===\n{warn_block}\nFATAL ERROR: connection to redis:6379 timed out after 5000ms"
         })
-        raw_trajectory.append({"role": "assistant", "content": f"Received retry error on turn {i}, backing off."})
+        t_idx += 1
+        turns.append({"turn_index": t_idx, "role": "assistant", "content": f"Received retry error on turn {i}, backing off."})
+        t_idx += 1
     
     for i in range(46, 51):
-        raw_trajectory.append({"role": "user", "content": f"Final Turn {i}: Execute verified Go handler with Lua unlock."})
-        raw_trajectory.append({"role": "assistant", "content": f"Handler {i} executed successfully with token release."})
+        turns.append({"turn_index": t_idx, "role": "user", "content": f"Final Turn {i}: Execute verified Go handler with Lua unlock."})
+        t_idx += 1
+        turns.append({"turn_index": t_idx, "role": "assistant", "content": f"Handler {i} executed successfully with token release."})
+        t_idx += 1
     
+    raw_trajectory = {
+        "session_id": "bench-50-turn",
+        "turns": turns
+    }
     traj_json_str = json.dumps(raw_trajectory)
-    raw_token_count = len(traj_json_str) // 4
     
     gc_res = subprocess.run(
         [k0maru_bin, "gc", "--vault", str(vault_path), "--json"],
@@ -848,10 +858,10 @@ def run_concurrency_stress_suite(k0maru_bin: str, model_tag: str, vault_path: Pa
         raise RuntimeError(f"k0maru gc failed: {gc_res.stderr}")
 
     gc_data = json.loads(gc_res.stdout)
-    raw_token_count = gc_data.get("original_tokens", raw_token_count)
-    pruned_token_count = gc_data["compacted_tokens"] if "compacted_tokens" in gc_data else gc_data["pruned_tokens"]
-    measured_trr = gc_data["trr"] if "trr" in gc_data else gc_data["trr_percent"]
-    smart_zone_ok = gc_data.get("within_smart_zone", False)
+    raw_token_count = gc_data["raw_tokens"]
+    pruned_token_count = gc_data["compacted_tokens"]
+    measured_trr = gc_data["token_reduction_ratio"]
+    smart_zone_ok = gc_data.get("in_smart_zone", gc_data.get("within_smart_zone", False))
     
     print(f"  -> Raw Trajectory Tokens: {raw_token_count} tokens")
     print(f"  -> Pruned Trajectory Tokens: {pruned_token_count:.0f} tokens")
@@ -861,9 +871,10 @@ def run_concurrency_stress_suite(k0maru_bin: str, model_tag: str, vault_path: Pa
     concurrency_report["context_gc"] = {
         "raw_tokens": raw_token_count,
         "pruned_tokens": round(pruned_token_count),
+        "compacted_tokens": round(pruned_token_count),
         "trr_percent": round(measured_trr, 2),
         "smart_zone_compliant": smart_zone_ok,
-        "turns_processed": len(raw_trajectory)
+        "turns_processed": len(turns)
     }
 
     # ----------------------------------------------------

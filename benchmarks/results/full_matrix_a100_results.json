@@ -529,9 +529,10 @@
       "instant_recall_latency_ms": 290.99
     },
     "context_gc": {
-      "raw_tokens": 20946,
-      "pruned_tokens": 1110,
-      "trr_percent": 94.67,
+      "raw_tokens": 16830,
+      "pruned_tokens": 2259,
+      "compacted_tokens": 2259,
+      "trr_percent": 86.58,
       "smart_zone_compliant": true,
       "turns_processed": 146
     },

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::str::FromStr;
 use tempfile::tempdir;
 
@@ -169,6 +170,126 @@ fn test_flush_engine_dry_run_and_live_write() {
     let res_live = engine.flush(req_live).unwrap();
     assert!(!res_live.dry_run);
     assert!(res_live.file_path.exists());
+}
+
+#[test]
+fn test_flush_supersedes_missing_target_leaves_no_orphan_note() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    let request = FlushRequest {
+        title: "Orphan Guard".to_string(),
+        summary: Some("Should never hit disk".to_string()),
+        content: "Body that must not be written.".to_string(),
+        category: "card".to_string(),
+        tags: vec![],
+        related_notes: vec![],
+        dry_run: false,
+        supersedes: vec!["does-not-exist".to_string()],
+    };
+
+    let err = engine.flush(request).unwrap_err().to_string();
+    assert!(
+        err.contains("not found or ambiguous"),
+        "unexpected error: {err}"
+    );
+
+    let mut markdown_files = Vec::new();
+    for entry in walkdir::WalkDir::new(vault_root) {
+        let entry = entry.unwrap();
+        if entry.file_type().is_file()
+            && entry.path().extension().and_then(|s| s.to_str()) == Some("md")
+        {
+            markdown_files.push(entry.path().to_path_buf());
+        }
+    }
+    assert!(
+        markdown_files.is_empty(),
+        "a failed supersedes validation must not leave an orphan note: {markdown_files:?}"
+    );
+}
+
+#[test]
+fn test_flush_supersedes_is_idempotent_on_identical_note() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    let old = engine
+        .flush(FlushRequest {
+            title: "ADR-700".to_string(),
+            summary: Some("Old".to_string()),
+            content: "Old body".to_string(),
+            category: "card".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec![],
+        })
+        .unwrap();
+
+    let make_request = || FlushRequest {
+        title: "ADR-701".to_string(),
+        summary: Some("New".to_string()),
+        content: "New body".to_string(),
+        category: "card".to_string(),
+        tags: vec![],
+        related_notes: vec![],
+        dry_run: false,
+        supersedes: vec!["ADR-700".to_string()],
+    };
+
+    let first = engine.flush(make_request()).unwrap();
+    assert!(first.created);
+    assert_eq!(first.superseded_files, vec![old.relative_path.clone()]);
+
+    // Re-flushing the exact same note must still (idempotently) report the
+    // supersession instead of silently skipping it.
+    let second = engine.flush(make_request()).unwrap();
+    assert!(!second.created, "identical note must not be re-created");
+    assert_eq!(
+        second.superseded_files,
+        vec![old.relative_path.clone()],
+        "an identical re-flush must still report superseded files"
+    );
+
+    let old_content = fs::read_to_string(&old.file_path).unwrap();
+    assert!(old_content.contains("status: superseded"));
+    assert_eq!(
+        old_content.matches("> [SUPERSEDED]").count(),
+        1,
+        "supersession callout must not be duplicated"
+    );
+}
+
+#[test]
+fn test_mark_note_superseded_handles_bom_and_crlf_frontmatter() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let target = vault_root.join("adr-300.md");
+    fs::write(
+        &target,
+        "\u{feff}---\r\ntitle: Old ADR\r\nstatus: active\r\n---\r\n\r\n# Old ADR\r\n",
+    )
+    .unwrap();
+
+    let superseded = k0maru::convention::flush::mark_note_superseded(
+        vault_root,
+        "adr-300",
+        Path::new("20_Cards/adr-301.md"),
+    )
+    .unwrap()
+    .expect("target should resolve");
+
+    assert_eq!(superseded, std::path::PathBuf::from("adr-300.md"));
+    let content = fs::read_to_string(&target).unwrap();
+    assert!(
+        content.contains("status: superseded"),
+        "BOM + CRLF frontmatter must be rewritten, got: {content:?}"
+    );
+    assert!(content.contains("superseded_by: \"[[20_Cards/adr-301]]\""));
+    assert!(content.contains("> [SUPERSEDED] Superseded by [[20_Cards/adr-301]]"));
 }
 
 #[test]

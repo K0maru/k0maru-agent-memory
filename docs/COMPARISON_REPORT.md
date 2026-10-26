@@ -44,7 +44,7 @@ K0maru is compared against the 4 predominant memory approaches in the AI coding 
 | **Network Port Footprint** | 0 ports | 1 open port | 1–2 open ports (`8283`) | 1–4 open ports (`8080`, `5432`) | **0 open ports** (Unix stdio streams & pipes) |
 | **Cold Start Latency** | Instant | 1,200 ms – 1,800 ms | 2,800 ms – 3,500 ms | 2,500 ms – 3,800 ms | **3.38 ms** (median, Rust native) |
 | **Memory Footprint (RSS)**| 0 MB | ~150 MB – 250 MB | ~850 MB – 1,200 MB | ~1,800 MB – 2,500 MB | **~11.7 MB** (released instantly on exit) |
-| **Binary / Artifact Size**| 0 MB | ~80 MB (Python venv) | ~1,200 MB (Docker image) | ~2,500 MB (Docker images) | **3.66 MB** (~2.8MB without ONNX) |
+| **Binary / Artifact Size**| 0 MB | ~80 MB (Python venv) | ~1,200 MB (Docker image) | ~2,500 MB (Docker images) | **3.6 MB** pure-Rust core with `--no-default-features` / **33 MB** default with bundled ONNX Runtime |
 | **Index Rebuild Throughput**| N/A | ~50 docs/sec | ~138 docs/sec | ~119 docs/sec | **6,746 docs/sec** (500 docs in 74.1ms) |
 | **Index Resilience** | N/A | Database corruption risk | Database snapshot dependent | DB backup dependent | **Disposable `cache.sqlite` (rebuilt in <75ms)** |
 | **Protocol Conformance** | Manual prompt injection | Proprietary Python SDK | REST API / Bespoke SDK | Bespoke SDK / REST | **Standard Model Context Protocol (FastMCP Stdio)** |
@@ -58,7 +58,7 @@ K0maru is compared against the 4 predominant memory approaches in the AI coding 
 
 ### 1. Zero-Daemon & Ephemeral Invariant vs. Heavy Microservices
 - **The Problem with Letta / TencentDB**: Requiring Docker Compose or resident background daemons is hostile to developer workstations. It consumes 1GB–2GB of RAM continuously, introduces open network ports that trigger firewall warnings, and creates daemon lifecycle fragility (stale locks, orphaned containers).
-- **The K0maru Solution**: K0maru is a single self-contained native binary (~3.6MB) with **zero background daemons and zero open network ports**. It executes sub-millisecond subcommands (`k0maru loadout`, `k0maru search`), releases memory immediately on process exit, and communicates over standard Unix stdio pipes.
+- **The K0maru Solution**: K0maru is a single self-contained native binary (3.6 MB pure-Rust core with `--no-default-features` / 33 MB default with bundled ONNX Runtime) with **zero background daemons and zero open network ports**. It executes sub-millisecond subcommands (`k0maru loadout`, `k0maru search`), releases memory immediately on process exit, and communicates over standard Unix stdio pipes.
 
 ### 2. Local Markdown Ownership vs. Proprietary Vector Silos
 - **The Problem with Mem0 / Letta**: Knowledge is locked in opaque internal tables or cloud services. If the service is discontinued or uninstalled, the developer's memory is trapped.
@@ -70,7 +70,7 @@ K0maru is compared against the 4 predominant memory approaches in the AI coding 
 
 ### 4. Hybrid Retrieval with 1-Hop Graph Boost vs. Naive Semantic Search
 - **The Problem with Standard RAG**: Pure vector search struggles with exact code symbols (e.g. `SQLITE_BUSY`, `E0502`, specific function names), while pure lexical search misses semantic synonyms.
-- **The K0maru Solution**: K0maru implements Reciprocal Rank Fusion (RRF $k=60$) combining SQLite FTS5 BM25 lexical ranking with local ONNX dense vector embeddings, enhanced with a **+0.05 Graph Boost** for notes connected via bidirectional `[[WikiLinks]]`. This ensures exact symbols and high-level concepts both achieve top-tier recall.
+- **The K0maru Solution**: K0maru implements Reciprocal Rank Fusion (RRF $k=60$) combining SQLite FTS5 BM25 lexical ranking with local ONNX dense vector embeddings, enhanced with a **+0.004 Graph Boost** (~25% of top-1 RRF) for notes connected via bidirectional `[[WikiLinks]]`. This ensures exact symbols and high-level concepts both achieve top-tier recall.
 
 ---
 
@@ -93,7 +93,7 @@ Measured on a standard developer workstation (Apple Silicon, macOS 14+, SSD):
 - **Cold Start (p50)**: **3.38 ms** (vs. 2,500 ms for TencentDB, 3,200 ms for Letta).
 - **500-Doc Index Rebuild**: **74.12 ms** (6,746 docs/sec).
 - **Clean Rescan**: **11.67 ms**.
-- **Binary Footprint**: **3.66 MB** (vs. 1.2 GB container for Letta).
+- **Binary Footprint**: **3.6 MB** pure-Rust core with `--no-default-features` / **33 MB** default with bundled ONNX Runtime (vs. 1.2 GB container for Letta).
 - **Network Ports**: **0** (vs. 1–4 open ports).
 
 ---
@@ -108,7 +108,7 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 - **Host Memory & Disk**: 167 GiB RAM, 194 GiB high-speed NVMe scratch storage.
 - **Inference Server**: Ollama daemon (native CUDA v13 backend, 256k context window).
 - **Evaluated Models**:
-  1. **Qwen3.8-27B** (`qwen3.8:27b`, 27B Dual-Stage Reasoning, Flagship Kanban Model)
+  1. **Qwen2.5-32B-Instruct** (`qwen2.5:32b`, 32B Instruct Model)
   2. **DeepSeek-Coder-V2-16B** (`deepseek-coder-v2:16b`, 16B MoE with 2.4B active)
   3. **Qwen2.5-Coder-32B** (`qwen2.5-coder:32b`, 32B Dense, Code Baseline Model)
   4. **DeepSeek-R1-32B** (`deepseek-r1:32b`, 32B Reasoning Distillation)
@@ -124,8 +124,8 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 
 | Evaluated Model | Parameters & Architecture | Mode | Pass@1 Rate | Total Prompt Tokens | Token Reduction (%) | Avg Latency | Speedup | Key Behavior Observation |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dual-Stage Reasoning | Baseline | 20.0% (1/5) | 5,745 | — | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock. |
-| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dual-Stage Reasoning | **K0maru** | **40.0% (2/5)** | **1,076** | **81.3%** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak. |
+| **Qwen2.5-32B-Instruct** | 32B Instruct Model | Baseline | 20.0% (1/5) | 5,745 | — | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock. |
+| **Qwen2.5-32B-Instruct** | 32B Instruct Model | **K0maru** | **40.0% (2/5)** | **1,076** | **81.3%** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak. |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | Baseline | 80.0% (4/5) | 6,298 | — | 9.43s | 1.0x | Fast MoE architecture, but failed TS auth due to raw stack trace misdirection. |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | **K0maru** | **100.0% (5/5)** | **1,142** | **81.9%** | **1.36s** | **6.93x** | **100% Pass rate**. Sub-second turnaround on TS (1.26s) and C (1.19s). Case 1 sped up **26.44x** (40.5s -> 1.53s). |
 | **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Q4_K_M | Baseline | 60.0% (3/5) | 5,472 | — | 24.68s | 1.0x | Overwhelmed by Rust borrow-checker dump (90.1s) and TS auth null reference. |
@@ -141,7 +141,7 @@ To bridge the gap between theoretical calculations and real-world engineering ou
 
 To ensure that coding agents adhere to architectural guardrails and complete self-healing cycles, we verified 4 non-negotiable invariants across all 5 models against the Enterprise Payment Settlement Vault:
 
-| Invariant Verification Item | Qwen3.8-27B *(Flagship Kanban)* | Qwen2.5-Coder-32B *(Code Baseline)* | DeepSeek-Coder-V2-16B | DeepSeek-R1-32B | Google Gemma 4 31B |
+| Invariant Verification Item | Qwen2.5-32B-Instruct | Qwen2.5-Coder-32B *(Code Baseline)* | DeepSeek-Coder-V2-16B | DeepSeek-R1-32B | Google Gemma 4 31B |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **1. Pre-flight Memory Inspection** | FAIL | **PASS ✓** | **PASS ✓** | FAIL | FAIL |
 | **2. Invariant Compliance (`SET NX EX 30` + Lua)** | FAIL | FAIL | **PASS ✓** | FAIL | FAIL |
@@ -155,7 +155,7 @@ To ensure that coding agents adhere to architectural guardrails and complete sel
 
 ### 4. Phase 9 Multi-Agent Heterogeneous Concurrency & Stress Benchmark
 
-Executed directly on the dedicated A100 host using our Flagship Kanban model (`Qwen3.8-27B`) alongside code baseline models within the simulated Enterprise Payment Settlement LLM-Wiki:
+Executed directly on the dedicated A100 host using `Qwen2.5-32B-Instruct` alongside code baseline models within the simulated Enterprise Payment Settlement LLM-Wiki:
 
 #### A. Simultaneous Multi-Agent Read Burst (12 Concurrent Agents)
 - **Scale**: 120 total retrieval requests (`k0maru search --mode hybrid` & `k0maru loadout --diff`) dispatched across 12 concurrent worker threads.
@@ -176,9 +176,9 @@ Executed directly on the dedicated A100 host using our Flagship Kanban model (`Q
 
 #### C. Long-Trajectory Context Garbage Collection (Context GC)
 - **Trajectory**: Simulated 50-turn payment worker conversation (146 messages) containing heavy compiler outputs, Redis timeouts, and tool traces.
-- **Raw Trajectory Tokens**: **20,946 tokens**.
-- **Pruned Trajectory Tokens**: **1,110 tokens**.
-- **Token Reduction Ratio (TRR)**: **94.67%** (exceeds $\ge 85.0\%$ target).
+- **Raw Trajectory Tokens**: **16,830 tokens**.
+- **Pruned Trajectory Tokens**: **2,259 tokens**.
+- **Token Reduction Ratio (TRR)**: **86.58%** (exceeds $\ge 85.0\%$ target, 45 tool traces folded).
 - **Cognitive Smart-Zone**: Fully compliant (context volume retained within 15%–60% of original window).
 
 #### D. Tri-Harness Autonomous Execution Loop

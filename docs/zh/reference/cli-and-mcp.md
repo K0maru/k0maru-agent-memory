@@ -627,7 +627,7 @@ K0maru 严格遵循 Anthropic Model Context Protocol（MCP）`2024-11-05` 规范
 K0maru 为 **Tern** 终端多路复用器提供了纯 Luau 编写的原生插件（位于 `tern-plugin/`）：
 - **Cockpit 驾驶舱看板块**：交互式终端块，实时呈现二进制健康度、SQLite 索引状态与 Living ADR 合规仪表条（输入 `r` 即可原地刷新）；
 - **CLI 命令透镜**：拦截 `k0maru *` 命令并将 JSON 或表格输出渲染为原生 UI 卡片与表格；
-- **Window 调色板指令**：集成 `k0maru: cockpit`、`k0maru: doctor`、`k0maru: guard-check` 以及 Carly `recall` 导出。
+- **Window 调色板指令**：集成 `k0maru: cockpit`、`k0maru: doctor`、`k0maru: guard-check` 以及 Tern assistant `recall` 导出。
 
 ```bash
 # 一键安装 Tern 原生插件

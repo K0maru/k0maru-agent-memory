@@ -31,8 +31,8 @@ The table below contrasts unmanaged agents (Control Group) against K0maru-manage
 
 | Evaluated Model | Architecture & Role | Group | Pass@1 Accuracy | Input Prompt Tokens | Average Latency | Speedup Factor | Key Engineering Observations |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | Control (Vanilla) | 20.0% (1/5) | 5,745 | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock |
-| **Qwen3.8-27B** *(Flagship Kanban)* | 27B Dense (2-Stage CoT) | **K0maru Managed** | **40.0% (2/5)** | **1,076** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak |
+| **Qwen2.5-32B-Instruct** *(Flagship Kanban)* | 32B Dense Instruct | Control (Vanilla) | 20.0% (1/5) | 5,745 | 16.70s | 1.0x | Baseline Rust cold inference took 56.7s; failed Python async and Go deadlock |
+| **Qwen2.5-32B-Instruct** *(Flagship Kanban)* | 32B Dense Instruct | **K0maru Managed** | **40.0% (2/5)** | **1,076** | **6.14s** | **2.72x** | Rust inference dropped from 56.7s to 6.06s (**9.36x speedup**); resolved Python async leak |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | Control (Vanilla) | 80.0% (4/5) | 6,298 | 9.43s | 1.0x | Fast MoE architecture, but failed TS auth due to raw stack trace misdirection |
 | **DeepSeek-Coder-V2-16B** | 16B MoE (2.4B active) | **K0maru Managed** | **100.0% (5/5)** | **1,142** | **1.36s** | **6.93x** | **100% Pass rate**; sub-second turnaround on TS (1.26s) and C (1.19s); Case 1 sped up **26.44x** |
 | **Qwen2.5-Coder-32B** *(Code Baseline)* | 32B Dense Code Specialist | Control (Vanilla) | 60.0% (3/5) | 5,472 | 24.68s | 1.0x | Misled by verbose Rust borrow checker stack (90.1s) and TS auth null reference |
@@ -51,7 +51,7 @@ The table below contrasts unmanaged agents (Control Group) against K0maru-manage
 | **Simultaneous Read Bursts** | 12 Concurrent Agents, 120 queries | **18.9 QPS**, Avg: **614.29ms** (P50: 781.9ms) | **100% PASS** | Zero SQLite busy contention (`SQLITE_BUSY = 0`) |
 | **Simultaneous Write & Flush Race** | 8 Concurrent Writers | **12.2 writes/sec**, Avg: **584.93ms** | **100% PASS** | 8/8 files created, zero collision loss (`-v2.md` to `-v8.md`) |
 | **Instant Self-Healing Recall** | Read-your-writes validation | **290.99 ms** | **PASS ✓** | Immediate sub-second recall without re-indexing |
-| **Context Garbage Collection (GC)** | 50-turn trajectory compaction | **94.67% TRR** (20,946 ➔ 1,110 tokens) | **PASS ✓** | Preserves context within cognitive Smart-Zone (15%–60%) |
+| **Context Garbage Collection (GC)** | 50-turn trajectory compaction | **86.58% TRR** (16,830 ➔ 2,259 tokens, 45 tool traces folded) | **PASS ✓** | Preserves context within cognitive Smart-Zone (15%–60%) |
 | **Dynamic Loadout Git-Diff** | Change-aware ADR activation | **245 tokens** | **PASS ✓** | Strictly bounded under <300 token budget |
 | **Heterogeneous Agent Loops** | Hermes, OpenClaw, Pi | Turnaround: **1.04s – 8.49s** | **100% PASS** | Verified autonomous tool calling & ADR crystallization |
 
@@ -93,7 +93,7 @@ The table below contrasts unmanaged agents (Control Group) against K0maru-manage
 - **DeepSeek-R1-32B**:
   - Control: 39.23s latency, 243 tokens (spent excessive cycles re-analyzing call frames);
   - K0maru: **11.54s latency (3.4x faster)**, 161 tokens (Mermaid state diagram pointed directly to `Arc::clone`).
-- **Qwen3.8-27B**:
+- **Qwen2.5-32B-Instruct**:
   - Control: 21.20s latency, 268 tokens;
   - K0maru: **11.12s latency (halved turnaround)**, 176 tokens (34.3% token savings).
 

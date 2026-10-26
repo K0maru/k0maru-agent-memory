@@ -43,9 +43,9 @@ impl<'a> CompiledRule<'a> {
                 .map(|c| c.is_ascii_alphanumeric() || c == '_')
                 .unwrap_or(false)
             {
-                format!(r"\b{}\(\)", escaped_base)
+                format!(r"\b{}\s*\(", escaped_base)
             } else {
-                format!(r"{}\(\)", escaped_base)
+                format!(r"{}\s*\(", escaped_base)
             };
             let regex = Regex::new(&pat).ok();
             Self {
@@ -53,27 +53,44 @@ impl<'a> CompiledRule<'a> {
                 regex,
                 allow_substring_fallback: false,
             }
-        } else if !raw_pattern.contains('\\')
-            && !raw_pattern.contains('|')
-            && !raw_pattern.contains('^')
-            && !raw_pattern.contains('$')
-            && !raw_pattern.contains(".*")
-            && !raw_pattern.contains(".+")
-            && !raw_pattern.contains(")?")
-        {
-            let escaped = regex::escape(raw_pattern);
-            let regex = Regex::new(&escaped).ok();
-            Self {
-                rule,
-                regex,
-                allow_substring_fallback: true,
-            }
         } else {
-            let regex = Regex::new(raw_pattern).ok();
-            Self {
-                rule,
-                regex,
-                allow_substring_fallback: false,
+            let has_char_class = raw_pattern.contains("[0-")
+                || raw_pattern.contains("[1-")
+                || raw_pattern.contains("[a-")
+                || raw_pattern.contains("[A-")
+                || raw_pattern.contains("[^")
+                || raw_pattern.contains("]+")
+                || raw_pattern.contains("]*")
+                || raw_pattern.contains("]?")
+                || raw_pattern.contains("]{");
+            let has_regex_meta = raw_pattern.contains('\\')
+                || raw_pattern.contains('|')
+                || raw_pattern.contains('^')
+                || raw_pattern.contains('$')
+                || raw_pattern.contains(".*")
+                || raw_pattern.contains(".+")
+                || raw_pattern.contains(")?")
+                || raw_pattern.contains('{')
+                || raw_pattern.contains('}')
+                || has_char_class
+                || raw_pattern.contains('+')
+                || raw_pattern.contains('?');
+
+            if !has_regex_meta {
+                let escaped = regex::escape(raw_pattern);
+                let regex = Regex::new(&escaped).ok();
+                Self {
+                    rule,
+                    regex,
+                    allow_substring_fallback: true,
+                }
+            } else {
+                let regex = Regex::new(raw_pattern).ok();
+                Self {
+                    rule,
+                    regex,
+                    allow_substring_fallback: false,
+                }
             }
         }
     }
@@ -128,23 +145,42 @@ fn matches_file_pattern(pattern_opt: Option<&str>, path: &Path) -> bool {
     let path_str = path.to_string_lossy().replace('\\', "/");
 
     let pattern_has_k0maru = pattern_opt.map(|p| p.contains(".k0maru")).unwrap_or(false);
-    let is_internal_wiki_or_cache = path_str.starts_with(".k0maru/wiki/")
-        || path_str.contains("/.k0maru/wiki/")
-        || path_str.starts_with(".k0maru/rules")
-        || path_str.contains("/.k0maru/rules")
-        || path_str == ".k0maru/guard.toml"
-        || path_str.ends_with("/.k0maru/guard.toml")
-        || path_str.ends_with("/.k0maru/.gitignore")
-        || path_str == ".k0maru/.gitignore"
-        || path_str.contains("cache.sqlite")
-        || path_str.starts_with("10_Projects/")
+
+    let is_markdown = path_str.ends_with(".md");
+    let is_under_src_or_lib = path_str.starts_with("src/")
+        || path_str.contains("/src/")
+        || path_str.starts_with("lib/")
+        || path_str.contains("/lib/");
+    let is_vault_dir = path_str.starts_with("10_Projects/")
         || path_str.starts_with("20_Cards/")
         || path_str.starts_with("01_AI_Logs/")
         || path_str.starts_with("00_Daily/")
+        || path_str.starts_with(".k0maru/wiki/")
         || path_str.contains("/10_Projects/")
         || path_str.contains("/20_Cards/")
         || path_str.contains("/01_AI_Logs/")
-        || path_str.contains("/00_Daily/");
+        || path_str.contains("/00_Daily/")
+        || path_str.contains("/.k0maru/wiki/");
+
+    let is_exempt_markdown = is_markdown && !is_under_src_or_lib && is_vault_dir;
+
+    let is_k0maru_rules = path_str == ".k0maru/rules"
+        || path_str.starts_with(".k0maru/rules/")
+        || path_str.ends_with("/.k0maru/rules")
+        || path_str.contains("/.k0maru/rules/");
+
+    let is_guard_or_gitignore = path_str == ".k0maru/guard.toml"
+        || path_str.ends_with("/.k0maru/guard.toml")
+        || path_str == ".k0maru/.gitignore"
+        || path_str.ends_with("/.k0maru/.gitignore");
+
+    let is_cache_sqlite = path_str.ends_with("cache.sqlite")
+        || path_str.ends_with("cache.sqlite-wal")
+        || path_str.ends_with("cache.sqlite-shm");
+
+    let is_internal_wiki_or_cache =
+        is_exempt_markdown || is_guard_or_gitignore || is_k0maru_rules || is_cache_sqlite;
+
     if is_internal_wiki_or_cache && !pattern_has_k0maru {
         return false;
     }
@@ -260,11 +296,11 @@ fn strip_code_comment(line: &str, file_path: &Path) -> String {
             continue;
         }
 
-        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' && !is_hash_comment_lang {
             break;
         }
 
-        if c == '#' && is_hash_comment_lang {
+        if c == '#' && is_hash_comment_lang && (i == 0 || chars[i - 1].is_whitespace()) {
             break;
         }
 
@@ -371,12 +407,14 @@ impl GuardEngine {
         let mut current_file: Option<PathBuf> = None;
         let mut current_line: usize = 0;
         let mut in_hunk = false;
+        let mut is_deleted_file = false;
         let mut added_lines: Vec<(usize, String)> = Vec::new();
         let mut deleted_lines: Vec<(usize, String)> = Vec::new();
 
         let mut finalize_file = |file: &Option<PathBuf>,
                                  added: &[(usize, String)],
                                  deleted: &[(usize, String)],
+                                 is_deleted: bool,
                                  violations: &mut Vec<GuardViolation>,
                                  checked_files: &mut usize| {
             if let Some(file_path) = file {
@@ -443,6 +481,9 @@ impl GuardEngine {
                             }
                         }
                         RuleCondition::MustContain(_) => {
+                            if is_deleted {
+                                continue;
+                            }
                             let deleted_required =
                                 !deleted.is_empty() && cr.is_match(&joined_deleted);
                             let added_has_it = !added.is_empty() && cr.is_match(&joined_added);
@@ -492,6 +533,10 @@ impl GuardEngine {
                     current_line += 1;
                     hunk_old_remaining = hunk_old_remaining.saturating_sub(1);
                     hunk_new_remaining = hunk_new_remaining.saturating_sub(1);
+                } else if line.is_empty() && hunk_old_remaining > 0 && hunk_new_remaining > 0 {
+                    current_line += 1;
+                    hunk_old_remaining -= 1;
+                    hunk_new_remaining -= 1;
                 } else if line.starts_with('\\') {
                     // \ No newline at end of file
                 } else {
@@ -513,12 +558,14 @@ impl GuardEngine {
                     &current_file,
                     &added_lines,
                     &deleted_lines,
+                    is_deleted_file,
                     &mut violations,
                     &mut checked_files,
                 );
                 added_lines.clear();
                 deleted_lines.clear();
                 in_hunk = false;
+                is_deleted_file = false;
 
                 if let Some((_a, b)) = rest.split_once(' ') {
                     current_file = clean_diff_path(b);
@@ -526,6 +573,10 @@ impl GuardEngine {
                     current_file = None;
                 }
                 continue;
+            }
+
+            if line == "+++ /dev/null" || line.starts_with("deleted file mode") {
+                is_deleted_file = true;
             }
 
             if let Some(rest) = line.strip_prefix("+++ ") {
@@ -566,6 +617,7 @@ impl GuardEngine {
             &current_file,
             &added_lines,
             &deleted_lines,
+            is_deleted_file,
             &mut violations,
             &mut checked_files,
         );

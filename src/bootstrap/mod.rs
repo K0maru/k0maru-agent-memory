@@ -376,13 +376,13 @@ tags:
 invariants:
   - id: no-hardcoded-private-keys
     title: "No Hardcoded Private Keys"
-    forbidden: "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    forbidden: "-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----"
     file_pattern: "**/*"
     severity: "deny"
     remediation: "Never commit private keys; use environment variables or secret managers."
   - id: no-conflict-markers
     title: "No Git Merge Conflict Markers"
-    forbidden: "^(<<<<<<< |>>>>>>> )"
+    forbidden: "^(<{7}( |$)|={7}$|>{7}( |$))"
     file_pattern: "**/*"
     severity: "deny"
     remediation: "Resolve all Git merge conflict markers before committing."
@@ -396,11 +396,11 @@ Automated coding agents and human developers commit changesets at high velocity.
 ## Non-Negotiable Invariants
 1. **Never commit cryptographic private keys**:
    - Condition: forbidden
-   - Pattern: `-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----`
+   - Pattern: `-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----`
    - Scope: all files (`**/*`)
 2. **Never commit Git merge conflict markers**:
    - Condition: forbidden
-   - Pattern: `^(<<<<<<< |>>>>>>> )`
+   - Pattern: `^(<{7}( |$)|={7}$|>{7}( |$))`
    - Scope: application code trees
 
 ## Verification & Enforcement
@@ -483,17 +483,11 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         .document_count()
         .unwrap_or(sync_stats.added + sync_stats.modified);
 
-    // Optional client configuration and hook installation
+    // `init --install` only touches repository-local hooks. Rewriting global
+    // agent MCP configuration (which may point at a different existing vault)
+    // is reserved for an explicit `k0maru install`.
     let (guard_hook_installed, claude_hook_installed) = if options.install_clients {
-        let hooks = crate::install::install_repo_hooks(&repo_path, &vault_path, &project_slug);
-        let install_opts = crate::install::InstallOptions {
-            vault_path: vault_path.clone(),
-            target: crate::install::InstallTarget::All,
-            dry_run: false,
-            home_override: options.home_override.clone(),
-        };
-        let _ = crate::install::run_install(install_opts);
-        hooks
+        crate::install::install_repo_hooks(&repo_path, &vault_path, &project_slug)
     } else {
         (None, None)
     };

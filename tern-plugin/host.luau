@@ -5,7 +5,7 @@
 -- Implements the `cockpit` block (a Living ADR + doctor dashboard) and the
 -- `cli` lens (structured rendering for `k0maru ...` and
 -- `k0maru-memory ...` output). The window half -- palette commands and the
--- Carly `recall` export -- lives in window.luau.
+-- plugin `recall` export -- lives in window.luau.
 
 type CockpitState = {
 	cwd: string?,
