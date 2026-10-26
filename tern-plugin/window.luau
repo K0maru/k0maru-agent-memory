@@ -3,7 +3,7 @@
 -- K0maru Agent Memory -- Tern window half.
 --
 -- Registers the palette commands (open the cockpit, run the Living ADR
--- Guard) and the Carly `recall` export backed by `k0maru search --json`.
+-- Guard) and the plugin `recall` export backed by `k0maru search --json`.
 -- The block and lens implementations live in host.luau.
 
 local SEARCH_TIMEOUT_MS = 20000

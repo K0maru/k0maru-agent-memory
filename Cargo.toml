@@ -9,6 +9,10 @@ name = "k0maru"
 version = "1.0.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
+license = "MIT"
+repository = "https://github.com/K0maru/k0maru-agent-memory"
+homepage = "https://github.com/K0maru/k0maru-agent-memory"
+readme = "README.md"
 exclude = [
     ".internal/*",
     ".scratch/*",

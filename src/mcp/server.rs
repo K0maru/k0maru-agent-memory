@@ -36,6 +36,15 @@ pub struct McpServer {
 impl McpServer {
     /// Creates a new `McpServer` targeting the given vault path.
     pub fn new(vault_path: impl Into<PathBuf>) -> Self {
+        Self::new_with_model(vault_path, None)
+    }
+
+    /// Creates a new `McpServer` with an explicit embedding model.
+    ///
+    /// `Some("mock")` resolves straight to the deterministic mock engine, so
+    /// tests and offline runs never touch (or attempt to download) the default
+    /// `all-minilm-l6-v2` weights.
+    pub fn new_with_model(vault_path: impl Into<PathBuf>, embed_model: Option<&str>) -> Self {
         let vault_path = vault_path.into();
         let refs_dir = if vault_path.join(".k0maru").join("refs").exists() {
             vault_path.join(".k0maru").join("refs")
@@ -48,7 +57,7 @@ impl McpServer {
         } else {
             None
         };
-        let embedder = resolve_embedding_engine(None, model_cache).ok();
+        let embedder = resolve_embedding_engine(embed_model, model_cache).ok();
 
         Self {
             vault_path,
@@ -263,6 +272,21 @@ impl McpServer {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let mode = match arguments.get("mode").and_then(|v| v.as_str()) {
+            Some(raw) => match raw.to_lowercase().as_str() {
+                "hybrid" => SearchMode::Hybrid,
+                "bm25" => SearchMode::Bm25,
+                "vector" => SearchMode::Vector,
+                other => {
+                    return Err(format!(
+                        "Invalid mode '{}'. Supported modes: hybrid, bm25, vector",
+                        other
+                    ))
+                }
+            },
+            None => SearchMode::Hybrid,
+        };
+
         if let Err(e) = self.sync_cache() {
             return Err(format!("Cache sync failed: {}", e));
         }
@@ -272,12 +296,16 @@ impl McpServer {
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
 
+        if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+            return Err("Vector index is empty. Run 'k0maru sync --vector' first.".to_string());
+        }
+
         let has_vectors = storage.has_vectors().unwrap_or(false);
 
         let effective_embedder = if has_vectors { embedder } else { None };
         let engine = HybridSearchEngine::new(storage, effective_embedder);
         let results = engine
-            .search(query, SearchMode::Hybrid, limit)
+            .search(query, mode, limit)
             .map_err(|e| format!("Search failed: {}", e))?;
 
         if results.is_empty() {
@@ -417,15 +445,14 @@ impl McpServer {
                     .collect()
             })
             .unwrap_or_default();
-        let supersedes: Vec<String> = arguments
-            .get("supersedes")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let supersedes: Vec<String> = match arguments.get("supersedes") {
+            Some(Value::String(single)) => vec![single.to_string()],
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect(),
+            _ => Vec::new(),
+        };
 
         let engine = crate::convention::FlushEngine::new(&self.vault_path)
             .map_err(|e| format!("FlushEngine initialization failed: {}", e))?;
@@ -687,32 +714,131 @@ impl McpServer {
     fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
         let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
         let project_name = arguments.get("project_name").and_then(|v| v.as_str());
+        let branch = arguments.get("branch").and_then(|v| v.as_str());
+        let strict = arguments
+            .get("strict")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let rules = crate::guard::resolve_guard_rules(&self.vault_path, project_name)
-            .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
+        let files: Vec<PathBuf> = arguments
+            .get("files")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        let diff_text = if let Some(d) = diff_arg {
-            d.to_string()
-        } else {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            crate::guard::get_git_diff(&cwd, None)
-                .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+        let repo_dir = match arguments.get("repo_path").and_then(|v| v.as_str()) {
+            Some(explicit) => crate::guard::resolve_repo_root(Path::new(explicit)),
+            None => {
+                // Prefer the repository the agent is actually working in over
+                // the vault mount, which may live in an unrelated repo.
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let cwd_root = crate::guard::resolve_repo_root(&cwd);
+                let vault_root = crate::guard::resolve_repo_root(&self.vault_path);
+                if cwd_root.join(".git").exists() && cwd_root != vault_root {
+                    cwd_root
+                } else if vault_root.join(".git").exists() {
+                    vault_root
+                } else {
+                    cwd_root
+                }
+            }
         };
-        let report = crate::guard::GuardEngine::check_diff(&diff_text, &rules);
+
+        let rules = crate::guard::resolve_guard_rules_with_repo(
+            &self.vault_path,
+            project_name,
+            Some(&repo_dir),
+        )
+        .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
+
+        let report = if !files.is_empty() {
+            let mut file_tuples: Vec<(PathBuf, String)> = Vec::new();
+            for file in &files {
+                // MCP clients usually send repository-relative paths.
+                let path = if file.is_absolute() {
+                    file.clone()
+                } else {
+                    repo_dir.join(file)
+                };
+                if !path.exists() {
+                    return Err(format!("Target file does not exist: '{}'", path.display()));
+                }
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
+                file_tuples.push((path, content));
+            }
+            crate::guard::GuardEngine::check_files(&file_tuples, &rules)
+        } else {
+            let diff_text = if let Some(d) = diff_arg {
+                let trimmed = d.trim();
+                if !trimmed.is_empty()
+                    && !trimmed.contains("diff --git ")
+                    && !trimmed.contains("@@ ")
+                    && !trimmed.contains("+++ ")
+                {
+                    return Err("Invalid unified diff: missing diff headers or hunks".to_string());
+                }
+                d.to_string()
+            } else {
+                crate::guard::get_git_diff(&repo_dir, branch)
+                    .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+            };
+            let root = repo_dir.clone();
+            crate::guard::GuardEngine::check_diff_with_reader(
+                &diff_text,
+                &rules,
+                crate::guard::repo_content_reader(&root),
+            )
+        };
+
+        // A non-empty diff that matched no file headers is malformed (or was
+        // mangled in transit): fail closed instead of reporting a clean pass.
+        if files.is_empty() {
+            if let Some(d) = diff_arg {
+                if !d.trim().is_empty() && report.checked_files == 0 {
+                    return Err(
+                        "Invalid unified diff: no file headers (diff --git or +++ b/) matched"
+                            .to_string(),
+                    );
+                }
+            }
+        }
 
         let formatted = crate::guard::format_guard_report(&report);
         let json_report = serde_json::to_string_pretty(&report)
             .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
 
-        Ok(format!("{}\n\n```json\n{}\n```", formatted, json_report))
+        let combined = format!("{}\n\n```json\n{}\n```", formatted, json_report);
+
+        if !report.is_passed || (strict && !report.violations.is_empty()) {
+            return Err(combined);
+        }
+
+        Ok(combined)
     }
 
-    fn handle_initialize(&self, id: Value) -> Value {
+    fn handle_initialize(&self, id: Value, params: Option<&Value>) -> Value {
+        // Echo versions we actually speak; anything unknown falls back to the
+        // original 2024-11-05 revision.
+        let requested = params
+            .and_then(|p| p.get("protocolVersion"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("2024-11-05");
+        let protocol_version = match requested {
+            "2024-11-05" | "2025-03-26" | "2025-06-18" => requested,
+            _ => "2024-11-05",
+        };
+
         json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_version,
                 "capabilities": {
                     "tools": {}
                 },
@@ -765,6 +891,11 @@ impl McpServer {
                         "full": {
                             "type": "boolean",
                             "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["hybrid", "bm25", "vector"],
+                            "description": "Search mode (default: hybrid). 'vector' requires 'k0maru sync --vector'."
                         }
                     },
                     "required": ["query"]
@@ -835,9 +966,11 @@ impl McpServer {
                             "description": "Related existing notes to link via WikiLinks"
                         },
                         "supersedes": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Optional list of existing notes or ADRs that this note supersedes (automatically marks old notes as status: superseded)"
+                            "description": "Existing note(s) or ADR(s) that this note supersedes (automatically marks old notes as status: superseded). Accepts a single string or an array of strings.",
+                            "oneOf": [
+                                { "type": "string" },
+                                { "type": "array", "items": { "type": "string" } }
+                            ]
                         }
                     },
                     "required": ["title", "content"]
@@ -930,6 +1063,23 @@ impl McpServer {
                         "project_name": {
                             "type": "string",
                             "description": "Optional target project name to filter ADR invariants for."
+                        },
+                        "repo_path": {
+                            "type": "string",
+                            "description": "Optional path to the git repository to audit (defaults to the vault's repository or the current directory)."
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional base branch/revision for comparison (e.g. 'main', 'dev')."
+                        },
+                        "strict": {
+                            "type": "boolean",
+                            "description": "Treat advisory warnings as blocking failures."
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional explicit file paths to audit instead of a diff."
                         }
                     }
                 }
@@ -995,7 +1145,16 @@ impl McpServer {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },
-            unknown => (format!("Unknown tool: '{}'", unknown), true),
+            unknown => {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32602,
+                        "message": format!("Unknown tool: '{}'", unknown)
+                    }
+                });
+            }
         };
 
         let mut result_obj = serde_json::Map::new();
@@ -1093,7 +1252,8 @@ impl McpServer {
 
         match method {
             "initialize" => {
-                let resp = self.handle_initialize(id.unwrap_or(Value::Null));
+                let params_opt = obj.get("params");
+                let resp = self.handle_initialize(id.unwrap_or(Value::Null), params_opt);
                 Some(resp.to_string())
             }
             "notifications/initialized" | "initialized" => {

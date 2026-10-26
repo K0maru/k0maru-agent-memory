@@ -9,7 +9,7 @@
 Unlike generic cloud RAG platforms, enterprise vector microservices, or heavy containerized agent memory stacks, `K0maru-Agent-Memory` maintains strict adherence to four non-negotiable architectural invariants:
 
 1. **Zero-Daemon & Extreme Cold Start (<5ms)**:
-   - Delivered as a single, self-contained static binary (<10MB);
+   - Delivered as a single, self-contained static binary (3.6 MB pure-Rust core with `--no-default-features` / 33 MB default with bundled ONNX Runtime);
    - Zero background services, zero daemon processes, zero network port consumption (`stdio` and CLI execution only);
    - Cold-start latency strictly kept under 5ms (empirically 3.4ms).
 2. **Bring Your Own Markdown (BYOM)**:
@@ -49,13 +49,13 @@ timeline
 ### 📦 Completed Milestones (v0.1.0 – v0.8.2)
 
 - [x] **Phase 1: Dogfooding Prototype**: Prototyped memory loadout and Mermaid log offloading inside Obsidian SecondBrain.
-- [x] **Phase 2: Rust 2021 Core & CLI**: Re-implemented as a high-performance single static binary (3.66MB, 3.4ms cold start).
+- [x] **Phase 2: Rust 2021 Core & CLI**: Re-implemented as a high-performance single static binary (3.6 MB pure-Rust core with `--no-default-features` / 33 MB default with bundled ONNX Runtime, 3.4ms cold start).
 - [x] **Phase 3: FastMCP Stdio Protocol**: Native Model Context Protocol over stdio with natural language intent mapping.
-- [x] **Phase 4: Disposable Vector Cache & RRF Hybrid Search**: C-native `sqlite-vec` + local ONNX FastEmbed + RRF ($k=60$) + 1-hop WikiLinks Graph Boost (+0.05).
+- [x] **Phase 4: Disposable Vector Cache & RRF Hybrid Search**: C-native `sqlite-vec` + local ONNX FastEmbed + RRF ($k=60$) + 1-hop WikiLinks Graph Boost (+0.004, ~25% of top-1 RRF).
 - [x] **Phase 5: Embedded Developer WebUI Cockpit**: Axum + `rust-embed` zero-daemon visual debugger with dark theme and bilingual i18n.
 - [x] **Phase 6: Ecosystem Installer & Health Diagnostics**: `k0maru install` for 5 major agent clients with non-destructive JSON merges; `k0maru doctor` multi-probe system health report.
 - [x] **Phase 7: Adaptive Convention Sniffer & Experience Crystallization**: `ConventionSniffer` auto-detecting vault topologies; `FlushEngine` atomic collision-safe note persistence.
-- [x] **Phase 8: NVIDIA A100-SXM4-80GB Empirical Benchmarks**: Validated on Qwen3.8-27B, DeepSeek-R1-32B, and DeepSeek-Coder-V2 (100% Pass@1, 5.9x latency boost, 23.2% token savings).
+- [x] **Phase 8: NVIDIA A100-SXM4-80GB Empirical Benchmarks**: Validated on Qwen2.5-32B-Instruct, DeepSeek-R1-32B, and DeepSeek-Coder-V2 (100% Pass@1, 5.9x latency boost, 23.2% token savings).
 - [x] **Phase 8.5: Bilingual VitePress Documentation Suite**: Production-grade technical manual covering 11 chapters across Chinese and English with GitHub Pages deployment.
 
 ---

@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
 #
 # Environment Overrides:
-#   K0MARU_VERSION    Specify version tag (e.g. v0.6.0). Default: latest.
+#   K0MARU_VERSION    Specify version tag (e.g. v1.0.0). Default: latest.
 #   K0MARU_INSTALL_DIR Specify installation directory. Default: /usr/local/bin or ~/.local/bin.
 # ==============================================================================
 
@@ -91,8 +91,8 @@ else
     LATEST_JSON=$(curl -sSL -H "Accept: application/vnd.github+json" "${GITHUB_API}/releases/latest" || true)
     VERSION=$(printf "%s" "$LATEST_JSON" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
     if [ -z "$VERSION" ]; then
-        log_warn "Could not fetch latest release from GitHub API (rate-limit or network). Falling back to v0.11.0."
-        VERSION="v0.11.0"
+        log_warn "Could not fetch latest release from GitHub API (rate-limit or network). Falling back to v1.0.0."
+        VERSION="v1.0.0"
     fi
     log_info "Latest release version: ${BOLD}${VERSION}${RESET}"
 fi

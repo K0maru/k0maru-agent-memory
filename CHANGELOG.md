@@ -7,6 +7,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+## [1.0.0] - 2026-10-27
+
+### 🚀 What's Changed (English)
+
+#### Key Highlights & Production Release Contract
+- **Zero-Config Cold-Start Bootstrap (`k0maru init` / `bootstrap`)**:
+  - Instant `<repo>/.k0maru/wiki` generation from `README.md`, `AGENTS.md`, build manifests (`Cargo.toml`, `package.json`, `pyproject.toml`), and Git history;
+  - Automatic `.gitignore` hygiene ensuring `.k0maru/cache.sqlite` and ephemeral artifacts are cleanly excluded while keeping Markdown assets versioned.
+- **Proactive Lifecycle Hooks (`k0maru install --hooks` & `k0maru guard install`)**:
+  - Official Claude Code `hooks.SessionStart` 3-layer schema (`matcher` + `hooks`) ensuring immediate `<300-token` project loadout injection at session launch;
+  - Fail-closed Git pre-commit guard (`--diff --staged`) halting regressions before commit;
+  - Safe, non-destructive JSONC merging with full comment and trailing-comma preservation.
+- **Deterministic Memory Decay & Supersession (`k0maru flush --supersedes`)**:
+  - Zero-LLM deterministic lifecycle state machine (`Active`, `Superseded`, `Deprecated`, `Archived`);
+  - 16-hop transitive `superseded_by` resolution in `LoadoutBuilder` and `HybridSearchEngine`;
+  - Complete belief-entrenchment reversal via $0.2\times$ BM25 penalty, $0.0$ graph boost, and `[SUPERSEDED by [[...]]]` header tags;
+  - Automatic active `[Guard: ...]` invariant injection into `<300-token` dynamic loadouts.
+- **Red-Team Hardened Living ADR Guard (`v1.0.0`)**:
+  - 28-vector adversarial hardening covering diff-header injection attacks, staged-index vs. working-tree `MustContain` verification, and `HEAD` baseline tamper protection;
+  - Multi-project slug isolation preventing cross-project rule leakage;
+  - Balanced-bracket and word-boundary rule extraction (`forbid`, `require`, `regex`) with strict CWD independence.
+
+---
+
+### 🚀 详细更新日志（简体中文）
+
+#### 核心亮点与正式版发布契约
+- **零配置极速冷启动引导（`k0maru init` / `bootstrap`）**:
+  - 瞬时从 `README.md`、`AGENTS.md`、项目构建清单（`Cargo.toml`、`package.json`、`pyproject.toml`）与 Git 提交历史全自动生成 `<repo>/.k0maru/wiki` 架构知识库；
+  - 自动化 `.gitignore` 目录卫生治理，确保 `.k0maru/cache.sqlite` 与临时索引被干净忽略，而纯文本 Markdown 架构资产纳入版本控制。
+- **主动生命周期钩子（`k0maru install --hooks` 与 `k0maru guard install`）**:
+  - 全面支持官方 Claude Code `hooks.SessionStart` 三层规范（`matcher` + `hooks`），实现编码会话启动时 `<300-token` 架构上下文秒级自动注入；
+  - Fail-closed 安全闭锁式 Git pre-commit 守卫（`--diff --staged`），在代码暂存提交前毫秒级阻断架构退化；
+  - 采用无损 JSONC 语法树合并算法，完整保留用户原有配置中的注释与尾随逗号。
+- **确定性记忆衰减与新旧决策取代（`k0maru flush --supersedes`）**:
+  - 零 LLM 确定性状态机生命周期模型（`Active`、`Superseded`、`Deprecated`、`Archived`）；
+  - 在 `LoadoutBuilder` 与 `HybridSearchEngine` 中支持深达 16 跳的可传递 `superseded_by` 溯源解析；
+  - 彻底破除历史双链“信念固化 (Belief Entrenchment)”偏见，施加 $0.2\times$ 权重惩罚、归零图谱加成，并自动插入 `[SUPERSEDED by [[...]]]` 警示；
+  - 自动将新一代活跃 ADR 的 `[Guard: ...]` 守卫不变量前置注入 `<300-token` 动态装配中。
+- **红蓝对抗加固型活体架构守卫（Living ADR Guard v1.0.0）**:
+  - 覆盖 28 种对抗性边界向量深度防御，包括 Diff 标头注入伪造、暂存区 Index 对比工作区 Tree 的 `MustContain` 严格一致性校验、以及 `HEAD` 基线防篡改防护；
+  - 多项目 Slug 严格隔离，杜绝跨子项目规则串扰；
+  - 支持括号平衡匹配与单词边界解析的规则抽取（`forbid`、`require`、`regex`），且完全工作目录无关（CWD-independent）。
+
+---
+
 ## [0.11.0] - 2026-10-13
 
 ### 🚀 What's Changed (English)
@@ -14,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Key Highlights & New Capabilities
 - **Living ADR Guard & Architectural Invariant Sentinel**:
   - Implemented `k0maru guard` CLI command and FastMCP `guard_check` tool to continuously audit code modifications and Git diffs against active ADRs and architectural invariants;
-  - Zero-overhead AST diff inspection preventing architectural erosion, cross-layer leakage, and raw SQL injections before commit.
+  - Zero-overhead regex and literal diff inspection preventing architectural erosion, cross-layer leakage, and raw SQL injections before commit.
 - **Pluggable Embeddings Architecture & Dynamic Dimension Storage**:
   - Modular vector backend supporting dynamic dimension migration without wiping existing databases;
   - Auto-detection and adaptation to various embedding models.
@@ -33,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### 核心亮点与新特性
 - **活体架构守卫哨兵（Living ADR Guard）**:
   - 新增 `k0maru guard` 命令行与 FastMCP `guard_check` 核心工具，在 Git Commit 与 PR 审查前自动对照活跃 ADR 与项目不变量进行增量 Diff 审计；
-  - 零开销静态规则检查，彻底阻断跨层调用泄漏与架构退化。
+  - 零开销正则与字面量增量 Diff 规则检查，彻底阻断跨层调用泄漏与架构退化。
 - **可插拔向量嵌入架构与动态维度迁移**:
   - 实现向量存储引擎的多维度动态平滑迁移，支持在切换不同嵌入模型时无需整库重建；
   - 提升局部向量索引稳定性。

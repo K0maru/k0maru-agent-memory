@@ -8,7 +8,7 @@
 
 ## 🛠️ 第一步：极速安装
 
-`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6MB，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
+`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB (core) / 33 MB (bundled ONNX)，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
 
 ### 推荐方式：官方一键安装脚本（macOS & Linux）
 ```bash
@@ -30,7 +30,7 @@ rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign 
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.6.0
+# 输出: k0maru 1.0.0
 ```
 
 ---
@@ -188,7 +188,7 @@ k0maru ui --vault ~/wiki --open
 ![K0maru 开发者控制台 - 多路检索调试与图谱加权](docs/images/ui-search.png)
 
 - 🌐 **中英双语即时切换**：顶栏自带 `🌐 中文 / EN` 按钮，即点即切无须刷新，本地持久化并自动识别系统语言；
-- 🔍 **多路检索调试台**：实时直观查看 BM25 排名、Vector 距离与 `+0.05 Graph Boost` 拓扑升权；
+- 🔍 **多路检索调试台**：实时直观查看 BM25 排名、Vector 距离与 `+0.004 Graph Boost` 拓扑升权；
 - 📜 **长日志切片透视**：原生脱机渲染 Mermaid 流程图与带错误行号的折叠堆栈，一键复制错误切片；
 - 📊 **Token 计分板**：实时直观监看上下文治理节约量（TRR 98.8%）与缓存覆盖度，提供一键增量同步；
 - *(注：WikiLinks 拓扑图谱功能底层模型与 API 就绪，界面默认保持精简收起)*；

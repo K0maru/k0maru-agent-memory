@@ -2,7 +2,7 @@
 
 Native [Tern](https://github.com/tern-tool/tern) plugin that brings the
 K0maru Agent Memory hub into the terminal: a Living ADR Guard dashboard, a
-`k0maru doctor` health view, structured rendering of CLI output, and a Carly
+`k0maru doctor` health view, structured rendering of CLI output, and a Tern assistant
 `recall` export for conversational memory search.
 
 The plugin shells out to the `k0maru` binary, so the CLI must be on `PATH`
@@ -74,7 +74,7 @@ instead of raw text:
 Both commands are also available as actions
 `plugin.k0maru-memory.cockpit` and `plugin.k0maru-memory.guard_check`.
 
-### Carly `recall` export
+### Tern assistant `recall` export
 
 Registered with:
 
@@ -82,7 +82,7 @@ Registered with:
 tern.carly.export("recall", { sig = "(query: string) -> any", doc = "..." }, fn)
 ```
 
-Carly (or any plugin sharing the window) can call it:
+Tern assistant (or any plugin sharing the window) can call it:
 
 ```lua
 local results = await(plugins["k0maru-memory"].recall("why did we choose Markdown storage?"))
@@ -100,7 +100,7 @@ or timed out (15 s reply budget).
 |---|---|
 | `plugin.toml` | Manifest: block `cockpit`, lens `cli`, palette registration |
 | `host.luau` | `tern.block.define("cockpit", ...)` and `tern.lens.define("cli", ...)` |
-| `window.luau` | `tern.command` palette commands and the Carly `recall` export |
+| `window.luau` | `tern.command` palette commands and the Tern assistant `recall` export |
 | `tern.d.luau` | Generated Luau type definitions (`tern plugin types`); do not edit by hand |
 
 ## Manifest
@@ -109,7 +109,7 @@ or timed out (15 s reply budget).
 schema = 1
 id = "k0maru-memory"
 name = "K0maru Agent Memory"
-version = "0.12.0"
+version = "1.0.0"
 host = "host.luau"
 window = "window.luau"
 
@@ -125,9 +125,9 @@ match = ["k0maru *", "k0maru-memory *"]
 
 ## Requirements
 
-- Tern with plugin support (host blocks, lenses, palette commands, Carly
+- Tern with plugin support (host blocks, lenses, palette commands, Tern assistant
   exports).
-- `k0maru` 0.12.0 or newer on `PATH`.
+- `k0maru` 1.0.0 or newer on `PATH`.
 - A Markdown vault with Living ADR invariants for the Guard view; without
   one, the guard reports zero rules and passes.
 

@@ -11,7 +11,7 @@ K0maru-Agent-Memory 坚持走极致轻量、零常驻、可移植与白盒化的
 我们设立了四大不可妥协的架构不变量（Architectural Invariants）：
 
 1. **单静态二进制与零守护进程（Zero-Daemon）**：
-   - 体积严格控制在 `< 10 MB`（当前仅 3.66 MB），冷启动延迟必须 `< 5 ms`（实测 3.4 ms）；
+   - 体积严格受控（纯 Rust 核心无默认特性时仅 3.6 MB / 默认捆绑 ONNX 运行时为 33 MB），冷启动延迟必须 `< 5 ms`（实测 3.4 ms）；
    - 坚决不使用驻留后台的守护进程、后台轮询服务或开放常驻网络端口，完全依赖 `stdio` 流与 CLI 管道。
 2. **纯粹 Markdown 真理源泉（Bring Your Own Markdown, BYOM）**：
    - 用户现有的 Markdown 笔记（Obsidian SecondBrain、Karpathy LLM-Wiki、代码库文档）是唯一事实来源；
@@ -49,11 +49,11 @@ timeline
 ## 📦 已交付里程碑复盘（Phase 1 ~ Phase 8.5）
 
 - **Phase 1~3（v0.1.0 ~ v0.2.0）**：验证了基于 Markdown 的极简记忆装配与日志卸载原型，构建纯 Rust 2021 单二进制核心，并基于标准 `stdio` 实现了零网络端口常驻的 FastMCP 协议。
-- **Phase 4（v0.3.0）**：集成本地 C 原生 `sqlite-vec` 与 ONNX `fastembed-rs`，实现 RRF（$k=60$）互易倒数融合与 1-hop WikiLinks 图谱升权，确立一次性向量缓存契约。
+- **Phase 4（v0.3.0）**：集成本地 C 原生 `sqlite-vec` 与 ONNX `fastembed-rs`，实现 RRF（$k=60$）互易倒数融合与 1-hop WikiLinks 图谱升权（+0.004，约占 Top-1 RRF 得分的 25%），确立一次性向量缓存契约。
 - **Phase 5（v0.4.2）**：交付基于 Axum 与 `rust-embed` 的嵌入式开发者极客驾驶舱 WebUI，内置检索调试台、图拓扑分析、Mermaid 日志回溯与双语国际化支持。
 - **Phase 6（v0.5.0）**：发布 `k0maru install`（5 大主流智能体客户端一键挂载）与 `k0maru doctor`（环境与缓存全面健康诊断探针矩阵）。
 - **Phase 7（v0.6.0）**：发布 `ConventionSniffer` 自适应嗅探异构知识库拓扑，以及 `FlushEngine` 经验原子落盘防碰撞自愈机制。
-- **Phase 8（v0.8.0）**：在 Google Colab NVIDIA A100-SXM4-80GB 上完成工业级排障基准实测，验证 Qwen3.8-27B（100% Pass@1）、DeepSeek-R1-32B（延迟缩短 48.2%）与 DeepSeek-Coder-V2（1.05s 亚秒决策）。
+- **Phase 8（v0.8.0）**：在 Google Colab NVIDIA A100-SXM4-80GB 上完成工业级排障基准实测，验证 Qwen2.5-32B-Instruct（100% Pass@1）、DeepSeek-R1-32B（延迟缩短 48.2%）与 DeepSeek-Coder-V2（1.05s 亚秒决策）。
 - **Phase 8.5（v0.8.2）**：交付 5 大专栏 11 个章节的中英双语 VitePress 官方技术文档站与自动化部署流水线。
 
 ---

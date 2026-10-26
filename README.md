@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![Tests: 200+ passed](https://img.shields.io/badge/Tests-200%2B_passed-brightgreen.svg)]()
-[![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
+[![Binary Size: 3.6MB (core) / 33MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_33MB_(bundled_ONNX)-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
@@ -25,7 +25,7 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 **K0maru is engineered specifically for local developer workstations, delivering industrial-grade performance with minimal mechanical complexity**:
 
 1. **⚡ Zero-Daemon & Sub-Millisecond Cold Start**:
-   - Pure Rust, statically compiled into a single **3.66 MB** standalone binary.
+   - Pure Rust, statically compiled into a single **3.6MB (core) / 33MB (bundled ONNX)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).
    - Cold-starts in just **3.38 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
    - Runs on demand via standard Unix pipes and `stdio` streams, releasing all memory immediately upon process exit.
 2. **📝 Bring Your Own Markdown (Topology-Agnostic LLM-Wiki)**:
@@ -56,14 +56,18 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 
 ### 🛡️ Verified Adversarial Supersession & Living ADR Guard A/B Benchmark
 
-Tested across **DeepSeek V4.1 Flash** and **Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI** on the `payment-settlement` repository. Comparing an unmanaged markdown wiki against K0maru's closed-loop governance engine under architectural evolution (migrating from legacy `ADR-010` raw `redis_setnx_unscoped` locks to `ADR-042` distributed fenced token leases `acquire_fenced_lease`):
+Tested across **Local Multi-Agent (`omp` + `DeepSeek V4.1 Flash` on Apple Silicon M3 Max)**, **Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI**, and the **Reproducible CLI Benchmark (`python3 benchmarks/run_supersession_guard_ab.py`)** on the `payment-settlement` repository. Comparing an unmanaged markdown wiki against K0maru's closed-loop governance engine under architectural evolution (migrating from legacy `ADR-010` raw `redis_setnx_unscoped` locks to `ADR-042` distributed fenced token leases `acquire_fenced_lease`):
 
 | Evaluation Dimension / Stage | Control Group (Naive Markdown Wiki without `--supersedes`) | Treatment Group (`k0maru flush --supersedes` + `guard check --diff`) | Breakthrough & Governance Impact |
 | :--- | :--- | :--- | :--- |
 | **Retrieval Rank #1 (`recall_memory`)** | **Stale `ADR-010` #1** (`redis_setnx_unscoped`)<br>*Belief Entrenchment: historical WikiLink boost poisons prompt* | **Active `ADR-042` #1** (`acquire_fenced_lease`)<br>*Stale note deprioritized; auto-forwards `<300-token` Loadout via `superseded_by`* | **Zero Memory Tax**: Eliminated stale pattern poisoning without manual wiki cleanup |
-| **Dynamic Loadout (`<300-token`)** | Bloated / Stale (`>650 tokens` including superseded notes) | **Compact: 245 tokens** (only active invariants injected) | **Strict Context Budget**: Keeps prompt within cognitive Smart-Zone |
-| **Pre-Commit Guard Enforcement** | **0 violations (Bypassed)**<br>*Unsafe `redis_setnx_unscoped` committed to codebase* | **BLOCKED in <5ms** (`[DENY] ban-legacy-setnx`)<br>*Executable regex & diff guard rejects unsafe lock pattern* | **100% Defect Interception**: Zero architectural regression reaches Git history |
-| **Autonomous Agent Self-Healing** | Failed (Silent production vulnerability) | **100% Pass in 1 Turn**<br>*Drives 1-turn self-healing on both DeepSeek V4.1 and 7B Qwen2.5-Coder* | Autonomous remediation using active ADR invariants and guard feedback |
+| **Dynamic Loadout (`<300-token`)** | Bloated / Stale (`>650 tokens` including superseded notes) | **Compact: 245 tokens** (with `[Guard: forbid ...]` active invariant injection) | **Strict Context Budget**: Keeps prompt within cognitive Smart-Zone |
+| **Turn-1 Implementation (Code Generation)** | Uses unsafe `redis_setnx_unscoped` (poisoned by legacy Wiki links) | **100% Turn-1 Pass@1** (`acquire_fenced_lease` on first attempt, 0 guard violations) | **Proactive Invariant Forwarding**: Forwarded new ADR invariants prevent regressions before execution |
+| **Pre-Commit Guard Enforcement** | **0 violations (Bypassed)**<br>*Unsafe `redis_setnx_unscoped` committed to codebase* | **BLOCKED in <35ms** (`[DENY] ban-legacy-setnx`, <3.9ms core)<br>*Intercepts unsafe lock pattern with 100% precision if staged* | **100% Defect Interception**: Zero architectural regression reaches Git history |
+| **Autonomous Agent Self-Healing** | Failed (Silent production vulnerability) | **100% Pass in 1 Turn**<br>*Drives 1-turn self-healing on both DeepSeek V4.1 Flash (`omp`) and reproducible benchmark CLI* | Autonomous remediation using active ADR invariants and guard feedback |
+> 🔬 **Reproducible Benchmark Suite & Empirical Data**:  
+> - Executable harness script: [`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
+> - Raw empirical matrix results: [`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
 
 #### Autonomous Agent Ecosystem Adaptation (Hermes Agent & OpenClaw on Real LLM-Wiki)
 
@@ -150,10 +154,13 @@ Or install via the Claude Code Plugin Marketplace:
   ```
 - **Build from Source (Cargo)**:
   ```bash
+  # Standard release bundling fastembed + ONNX Runtime (~33MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
-  ```
-  *(Builds both `k0maru` and `k0maru-memory` binary aliases).*
 
+  # Lightweight pure Rust FTS5 + Living ADR Guard core binary (~3.6MB)
+  cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
+  ```
+  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).*
 ---
 
 ### 3. Verify Health & Environment (`k0maru doctor`)
@@ -371,7 +378,7 @@ When connected via FastMCP, K0maru provides the complete suite of long-term memo
 For specialized terminal multiplexers, orchestrators, and high-density multi-agent setups:
 
 1. **Tern Terminal Multiplexer Plugin**:
-   Native Luau plugin for Tern featuring an interactive cockpit dashboard, CLI lens, and Carly palette integration:
+   Native Luau plugin for Tern featuring an interactive cockpit dashboard, CLI lens, and command palette integration:
    ```bash
    tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
    ```
@@ -414,7 +421,7 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 | **Simultaneous Read Bursts** | 12 Concurrent Agents, 120 queries | **18.9 QPS**, Avg: **614.29ms** (P50: 781.9ms) | **100% PASS** | Zero SQLite busy contention (`SQLITE_BUSY = 0`) |
 | **Simultaneous Write & Flush Race** | 8 Concurrent Writers | **12.2 writes/sec**, Avg: **584.93ms** | **100% PASS** | 8/8 files created, zero collision loss (`-v2.md` to `-v8.md`) |
 | **Instant Self-Healing Recall** | Read-your-writes validation | **290.99 ms** | **PASS ✓** | Immediate sub-second recall without re-indexing |
-| **Context Garbage Collection (GC)** | 50-turn trajectory compaction | **94.67% TRR** (20,946 ➔ 1,110 tokens) | **PASS ✓** | Preserves context within cognitive Smart-Zone (15%–60%) |
+| **Context Garbage Collection (GC)** | 50-turn trajectory compaction | **86.58% TRR** (16,830 ➔ 2,259 tokens, 45 tool traces folded) | **PASS ✓** | Preserves context within cognitive Smart-Zone (15%–60%) |
 | **Dynamic Loadout Git-Diff** | Change-aware ADR activation | **245 tokens** | **PASS ✓** | Strictly bounded under <300 token budget |
 | **Heterogeneous Agent Loops** | Hermes, OpenClaw, Pi | Turnaround: **1.04s – 8.49s** | **100% PASS** | Verified autonomous tool calling & ADR crystallization |
 

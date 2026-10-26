@@ -420,6 +420,10 @@ pub struct GcArgs {
     #[arg(value_name = "FILE")]
     pub file: Option<PathBuf>,
 
+    /// Path to the vault root (accepted for CLI compatibility; GC is vault-independent)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
     /// Line threshold for folding tool outputs (default: 20)
     #[arg(short = 't', long, default_value = "20")]
     pub threshold: usize,
@@ -1095,15 +1099,9 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let mut server = k0maru::mcp::McpServer::new(&vault_path).with_sidecar(args.sidecar);
-    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
-        Some(vault_path.join(".k0maru").join("models"))
-    } else {
-        None
-    };
-    if let Ok(embedder) = resolve_embedding_engine(args.embed_model.as_deref(), model_cache) {
-        server = server.with_embedder(embedder);
-    }
+    let mut server =
+        k0maru::mcp::McpServer::new_with_model(&vault_path, args.embed_model.as_deref())
+            .with_sidecar(args.sidecar);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     server.run_stdio(stdin.lock(), stdout.lock())
@@ -1235,6 +1233,9 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let cache_path = cache_dir.join("cache.sqlite");
 
     let storage = SqliteStorage::open(&cache_path)?;
+    if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+        return Err("Vector index is empty. Run 'k0maru sync --vector' first.".into());
+    }
     let model_cache = if vault_path.join(".k0maru").join("models").exists() {
         Some(vault_path.join(".k0maru").join("models"))
     } else {

@@ -76,7 +76,7 @@ Working on k0maru-core standalone extraction.
         let card_a_content = fs::read_to_string(&card_a).unwrap();
         let (fm_a, body_a) = parse_frontmatter(&card_a_content);
         assert_eq!(fm_a["title"], "Core Architecture");
-        let (links_a, tags_a) = extract_elements(&body_a);
+        let (links_a, tags_a) = extract_elements(body_a);
         assert_eq!(links_a.len(), 1);
         assert_eq!(links_a[0].target, "Modularity");
         assert_eq!(tags_a.len(), 0);
@@ -466,5 +466,447 @@ mod vector_catalog {
         let engine = resolve_embedding_engine(Some("mock"), None).expect("resolve mock");
         assert_eq!(engine.dimension(), 384);
         assert_eq!(engine.model_name(), "mock-embedding-384");
+    }
+}
+
+mod round2_adversarial_tests {
+    use k0maru_core::core::models::{Document, NoteLifecycleStatus};
+    use k0maru_core::guard::engine::GuardEngine;
+    use k0maru_core::guard::extractor::parse_markdown_list_rule;
+    use k0maru_core::guard::models::{GuardRule, RuleCondition, RuleSeverity};
+    use serde_json::json;
+
+    #[test]
+    fn test_inj_diff_header_injection() {
+        let at = "@@";
+        let diff = format!(
+            "diff --git a/src/app.js b/src/app.js\n--- a/src/app.js\n+++ b/src/app.js\n{} -1,4 +1,6 {}\n const a = 1;\n+++ b/zzz.md\n+legacy_api();\n const b = 2;\n",
+            at, at
+        );
+        let rules = vec![GuardRule {
+            id: "RULE-LEGACY".to_string(),
+            title: "No Legacy API".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.js".to_string()),
+            condition: RuleCondition::Forbidden("legacy_api()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "use new api".to_string(),
+        }];
+        let report = GuardEngine::check_diff(&diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].file_path, "src/app.js");
+        assert_eq!(report.violations[0].rule_id, "RULE-LEGACY");
+    }
+
+    #[test]
+    fn test_s4_prose_superseded_does_not_deactivate() {
+        let doc = Document {
+            title: "ADR-099".to_string(),
+            frontmatter: json!({"status": "active"}),
+            body:
+                "This document explains why we do NOT use `> [SUPERSEDED]` in prose.\nStill active!"
+                    .to_string(),
+            ..Default::default()
+        };
+        assert_eq!(doc.lifecycle_status(), NoteLifecycleStatus::Active);
+        assert!(doc.is_active());
+        assert_eq!(doc.superseded_by(), None);
+    }
+
+    #[test]
+    fn test_bold_and_brk_markdown_rule_parsing() {
+        let bold_line = r#"- **BOLD-1**: forbidden: "bold_one_banned", files: "*.rs""#;
+        let bold_rules =
+            parse_markdown_list_rule(bold_line, "20_Cards/adr-bold.md").expect("parse bold");
+        assert_eq!(bold_rules.len(), 1);
+        assert_eq!(bold_rules[0].id, "BOLD-1");
+        assert_eq!(bold_rules[0].file_pattern, Some("*.rs".to_string()));
+        assert_eq!(
+            bold_rules[0].condition,
+            RuleCondition::Forbidden("bold_one_banned".to_string())
+        );
+
+        let brk_line = r#"- [BRK-1] [src/[ab]*.rs] forbidden: "brk_call""#;
+        let brk_rules =
+            parse_markdown_list_rule(brk_line, "20_Cards/adr-brk.md").expect("parse brk");
+        assert_eq!(brk_rules.len(), 1);
+        assert_eq!(brk_rules[0].id, "BRK-1");
+        assert_eq!(brk_rules[0].file_pattern, Some("src/[ab]*.rs".to_string()));
+        assert_eq!(
+            brk_rules[0].condition,
+            RuleCondition::Forbidden("brk_call".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rx_word_boundaries_and_plain_literals() {
+        let at = "@@";
+        let rules = vec![
+            GuardRule {
+                id: "RX-DEBUG".to_string(),
+                title: "No Debug Class".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("[DEBUG]".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "remove debug".to_string(),
+            },
+            GuardRule {
+                id: "RX-UNSAFE".to_string(),
+                title: "No Unsafe Mode".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("config.unsafe_mode".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "fix config".to_string(),
+            },
+            GuardRule {
+                id: "RX-OLD-FN".to_string(),
+                title: "No Old Fn".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("old_fn".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "use new_fn".to_string(),
+            },
+        ];
+
+        // 1. [DEBUG] literal should not match single letter 'D'
+        let diff_non_debug = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let letter_d = 'D';\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_non_debug, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_debug = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+println!(\"[DEBUG] tracing\");\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_debug, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-DEBUG");
+
+        // 2. config.unsafe_mode literal should not match configXunsafe_mode
+        let diff_wildcard = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let val = configXunsafe_mode;\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_wildcard, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_dot = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let val = config.unsafe_mode;\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_dot, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-UNSAFE");
+
+        // 3. old_fn should not false-positive on old_fn_safe()
+        let diff_safe = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+old_fn_safe();\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_safe, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_unsafe = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+old_fn();\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_unsafe, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-OLD-FN");
+    }
+
+    #[test]
+    fn test_js_private_field_not_stripped_as_comment() {
+        let at = "@@";
+        let diff = format!(
+            "diff --git a/src/service.js b/src/service.js\n--- a/src/service.js\n+++ b/src/service.js\n{} -1,2 +1,3 {}\n+class Evaluator {{ #eval_fn = eval(code); }}\n",
+            at, at
+        );
+        let rules = vec![GuardRule {
+            id: "NO-EVAL".to_string(),
+            title: "No Eval".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.js".to_string()),
+            condition: RuleCondition::Forbidden("eval(code)".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "do not use eval".to_string(),
+        }];
+        let report = GuardEngine::check_diff(&diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "NO-EVAL");
+    }
+
+    #[test]
+    fn test_transitive_supersession_target_chain() {
+        use k0maru_core::core::traits::CacheStorage;
+        use k0maru_core::storage::{HybridSearchEngine, SqliteStorage};
+        use std::path::PathBuf;
+
+        let mut storage = SqliteStorage::in_memory().expect("in-memory storage");
+        let doc1 = Document {
+            path: PathBuf::from("20_Cards/adr-010.md"),
+            title: "adr-010".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "adr-020.md"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc1).expect("upsert 1");
+
+        let doc2 = Document {
+            path: PathBuf::from("20_Cards/adr-020.md"),
+            title: "adr-020".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "adr-030.md"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc2).expect("upsert 2");
+
+        let doc3 = Document {
+            path: PathBuf::from("20_Cards/adr-030.md"),
+            title: "adr-030".to_string(),
+            frontmatter: json!({
+                "status": "active"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc3).expect("upsert 3");
+
+        let engine = HybridSearchEngine::new(&storage, None);
+        let mut score = 1.0;
+        let mut boost = 0.5;
+        let mut snippet = "Initial snippet".to_string();
+        engine.apply_lifecycle_penalty_by_path(
+            "20_Cards/adr-010.md",
+            &mut score,
+            &mut boost,
+            &mut snippet,
+        );
+
+        assert_eq!(boost, 0.0);
+        assert!((score - 0.2).abs() < 1e-4);
+        assert!(snippet.starts_with("[SUPERSEDED by adr-030.md]"));
+    }
+}
+
+mod round3_prerelease_audit_tests {
+    use k0maru_core::core::models::Document;
+    use k0maru_core::core::traits::CacheStorage;
+    use k0maru_core::gc::models::{SessionTrajectory, TurnRole};
+    use k0maru_core::guard::engine::GuardEngine;
+    use k0maru_core::guard::models::{GuardRule, RuleCondition, RuleSeverity};
+    use k0maru_core::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_regex_character_class_matching() {
+        let rule = GuardRule {
+            id: "RULE-AWS-KEY".to_string(),
+            title: "Forbidden AWS Access Key".to_string(),
+            source_note: "20_Cards/Security.md".to_string(),
+            file_pattern: None,
+            condition: RuleCondition::Forbidden(r"AKIA[0-9A-Z]{16}".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Remove hardcoded AWS key".to_string(),
+        };
+
+        let diff_hit = "diff --git a/config.rs b/config.rs\n--- a/config.rs\n+++ b/config.rs\n@@ -1,2 +1,2 @@\n-let x = 1;\n+let key = \"AKIAIOSFODNN7EXAMPLE\";\n";
+        let report_hit = GuardEngine::check_diff(diff_hit, std::slice::from_ref(&rule));
+        assert_eq!(report_hit.violations.len(), 1);
+        assert_eq!(report_hit.violations[0].rule_id, "RULE-AWS-KEY");
+
+        let diff_miss = "diff --git a/config.rs b/config.rs\n--- a/config.rs\n+++ b/config.rs\n@@ -1,2 +1,2 @@\n-let x = 1;\n+let key = \"AKIA_TOO_SHORT\";\n";
+        let report_miss = GuardEngine::check_diff(diff_miss, &[rule]);
+        assert_eq!(report_miss.violations.len(), 0);
+    }
+
+    #[test]
+    fn test_legacy_call_matching_with_and_without_args() {
+        let rule = GuardRule {
+            id: "RULE-LEGACY-CALL".to_string(),
+            title: "Legacy Call Forbidden".to_string(),
+            source_note: "20_Cards/Architecture.md".to_string(),
+            file_pattern: None,
+            condition: RuleCondition::Forbidden("legacy_call()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Use new_call instead".to_string(),
+        };
+
+        let diff_with_args = "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n+legacy_call(42);\n";
+        let report_args = GuardEngine::check_diff(diff_with_args, std::slice::from_ref(&rule));
+        assert_eq!(report_args.violations.len(), 1);
+
+        let diff_no_args = "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n+legacy_call();\n";
+        let report_no_args = GuardEngine::check_diff(diff_no_args, std::slice::from_ref(&rule));
+        assert_eq!(report_no_args.violations.len(), 1);
+
+        let diff_other = "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n+new_call(42);\n";
+        let report_other = GuardEngine::check_diff(diff_other, &[rule]);
+        assert_eq!(report_other.violations.len(), 0);
+    }
+
+    #[test]
+    fn test_python_floor_division_not_stripped_as_comment() {
+        let rule = GuardRule {
+            id: "NO-DISALLOWED-FLAG".to_string(),
+            title: "Disallowed Flag Forbidden".to_string(),
+            source_note: "20_Cards/Rules.md".to_string(),
+            file_pattern: Some("*.py".to_string()),
+            condition: RuleCondition::Forbidden("DISALLOWED_FLAG".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Remove disallowed flag".to_string(),
+        };
+
+        // In Python, `//` is floor division, not a comment; code after `//` must NOT be stripped.
+        let diff = "diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n-x = 1\n+result = x // 2 + DISALLOWED_FLAG  # valid python comment\n";
+        let report = GuardEngine::check_diff(diff, &[rule]);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "NO-DISALLOWED-FLAG");
+    }
+
+    #[test]
+    fn test_empty_context_line_inside_hunk() {
+        let rule = GuardRule {
+            id: "NO-DISALLOWED-API".to_string(),
+            title: "Disallowed API".to_string(),
+            source_note: "20_Cards/Rules.md".to_string(),
+            file_pattern: None,
+            condition: RuleCondition::Forbidden("DISALLOWED_API".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Remove disallowed API".to_string(),
+        };
+
+        // Unified diff with an empty string line inside hunk context (without leading space)
+        let diff = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,4 +1,4 @@\n context_before\n\n-old_line\n+DISALLOWED_API();\n";
+        let report = GuardEngine::check_diff(diff, &[rule]);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "NO-DISALLOWED-API");
+    }
+
+    #[test]
+    fn test_deleted_file_does_not_trigger_must_contain() {
+        let rule = GuardRule {
+            id: "MUST-HAVE-HEADER".to_string(),
+            title: "Must Have Header".to_string(),
+            source_note: "20_Cards/Rules.md".to_string(),
+            file_pattern: Some("*.rs".to_string()),
+            condition: RuleCondition::MustContain("// HEADER".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Add header".to_string(),
+        };
+
+        let diff = "diff --git a/src/obsolete.rs b/src/obsolete.rs\ndeleted file mode 100644\n--- a/src/obsolete.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-// HEADER\n-let x = 1;\n";
+        let report = GuardEngine::check_diff(diff, &[rule]);
+        assert_eq!(report.violations.len(), 0);
+    }
+
+    #[test]
+    fn test_4_hop_search_hybrid_supersession_annotation() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory storage");
+
+        let doc1 = Document {
+            path: PathBuf::from("20_Cards/adr-001.md"),
+            title: "adr-001".to_string(),
+            body: "Architecture database consensus design".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "[[20_Cards/adr-002]]"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc1).expect("upsert 1");
+
+        let doc2 = Document {
+            path: PathBuf::from("20_Cards/adr-002.md"),
+            title: "adr-002".to_string(),
+            body: "Architecture database consensus design v2".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "[[20_Cards/adr-003]]"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc2).expect("upsert 2");
+
+        let doc3 = Document {
+            path: PathBuf::from("20_Cards/adr-003.md"),
+            title: "adr-003".to_string(),
+            body: "Architecture database consensus design v3".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "[[20_Cards/adr-004]]"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc3).expect("upsert 3");
+
+        let doc4 = Document {
+            path: PathBuf::from("20_Cards/adr-004.md"),
+            title: "adr-004".to_string(),
+            body: "Architecture database consensus design v4".to_string(),
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "[[20_Cards/adr-005]]"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc4).expect("upsert 4");
+
+        let doc5 = Document {
+            path: PathBuf::from("20_Cards/adr-005.md"),
+            title: "adr-005".to_string(),
+            body: "Architecture database consensus design v5 final active".to_string(),
+            frontmatter: json!({
+                "status": "active"
+            }),
+            ..Default::default()
+        };
+        storage.upsert_document(&doc5).expect("upsert 5");
+
+        let engine = HybridSearchEngine::new(&storage, None);
+        let results = engine
+            .search("database consensus", SearchMode::Hybrid, 10)
+            .expect("search_hybrid succeeds");
+
+        let res1 = results
+            .iter()
+            .find(|r| r.path == "20_Cards/adr-001.md")
+            .expect("found adr-001 in results");
+        assert!(
+            res1.snippet
+                .starts_with("[SUPERSEDED by [[20_Cards/adr-005]]]"),
+            "Expected snippet to indicate transitive supersession to adr-005, got: {}",
+            res1.snippet
+        );
+    }
+
+    #[test]
+    fn test_bare_array_session_trajectory_deserialization() {
+        let json_data = r#"[
+            { "role": "user", "content": "How do I fix the build?" },
+            { "role": "tool", "content": "Compiling error at line 42", "name": "cargo_build" },
+            { "role": "assistant", "content": "Here is the fix:" }
+        ]"#;
+
+        let traj: SessionTrajectory =
+            serde_json::from_str(json_data).expect("deserialize bare array trajectory");
+        assert_eq!(traj.session_id, "default");
+        assert_eq!(traj.turns.len(), 3);
+        assert_eq!(traj.turns[0].turn_index, 0);
+        assert_eq!(traj.turns[0].role, TurnRole::User);
+        assert_eq!(traj.turns[1].turn_index, 1);
+        assert_eq!(traj.turns[1].role, TurnRole::Tool);
+        assert_eq!(traj.turns[1].tool_name.as_deref(), Some("cargo_build"));
+        assert_eq!(traj.turns[2].turn_index, 2);
+        assert_eq!(traj.turns[2].role, TurnRole::Assistant);
     }
 }

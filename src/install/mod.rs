@@ -407,6 +407,112 @@ pub fn format_install_report(report: &InstallReport) -> String {
     out
 }
 
+/// Strips JSONC syntax (`//` line comments, `/* ... */` block comments and
+/// trailing commas) outside of string literals so `.claude/settings.local.json`
+/// files written by hand still parse.
+fn strip_jsonc_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+
+    while let Some(c) = chars.next() {
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
+                out.push(c);
+            }
+            continue;
+        }
+        if in_block_comment {
+            if c == '*' && chars.peek() == Some(&'/') {
+                chars.next();
+                in_block_comment = false;
+            }
+            continue;
+        }
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match c {
+            '"' => {
+                in_string = true;
+                out.push(c);
+            }
+            '/' => match chars.peek() {
+                Some('/') => {
+                    chars.next();
+                    in_line_comment = true;
+                }
+                Some('*') => {
+                    chars.next();
+                    in_block_comment = true;
+                }
+                _ => out.push(c),
+            },
+            _ => out.push(c),
+        }
+    }
+
+    strip_trailing_commas(&out)
+}
+
+/// Removes commas that directly precede a closing `}` or `]`.
+fn strip_trailing_commas(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut idx = 0;
+
+    while idx < chars.len() {
+        let c = chars[idx];
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            idx += 1;
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            idx += 1;
+            continue;
+        }
+        if c == ',' {
+            let mut next = idx + 1;
+            while next < chars.len() && chars[next].is_whitespace() {
+                next += 1;
+            }
+            if next < chars.len() && (chars[next] == '}' || chars[next] == ']') {
+                idx += 1;
+                continue;
+            }
+        }
+        out.push(c);
+        idx += 1;
+    }
+
+    out
+}
+
 /// Creates or safely merges `<repo_path>/.claude/settings.local.json`, registering a
 /// non-destructive `hooks.SessionStart` command entry that automatically briefs Claude Code
 /// with the sub-300-token project loadout at session initiation.
@@ -421,9 +527,16 @@ pub fn install_claude_project_hooks(
     let config_path = claude_dir.join("settings.local.json");
     let mut root: serde_json::Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)?;
-        match serde_json::from_str::<serde_json::Value>(&content) {
-            Ok(v) if v.is_object() => v,
-            _ => serde_json::json!({}),
+        if content.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            match serde_json::from_str::<serde_json::Value>(&strip_jsonc_comments(&content)) {
+                Ok(value) if value.is_object() => value,
+                _ => return Err(
+                    "Existing .claude/settings.local.json is malformed JSON; refusing to overwrite"
+                        .into(),
+                ),
+            }
         }
     } else {
         serde_json::json!({})
@@ -452,21 +565,46 @@ pub fn install_claude_project_hooks(
         .ok_or("Field 'SessionStart' must be a JSON array")?;
 
     let vault_str = vault_path.to_string_lossy();
-    let loadout_cmd = format!("k0maru loadout {} --vault \"{}\"", project_slug, vault_str);
+    let loadout_cmd = format!(
+        "k0maru loadout \"{}\" --vault \"{}\"",
+        project_slug, vault_str
+    );
+
+    let is_loadout_command = |command: &str| command.contains("k0maru loadout");
 
     let already_configured = session_start_arr.iter().any(|entry| {
         if let Some(cmd) = entry.get("command").and_then(|c| c.as_str()) {
-            cmd.contains("k0maru loadout")
-        } else if let Some(s) = entry.as_str() {
-            s.contains("k0maru loadout")
-        } else {
-            false
+            if is_loadout_command(cmd) {
+                return true;
+            }
         }
+        if let Some(single) = entry.as_str() {
+            if is_loadout_command(single) {
+                return true;
+            }
+        }
+        if let Some(hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+            return hooks.iter().any(|hook| {
+                hook.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(is_loadout_command)
+                    .unwrap_or(false)
+            });
+        }
+        false
     });
 
     if !already_configured {
+        // Claude Code's official hook schema groups commands under a `hooks`
+        // array on a matcher entry.
         session_start_arr.push(serde_json::json!({
-            "command": loadout_cmd
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": loadout_cmd
+                }
+            ]
         }));
     }
 
@@ -498,6 +636,7 @@ pub fn install_repo_hooks(
         crate::guard::run_guard_install(crate::guard::GuardInstallArgs {
             hook: "pre-commit".to_string(),
             path: Some(repo_path.to_path_buf()),
+            vault: Some(vault_path.to_path_buf()),
         })
         .ok()
     } else {

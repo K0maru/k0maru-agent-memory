@@ -14,17 +14,63 @@ pub enum TurnRole {
 /// A single turn in a multi-turn conversation trajectory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrajectoryTurn {
+    #[serde(default)]
     pub turn_index: usize,
     pub role: TurnRole,
     pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(skip_serializing_if = "Option::is_none", default, alias = "name")]
     pub tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_call_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum SessionTrajectoryWire {
+    Object {
+        #[serde(default = "default_session_id")]
+        session_id: String,
+        turns: Vec<TrajectoryTurn>,
+    },
+    Array(Vec<TrajectoryTurn>),
+}
+
+fn default_session_id() -> String {
+    "default".to_string()
+}
+
+impl From<SessionTrajectoryWire> for SessionTrajectory {
+    fn from(wire: SessionTrajectoryWire) -> Self {
+        match wire {
+            SessionTrajectoryWire::Object {
+                session_id,
+                mut turns,
+            } => {
+                for (idx, turn) in turns.iter_mut().enumerate() {
+                    if turn.turn_index == 0 && idx > 0 {
+                        turn.turn_index = idx;
+                    }
+                }
+                SessionTrajectory { session_id, turns }
+            }
+            SessionTrajectoryWire::Array(mut turns) => {
+                for (idx, turn) in turns.iter_mut().enumerate() {
+                    if turn.turn_index == 0 && idx > 0 {
+                        turn.turn_index = idx;
+                    }
+                }
+                SessionTrajectory {
+                    session_id: "default".to_string(),
+                    turns,
+                }
+            }
+        }
+    }
+}
+
 /// A sequence of turns representing an agent execution session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SessionTrajectoryWire")]
 pub struct SessionTrajectory {
     pub session_id: String,
     pub turns: Vec<TrajectoryTurn>,
@@ -101,6 +147,7 @@ pub struct GcResult {
     pub compacted_tokens: usize,
 
     /// Token Reduction Ratio (TRR) as a percentage (e.g. 87.5 for 87.5%).
+    #[serde(alias = "trr")]
     pub token_reduction_ratio: f64,
 
     /// Number of turns before GC.

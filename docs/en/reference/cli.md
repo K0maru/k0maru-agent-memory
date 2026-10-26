@@ -43,7 +43,7 @@ k0maru loadout [QUERY] [OPTIONS]
 ```json
 {
   "project_name": "payment-gateway",
-  "vault_path": "/Users/k0maru3/workspace/SecondBrain",
+  "vault_path": "/workspace/my-project/.k0maru/wiki",
   "token_count": 218,
   "markdown": "# Context Loadout: Payment Gateway Core\n- Stack: Go 1.22, Redis 7...",
   "l3_invariants": [

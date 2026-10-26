@@ -54,6 +54,74 @@ fn test_mcp_initialize_and_tools_list() {
 }
 
 #[test]
+fn test_mcp_protocol_version_negotiation() {
+    let vault = mock_obsidian_vault();
+
+    let negotiate = |server: &mut McpServer, requested: &str| -> String {
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "initialize",
+            "params": { "protocolVersion": requested }
+        });
+        let resp: Value =
+            serde_json::from_str(&server.handle_line(&req.to_string()).unwrap()).unwrap();
+        resp["result"]["protocolVersion"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    let mut server = McpServer::new(vault.path());
+    assert_eq!(negotiate(&mut server, "2024-11-05"), "2024-11-05");
+    assert_eq!(negotiate(&mut server, "2025-03-26"), "2025-03-26");
+    assert_eq!(negotiate(&mut server, "2025-06-18"), "2025-06-18");
+    assert_eq!(negotiate(&mut server, "1999-01-01"), "2024-11-05");
+}
+
+#[test]
+fn test_mcp_guard_check_headerless_diff_fails_closed() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    let res = server.handle_tool_call(
+        json!(8),
+        &json!({
+            "name": "guard_check",
+            "arguments": {
+                "diff": "@@ -1 +1 @@\n+fn orphaned() {}\n"
+            }
+        }),
+    );
+
+    assert_eq!(
+        res["result"]["isError"], true,
+        "a non-empty diff without file headers must fail closed: {res}"
+    );
+    let text = res["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("no file headers"),
+        "error must explain the malformed diff, got: {text}"
+    );
+}
+
+#[test]
+fn test_mcp_new_with_model_mock_never_loads_default_model() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new_with_model(vault.path(), Some("mock"));
+
+    let res = server.handle_tool_call(
+        json!(9),
+        &json!({
+            "name": "recall_memory",
+            "arguments": { "query": "Architecture Decisions" }
+        }),
+    );
+    let text = res["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Architecture Decisions"));
+}
+
+#[test]
 fn test_mcp_tool_recall_memory_hybrid() {
     let vault = mock_obsidian_vault();
     let mut server = McpServer::new(vault.path());

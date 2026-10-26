@@ -235,10 +235,13 @@ fn test_install_claude_project_hooks() {
 
     assert_eq!(session_start.len(), 1);
     let cmd = session_start[0]
-        .get("command")
+        .get("hooks")
+        .and_then(|h| h.as_array())
+        .and_then(|hooks| hooks.first())
+        .and_then(|hook| hook.get("command"))
         .and_then(|c| c.as_str())
-        .unwrap();
-    assert!(cmd.contains("k0maru loadout sample-service"));
+        .expect("official SessionStart schema must carry hooks[0].command");
+    assert!(cmd.contains("k0maru loadout \"sample-service\""));
     assert!(cmd.contains("--vault"));
 
     // Verify idempotency: running twice does not duplicate entry

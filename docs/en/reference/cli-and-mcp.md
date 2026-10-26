@@ -627,7 +627,7 @@ Audits a Git diff or code change against active Living ADR invariants discovered
 K0maru provides a native Luau plugin for the **Tern** terminal multiplexer (`tern-plugin/`):
 - **Cockpit Block**: Interactive terminal block rendering binary health, SQLite index status, and Living ADR compliance meters (`r` to refresh);
 - **CLI Lens**: Live output lens intercepting `k0maru *` commands and rendering structured tables and cards;
-- **Window Palette**: Commands for `k0maru: cockpit`, `k0maru: doctor`, `k0maru: guard-check`, and Carly `recall` export.
+- **Window Palette**: Commands for `k0maru: cockpit`, `k0maru: doctor`, `k0maru: guard-check`, and Tern assistant `recall` export.
 
 ```bash
 # Install native Tern plugin

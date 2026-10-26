@@ -11,7 +11,7 @@ Unlike generic cloud RAG platforms, enterprise vector databases, or interactive 
 The project enforces four non-negotiable architectural invariants:
 
 1. **Single Static Binary & Zero-Daemon Execution**:
-   - The compiled binary size is strictly bounded below 10 MB (currently 3.66 MB);
+   - The compiled binary size is strictly bounded (3.6 MB pure-Rust core with `--no-default-features` / 33 MB default with bundled ONNX Runtime);
    - Cold-start latency remains strictly sub-5ms (empirically 3.4 ms);
    - The engine operates without background daemons, polling loops, or open network ports, relying exclusively on standard `stdio` streams and CLI pipes.
 2. **Bring Your Own Markdown (BYOM)**:
@@ -50,11 +50,11 @@ timeline
 ## 📦 Delivered Milestones (Phase 1 through Phase 8.5)
 
 - **Phases 1–3 (v0.1.0 – v0.2.0)**: Prototyped Markdown loadout and symbolic log offloading, built the Rust 2021 core, and implemented zero-daemon FastMCP stdio server support.
-- **Phase 4 (v0.3.0)**: Integrated C-native `sqlite-vec` with local ONNX FastEmbed, implementing RRF ($k=60$) rank fusion and 1-hop WikiLinks Graph Boost (+0.05).
+- **Phase 4 (v0.3.0)**: Integrated C-native `sqlite-vec` with local ONNX FastEmbed, implementing RRF ($k=60$) rank fusion and 1-hop WikiLinks Graph Boost (+0.004, ~25% of top-1 RRF).
 - **Phase 5 (v0.4.2)**: Shipped an embedded Developer Dark Cockpit WebUI via Axum and `rust-embed`, featuring query latency telemetry, 2D force graph visualization, and i18n support.
 - **Phase 6 (v0.5.0)**: Introduced `k0maru install` for 5 major AI coding agents with non-destructive JSON merges, alongside `k0maru doctor` multi-probe health diagnostics.
 - **Phase 7 (v0.6.0)**: Released `ConventionSniffer` for automated vault layout discovery, and `FlushEngine` for atomic collision-safe decision crystallization.
-- **Phase 8 (v0.8.0)**: Completed empirical evaluations on Google Colab NVIDIA A100-SXM4-80GB hardware across Qwen3.8-27B (100% Pass@1), DeepSeek-R1-32B (-48.2% reflection latency), and DeepSeek-Coder-V2 (1.05s response).
+- **Phase 8 (v0.8.0)**: Completed empirical evaluations on Google Colab NVIDIA A100-SXM4-80GB hardware across Qwen2.5-32B-Instruct (100% Pass@1), DeepSeek-R1-32B (-48.2% reflection latency), and DeepSeek-Coder-V2 (1.05s response).
 - **Phase 8.5 (v0.8.2)**: Shipped the 11-chapter bilingual VitePress documentation platform and automated GitHub Actions deployment.
 
 ---
