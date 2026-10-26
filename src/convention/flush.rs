@@ -446,7 +446,7 @@ fn resolve_supersede_target(
                 if boundary_matches.len() != 1 {
                     return Err(ambiguous());
                 }
-                boundary_matches.into_iter().next().ok_or_else(&ambiguous)?
+                boundary_matches.into_iter().next().ok_or_else(ambiguous)?
             }
         }
     };
