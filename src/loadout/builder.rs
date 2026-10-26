@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::core::models::HierarchyLevel;
@@ -305,6 +305,37 @@ fn strip_folder_prefix<'a>(target: &'a str, prefixes: &[&str]) -> &'a str {
     target
 }
 
+/// Extracts a card concept and folds in the first Living ADR guard rule so that
+/// architectural invariants surface inside the compact sub-300-token loadout.
+fn extract_guard_aware_concept(doc: &crate::core::models::Document) -> Option<String> {
+    let mut concept = extract_card_concept(&doc.body);
+    let rules = k0maru_core::guard::extractor::extract_rules_from_document(doc);
+
+    if let Some(rule) = rules.first() {
+        let cond_str = match &rule.condition {
+            k0maru_core::guard::models::RuleCondition::Forbidden(pattern) => {
+                format!("forbid `{}`", pattern)
+            }
+            k0maru_core::guard::models::RuleCondition::MustContain(pattern) => {
+                format!("require `{}`", pattern)
+            }
+        };
+
+        let mut guard = format!("[Guard: {}", cond_str);
+        if !rule.remediation.is_empty() {
+            guard.push_str(&format!(" -> {}", rule.remediation));
+        }
+        guard.push(']');
+
+        concept = Some(match concept {
+            Some(existing) => format!("{} {}", existing, guard),
+            None => guard,
+        });
+    }
+
+    concept
+}
+
 /// Sub-300-token context loadout builder.
 pub struct LoadoutBuilder<'a, A: VaultAdapter, S: CacheStorage> {
     pub(crate) adapter: &'a A,
@@ -326,6 +357,28 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
     pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingEngine>) -> Self {
         self.embedder = Some(embedder);
         self
+    }
+
+    /// Detects whether this vault follows the SecondBrain topology (`00_Daily/`).
+    ///
+    /// Generic open-source Git vaults have no `00_Daily/` folder, so loadouts must
+    /// emit protocol-agnostic English governance rules instead of the hardcoded
+    /// SecondBrain Chinese protocol.
+    fn has_secondbrain_daily(&self) -> bool {
+        if self.adapter.read_document(Path::new("00_Daily")).is_ok() {
+            return true;
+        }
+
+        self.adapter
+            .scan_files()
+            .map(|files| {
+                files.iter().any(|path| {
+                    path.to_string_lossy()
+                        .replace('\\', "/")
+                        .starts_with("00_Daily")
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// Discovers candidate project file paths in the vault.
@@ -625,7 +678,28 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
     /// vault topologies (`20_Cards/`, `cards/`, `decisions/`, `adr/`,
     /// `concepts/`, `notes/`, `wiki/`, or flat root notes).
     fn resolve_l3_card(&self, raw_target: &str) -> Option<(String, PathBuf, Option<String>)> {
-        let normalized = raw_target.trim().replace('\\', "/");
+        self.resolve_l3_card_with_depth(raw_target, 0)
+    }
+
+    fn resolve_l3_card_with_depth(
+        &self,
+        raw_target: &str,
+        depth: usize,
+    ) -> Option<(String, PathBuf, Option<String>)> {
+        if depth > 3 {
+            return None;
+        }
+        let mut trimmed_target = raw_target.trim();
+        if let Some(s) = trimmed_target.strip_prefix("[[") {
+            trimmed_target = s;
+        }
+        if let Some(s) = trimmed_target.strip_suffix("]]") {
+            trimmed_target = s;
+        }
+        if let Some((before_pipe, _)) = trimmed_target.split_once('|') {
+            trimmed_target = before_pipe.trim();
+        }
+        let normalized = trimmed_target.trim().replace('\\', "/");
         let without_extension = normalized.strip_suffix(".md").unwrap_or(&normalized);
         let stripped = strip_folder_prefix(
             without_extension,
@@ -667,6 +741,14 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 continue;
             }
             if let Ok(doc) = self.adapter.read_document(&candidate) {
+                if !doc.is_active() {
+                    if let Some(replacement) = doc.superseded_by() {
+                        let first_rep =
+                            replacement.split(',').next().unwrap_or(&replacement).trim();
+                        return self.resolve_l3_card_with_depth(first_rep, depth + 1);
+                    }
+                    return None;
+                }
                 let doc_path_lower = doc.path.to_string_lossy().replace('\\', "/").to_lowercase();
                 if is_non_knowledge_path(&doc_path_lower) {
                     continue;
@@ -674,7 +756,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 // Explicit card folders are accepted as-is; root notes must
                 // resolve to an evergreen hierarchy.
                 if doc.hierarchy == HierarchyLevel::L3Evergreen || !dir.is_empty() {
-                    let concept = extract_card_concept(&doc.body);
+                    let concept = extract_guard_aware_concept(&doc);
                     return Some((clean.to_string(), doc.path, concept));
                 }
             }
@@ -700,7 +782,15 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     continue;
                 }
                 if let Ok(doc) = self.adapter.read_document(&relative_path) {
-                    let concept = extract_card_concept(&doc.body);
+                    if !doc.is_active() {
+                        if let Some(replacement) = doc.superseded_by() {
+                            let first_rep =
+                                replacement.split(',').next().unwrap_or(&replacement).trim();
+                            return self.resolve_l3_card_with_depth(first_rep, depth + 1);
+                        }
+                        return None;
+                    }
+                    let concept = extract_guard_aware_concept(&doc);
                     return Some((clean.to_string(), doc.path, concept));
                 }
             }
@@ -866,13 +956,18 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         }
 
         // Assemble markdown
+        let is_secondbrain = self.has_secondbrain_daily();
         let mut lines = Vec::new();
         lines.push(format!("# 🎒 Agent Task Loadout: {}", project_stem));
         lines.push(format!("> **Project Scope**: {}", scope));
         lines.push(String::new());
         lines.push("## 🧠 Active Knowledge & Constraints (L3)".to_string());
         if l3_cards.is_empty() {
-            lines.push("- *(暂无绑定的原子卡片，请遵循通用架构规约)*".to_string());
+            lines.push(if is_secondbrain {
+                "- *(暂无绑定的原子卡片，请遵循通用架构规约)*".to_string()
+            } else {
+                "- *(No linked L3 architecture cards yet)*".to_string()
+            });
         } else {
             for card in &l3_cards {
                 let link_target = if card.path.contains("20_Cards") {
@@ -891,7 +986,11 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         lines.push(String::new());
         lines.push("## 📝 Recent Context & Decisions (L2)".to_string());
         if l2_logs.is_empty() {
-            lines.push("- *(无历史前置研发日志)*".to_string());
+            lines.push(if is_secondbrain {
+                "- *(无历史前置研发日志)*".to_string()
+            } else {
+                "- *(No recent L2 engineering logs)*".to_string()
+            });
         } else {
             for log in &l2_logs {
                 let link_target = if log.path.contains("01_AI_Logs") {
@@ -904,16 +1003,25 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         }
 
         lines.push(String::new());
-        lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
-        lines.push(
-            "1. **双链优先 (WikiLinks)**: 原生裸双链 `[[...]]`，禁止反引号包裹。".to_string(),
-        );
-        lines.push(
-            "2. **符号化卸载**: 输出 >50 行写外部日志，主上下文仅维护 Mermaid 图谱。".to_string(),
-        );
-        lines.push(
-            "3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string(),
-        );
+        if is_secondbrain {
+            lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
+            lines.push(
+                "1. **双链优先 (WikiLinks)**: 原生裸双链 `[[...]]`，禁止反引号包裹。".to_string(),
+            );
+            lines.push(
+                "2. **符号化卸载**: 输出 >50 行写外部日志，主上下文仅维护 Mermaid 图谱。"
+                    .to_string(),
+            );
+            lines.push(
+                "3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string(),
+            );
+        } else {
+            lines.push("## 🛡️ Governance Protocol".to_string());
+            lines.push(
+                "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
+                    .to_string(),
+            );
+        }
 
         let markdown = lines.join("\n");
         let estimated_tokens = estimate_tokens(&markdown);
@@ -952,6 +1060,8 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         if scope.chars().count() > 100 {
             scope = format!("{}...", scope.chars().take(97).collect::<String>());
         }
+
+        let is_secondbrain = self.has_secondbrain_daily();
 
         // 1. Extract keywords and changed modules from modified files
         let mut all_keywords = Vec::new();
@@ -1158,15 +1268,29 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 break;
             }
 
-            // Truncate concept to <= 80 characters
+            // Truncate concept to <= 130 characters so an injected
+            // `[Guard: ...]` invariant survives packing.
             let truncated_concept = scored.concept.as_ref().map(|c| {
                 let trimmed = c.trim();
-                if trimmed.chars().count() > 80 {
-                    let truncated: String = trimmed.chars().take(77).collect();
-                    format!("{}...", truncated)
-                } else {
-                    trimmed.to_string()
+                if trimmed.chars().count() <= 130 {
+                    return trimmed.to_string();
                 }
+
+                // Never cut off an appended `[Guard: ...]` invariant: trim the
+                // prose prefix instead so the rule stays actionable.
+                if let Some(guard_idx) = trimmed.rfind(" [Guard:") {
+                    let guard = &trimmed[guard_idx..];
+                    let guard_len = guard.chars().count();
+                    if guard_len + 3 < 130 {
+                        let prefix_budget = 130 - guard_len - 3;
+                        let prefix: String =
+                            trimmed[..guard_idx].chars().take(prefix_budget).collect();
+                        return format!("{}...{}", prefix.trim_end(), guard);
+                    }
+                }
+
+                let truncated: String = trimmed.chars().take(127).collect();
+                format!("{}...", truncated)
             });
 
             let candidate_summary = L3CardSummary {
@@ -1183,6 +1307,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &test_cards,
+                is_secondbrain,
             );
 
             if estimate_tokens(&test_md) <= max_token_budget {
@@ -1195,6 +1320,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     &active_changes_line,
                     &shortened_scope,
                     &test_cards,
+                    is_secondbrain,
                 );
                 if estimate_tokens(&test_shortened_md) <= max_token_budget {
                     scope = format!("{}...", shortened_scope);
@@ -1213,6 +1339,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             &active_changes_line,
             &scope,
             &selected_cards,
+            is_secondbrain,
         );
         let mut final_tokens = estimate_tokens(&final_markdown);
 
@@ -1223,6 +1350,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1234,6 +1362,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1245,6 +1374,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1256,6 +1386,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1344,6 +1475,7 @@ fn assemble_diff_loadout_markdown(
     active_changes: &str,
     scope: &str,
     cards: &[L3CardSummary],
+    is_secondbrain: bool,
 ) -> String {
     let mut lines = Vec::new();
     lines.push(format!(
@@ -1356,7 +1488,12 @@ fn assemble_diff_loadout_markdown(
     lines.push("## 🧠 Activated Invariants & ADRs (Module-Specific)".to_string());
 
     if cards.is_empty() {
-        lines.push("- *(暂无模块特定 ADR 规则，请遵循通用架构规约)*".to_string());
+        lines.push(if is_secondbrain {
+            "- *(暂无模块特定 ADR 规则，请遵循通用架构规约)*".to_string()
+        } else {
+            "- *(No module-specific ADR rules matched; follow the repository architecture invariants)*"
+                .to_string()
+        });
     } else {
         for card in cards {
             let link_target = if card.path.contains("20_Cards") {
@@ -1373,12 +1510,24 @@ fn assemble_diff_loadout_markdown(
     }
 
     lines.push(String::new());
-    lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
-    lines.push("1. **双链优先 (WikiLinks)**: 原生裸双链 `[[...]]`，禁止反引号包裹。".to_string());
-    lines.push(
-        "2. **符号化卸载**: 输出 >50 行写外部日志，主上下文仅维护 Mermaid 图谱。".to_string(),
-    );
-    lines.push("3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string());
+    if is_secondbrain {
+        lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
+        lines.push(
+            "1. **双链优先 (WikiLinks)**: 原生裸双链 `[[...]]`，禁止反引号包裹。".to_string(),
+        );
+        lines.push(
+            "2. **符号化卸载**: 输出 >50 行写外部日志，主上下文仅维护 Mermaid 图谱。".to_string(),
+        );
+        lines.push(
+            "3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string(),
+        );
+    } else {
+        lines.push("## 🛡️ Governance Protocol".to_string());
+        lines.push(
+            "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
+                .to_string(),
+        );
+    }
 
     lines.join("\n")
 }

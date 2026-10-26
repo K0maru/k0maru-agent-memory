@@ -20,7 +20,9 @@ pub use core::models;
 pub use core::traits;
 
 // Domain models
-pub use core::models::{CachedDocMeta, Document, HierarchyLevel, SyncStats, WikiLink};
+pub use core::models::{
+    CachedDocMeta, Document, HierarchyLevel, NoteLifecycleStatus, SyncStats, WikiLink,
+};
 /// Semantic alias for Document in note-taking runtimes
 pub type Note = Document;
 

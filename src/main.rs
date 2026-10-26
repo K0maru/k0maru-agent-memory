@@ -39,6 +39,12 @@ struct Cli {
 enum Commands {
     /// Generate a sub-300-token context loadout for a project
     Loadout(LoadoutArgs),
+    /// Bootstrap a zero-config LLM-Wiki & Living ADR Guard from any Git repository
+    #[command(
+        visible_alias = "bootstrap",
+        about = "Bootstrap a zero-config LLM-Wiki & Living ADR Guard from any Git repository"
+    )]
+    Init(InitArgs),
 
     /// Truncate and offload long command output to symbolic Mermaid graph
     Offload(OffloadArgs),
@@ -246,6 +252,33 @@ pub struct DoctorArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct InitArgs {
+    /// Path to target git repository (defaults to current working directory)
+    #[arg(short, long, value_name = "PATH")]
+    pub repo: Option<PathBuf>,
+
+    /// Path to destination knowledge vault (defaults to <repo>/.k0maru/wiki)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Override project name / slug
+    #[arg(short, long, value_name = "NAME")]
+    pub project: Option<String>,
+
+    /// Automatically configure agent MCP clients and proactive lifecycle hooks (.git & .claude)
+    #[arg(short, long)]
+    pub install: bool,
+
+    /// Home directory override for installing client configs (defaults to system user home)
+    #[arg(long, value_name = "PATH")]
+    pub home: Option<PathBuf>,
+
+    /// Output structured JSON report instead of human-readable text
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Args, Debug)]
 pub struct InstallArgs {
     /// Path to vault root directory (defaults to current dir or detects nearest vault)
@@ -260,6 +293,12 @@ pub struct InstallArgs {
     #[arg(long, value_name = "PATH")]
     pub home: Option<PathBuf>,
 
+    /// Also install proactive lifecycle hooks (.claude/settings.local.json SessionStart & Git pre-commit guard)
+    #[arg(
+        long,
+        help = "Also install proactive lifecycle hooks (.claude/settings.local.json SessionStart & Git pre-commit guard)"
+    )]
+    pub hooks: bool,
     /// Preview configuration changes without writing to disk
     #[arg(long)]
     pub dry_run: bool,
@@ -302,6 +341,10 @@ pub struct FlushArgs {
     /// Preview the generated note and destination path without writing to disk
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Comma-separated notes or ADRs that this note supersedes (automatically marks old notes as status: superseded)
+    #[arg(long, value_delimiter = ',')]
+    pub supersedes: Vec<String>,
 
     /// Output structured JSON result
     #[arg(long)]
@@ -555,8 +598,19 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
     if let Some(p) = explicit {
         return p;
     }
+    if let Ok(v) = std::env::var("K0MARU_VAULT") {
+        if !v.trim().is_empty() {
+            return PathBuf::from(v);
+        }
+    }
     if let Ok(mut current) = std::env::current_dir() {
+        if current.join(".k0maru").join("wiki").is_dir() {
+            return current.join(".k0maru").join("wiki");
+        }
         loop {
+            if current.join(".k0maru").join("wiki").is_dir() {
+                return current.join(".k0maru").join("wiki");
+            }
             if current.join(".k0maru").exists()
                 || current.join(".obsidian").exists()
                 || current.join("10_Projects").is_dir()
@@ -1272,12 +1326,37 @@ fn run_doctor(args: DoctorArgs) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_init_cmd(args: InitArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let repo_path = args
+        .repo
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    let options = k0maru::bootstrap::BootstrapOptions {
+        repo_path,
+        vault_path: args.vault,
+        project_name: args.project,
+        install_clients: args.install,
+        home_override: args.home,
+    };
+
+    let report = k0maru::bootstrap::run_bootstrap(options)?;
+
+    if args.json {
+        let json_str = serde_json::to_string_pretty(&report)?;
+        println!("{}", json_str);
+    } else {
+        println!("{}", k0maru::bootstrap::format_bootstrap_report(&report));
+    }
+
+    Ok(())
+}
+
 fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
     let target: InstallTarget = args.target.parse()?;
 
     let options = InstallOptions {
-        vault_path,
+        vault_path: vault_path.clone(),
         target,
         dry_run: args.dry_run,
         home_override: args.home,
@@ -1285,11 +1364,46 @@ fn run_install_cmd(args: InstallArgs) -> Result<(), Box<dyn std::error::Error>> 
 
     let report = run_install(options).map_err(|e| e as Box<dyn std::error::Error>)?;
 
+    let mut guard_hook = None;
+    let mut claude_hook = None;
+    if args.hooks && !args.dry_run {
+        let repo_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let project_slug = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(k0maru::convention::slugify)
+            .unwrap_or_else(|| "project".to_string());
+        let (gh, ch) = k0maru::install::install_repo_hooks(&repo_path, &vault_path, &project_slug);
+        guard_hook = gh;
+        claude_hook = ch;
+    }
+
     if args.json {
-        let json_str = serde_json::to_string_pretty(&report)?;
+        let mut val = serde_json::to_value(&report)?;
+        if args.hooks {
+            if let Some(obj) = val.as_object_mut() {
+                obj.insert(
+                    "guard_hook_installed".to_string(),
+                    serde_json::to_value(&guard_hook)?,
+                );
+                obj.insert(
+                    "claude_hook_installed".to_string(),
+                    serde_json::to_value(&claude_hook)?,
+                );
+            }
+        }
+        let json_str = serde_json::to_string_pretty(&val)?;
         println!("{}", json_str);
     } else {
         println!("{}", format_install_report(&report));
+        if args.hooks {
+            if let Some(gh) = &guard_hook {
+                println!("⚓ Git guard hook installed: {}", gh.display());
+            }
+            if let Some(ch) = &claude_hook {
+                println!("🤖 Claude session hook installed: {}", ch.display());
+            }
+        }
     }
 
     Ok(())
@@ -1318,6 +1432,7 @@ fn run_flush(args: FlushArgs) -> Result<(), Box<dyn std::error::Error>> {
         tags: args.tags,
         related_notes: args.related,
         dry_run: args.dry_run,
+        supersedes: args.supersedes,
     };
 
     let result = engine
@@ -1347,6 +1462,15 @@ fn run_flush(args: FlushArgs) -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("Path: {}", result.file_path.display());
         println!("Category: {}", result.category);
+        if !result.superseded_files.is_empty() {
+            let list = result
+                .superseded_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("Superseded: {}", list);
+        }
     }
 
     Ok(())
@@ -1804,6 +1928,12 @@ fn main() {
         }
         Some(Commands::Doctor(args)) => {
             if let Err(e) = run_doctor(args) {
+                eprintln!("❌ 错误: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Init(args)) => {
+            if let Err(e) = run_init_cmd(args) {
                 eprintln!("❌ 错误: {}", e);
                 std::process::exit(1);
             }

@@ -274,124 +274,65 @@ impl McpServer {
 
         let has_vectors = storage.has_vectors().unwrap_or(false);
 
-        if has_vectors {
-            let engine = HybridSearchEngine::new(storage, embedder);
-            let results = engine
-                .search(query, SearchMode::Hybrid, limit)
-                .map_err(|e| format!("Hybrid search failed: {}", e))?;
+        let effective_embedder = if has_vectors { embedder } else { None };
+        let engine = HybridSearchEngine::new(storage, effective_embedder);
+        let results = engine
+            .search(query, SearchMode::Hybrid, limit)
+            .map_err(|e| format!("Search failed: {}", e))?;
 
-            if results.is_empty() {
-                return Ok(format!("No memories found matching query: '{}'", query));
-            }
+        if results.is_empty() {
+            return Ok(format!("No memories found matching query: '{}'", query));
+        }
 
-            if full {
-                let mut formatted = Vec::new();
-                for res in &results {
-                    let mut item = format!("## {} ({})\n", res.title, res.path);
-                    item.push_str(&format!("Score: {:.4}\n", res.score));
+        if full {
+            let mut formatted = Vec::new();
+            for res in &results {
+                let mut item = format!("## {} ({})\n", res.title, res.path);
+                item.push_str(&format!("Score: {:.4}\n", res.score));
 
-                    let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
-                    if !backlinks.is_empty() {
-                        let bl_strs: Vec<String> =
-                            backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
-                        item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
-                    }
-
-                    if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
-                        if !doc.tags.is_empty() {
-                            item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
-                        }
-                        item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
-                    }
-
-                    item.push_str(&format!("\n{}", res.snippet));
-                    formatted.push(item);
+                let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
+                if !backlinks.is_empty() {
+                    let bl_strs: Vec<String> =
+                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
                 }
 
-                Ok(formatted.join("\n\n---\n\n"))
-            } else {
-                let mut hits = Vec::with_capacity(results.len());
-                for res in &results {
-                    let in_links = retrieve_backlinks(storage, &res.title, &res.path).len();
-                    let (tier, out_links) = match storage.get_document(Path::new(&res.path)) {
-                        Ok(Some(doc)) => (hierarchy_to_tier(doc.hierarchy), doc.links.len()),
-                        _ => (
-                            infer_tier_from_path(&res.path),
-                            storage
-                                .get_outgoing_links(Path::new(&res.path))
-                                .map(|l| l.len())
-                                .unwrap_or(0),
-                        ),
-                    };
-                    hits.push(CompactRecallHit {
-                        tier,
-                        path: res.path.as_str(),
-                        score: res.score,
-                        in_links,
-                        out_links,
-                        raw_snippet: res.snippet.as_str(),
-                    });
-                }
-                Ok(format_compact_kdsl_hits(&hits))
-            }
-        } else {
-            let docs = storage
-                .search_fts(query, limit)
-                .map_err(|e| format!("FTS search failed: {}", e))?;
-
-            if docs.is_empty() {
-                return Ok(format!("No memories found matching query: '{}'", query));
-            }
-
-            if full {
-                let mut formatted = Vec::new();
-                for (i, doc) in docs.iter().enumerate() {
-                    let rank = i + 1;
-                    let score = 1.0 / (60.0 + rank as f32);
-                    let path_str = doc.path.to_string_lossy();
-                    let mut item = format!("## {} ({})\n", doc.title, doc.path.display());
-                    item.push_str(&format!("Score: {:.4}\n", score));
-
-                    let backlinks = retrieve_backlinks(storage, &doc.title, &path_str);
-                    if !backlinks.is_empty() {
-                        let bl_strs: Vec<String> =
-                            backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
-                        item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
-                    }
-
+                if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
                     if !doc.tags.is_empty() {
                         item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
                     }
-                    item.push_str(&format!("Hierarchy: {}\n\n", doc.hierarchy));
-                    item.push_str(&doc.body);
-                    formatted.push(item);
+                    item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
                 }
 
-                Ok(formatted.join("\n\n---\n\n"))
-            } else {
-                let path_strings: Vec<String> = docs
-                    .iter()
-                    .map(|doc| doc.path.to_string_lossy().replace('\\', "/"))
-                    .collect();
-                let mut hits = Vec::with_capacity(docs.len());
-                for (i, doc) in docs.iter().enumerate() {
-                    let rank = i + 1;
-                    let score = 1.0 / (60.0 + rank as f32);
-                    let path_str = &path_strings[i];
-                    let in_links = retrieve_backlinks(storage, &doc.title, path_str).len();
-                    let out_links = doc.links.len();
-                    let tier = hierarchy_to_tier(doc.hierarchy);
-                    hits.push(CompactRecallHit {
-                        tier,
-                        path: path_str.as_str(),
-                        score,
-                        in_links,
-                        out_links,
-                        raw_snippet: doc.body.as_str(),
-                    });
-                }
-                Ok(format_compact_kdsl_hits(&hits))
+                item.push_str(&format!("\n{}", res.snippet));
+                formatted.push(item);
             }
+
+            Ok(formatted.join("\n\n---\n\n"))
+        } else {
+            let mut hits = Vec::with_capacity(results.len());
+            for res in &results {
+                let in_links = retrieve_backlinks(storage, &res.title, &res.path).len();
+                let (tier, out_links) = match storage.get_document(Path::new(&res.path)) {
+                    Ok(Some(doc)) => (hierarchy_to_tier(doc.hierarchy), doc.links.len()),
+                    _ => (
+                        infer_tier_from_path(&res.path),
+                        storage
+                            .get_outgoing_links(Path::new(&res.path))
+                            .map(|l| l.len())
+                            .unwrap_or(0),
+                    ),
+                };
+                hits.push(CompactRecallHit {
+                    tier,
+                    path: res.path.as_str(),
+                    score: res.score,
+                    in_links,
+                    out_links,
+                    raw_snippet: res.snippet.as_str(),
+                });
+            }
+            Ok(format_compact_kdsl_hits(&hits))
         }
     }
 
@@ -476,6 +417,15 @@ impl McpServer {
                     .collect()
             })
             .unwrap_or_default();
+        let supersedes: Vec<String> = arguments
+            .get("supersedes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let engine = crate::convention::FlushEngine::new(&self.vault_path)
             .map_err(|e| format!("FlushEngine initialization failed: {}", e))?;
@@ -488,6 +438,7 @@ impl McpServer {
             tags,
             related_notes: related_notes.clone(),
             dry_run: false,
+            supersedes,
         };
 
         let result = engine
@@ -513,19 +464,33 @@ impl McpServer {
                 .join(", ")
         };
 
+        let superseded_str = if result.superseded_files.is_empty() {
+            String::new()
+        } else {
+            let list = result
+                .superseded_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("\nSuperseded: {}", list)
+        };
+
         if !result.created {
             Ok(format!(
-                "Note already up to date with identical content.\nPath: {}\nCategory: {}",
+                "Note already up to date with identical content.\nPath: {}\nCategory: {}{}",
                 result.relative_path.display(),
-                result.category
+                result.category,
+                superseded_str
             ))
         } else {
             Ok(format!(
-                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}",
+                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}{}",
                 title,
                 result.relative_path.display(),
                 result.category,
-                links_str
+                links_str,
+                superseded_str
             ))
         }
     }
@@ -868,6 +833,11 @@ impl McpServer {
                             "type": "array",
                             "items": { "type": "string" },
                             "description": "Related existing notes to link via WikiLinks"
+                        },
+                        "supersedes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of existing notes or ADRs that this note supersedes (automatically marks old notes as status: superseded)"
                         }
                     },
                     "required": ["title", "content"]

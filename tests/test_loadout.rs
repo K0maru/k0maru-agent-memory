@@ -353,3 +353,195 @@ hierarchy: L2Log
     );
     assert!(estimate_tokens(&loadout.markdown) < 300);
 }
+
+#[test]
+fn test_loadout_surfaces_guard_rules_from_active_adr_card() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let projects_dir = root.join("10_Projects");
+    let cards_dir = root.join("20_Cards");
+    fs::create_dir_all(&projects_dir).unwrap();
+    fs::create_dir_all(&cards_dir).unwrap();
+
+    fs::write(
+        projects_dir.join("redis-cache.md"),
+        r#"---
+title: Redis Cache
+status: active
+---
+# Redis Cache
+
+> Scoped Redis cache invalidation engine.
+
+## Architecture Rules
+- [[20_Cards/adr-001-scoped-redis-setnx]]
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        cards_dir.join("adr-001-scoped-redis-setnx.md"),
+        r#"---
+title: ADR-001 Scoped Redis SETNX
+status: active
+invariants:
+  - id: no-unscoped-setnx
+    title: No Unscoped SETNX
+    forbidden: "redis_setnx_unscoped"
+    file_pattern: "src/**/*.rs"
+    severity: "deny"
+    remediation: "Use redis_set_nx_scoped with an explicit namespace."
+---
+# ADR-001 Scoped Redis SETNX
+
+> **Core Concept**: All Redis locks MUST be namespaced.
+"#,
+    )
+    .unwrap();
+
+    let adapter = ObsidianAdapter::new(root);
+    let mut storage = SqliteStorage::in_memory().unwrap();
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false).unwrap();
+
+    let builder = LoadoutBuilder::new(&adapter, &storage);
+
+    let loadout = builder
+        .build("redis-cache")
+        .unwrap()
+        .expect("loadout should resolve the redis-cache project");
+
+    assert!(
+        loadout
+            .l3_cards
+            .iter()
+            .any(|card| card.path.contains("adr-001-scoped-redis-setnx")),
+        "Active ADR card must be linked into the loadout: {:?}",
+        loadout.l3_cards
+    );
+    assert!(
+        loadout.markdown.contains("redis_setnx_unscoped"),
+        "Guard rule must surface in the compact loadout markdown:\n{}",
+        loadout.markdown
+    );
+    assert!(
+        loadout.markdown.contains("[Guard:"),
+        "Guard rule must be rendered with its compact tag:\n{}",
+        loadout.markdown
+    );
+    assert!(
+        estimate_tokens(&loadout.markdown) < 300,
+        "Loadout with guard rule MUST stay under 300 tokens, got {}",
+        estimate_tokens(&loadout.markdown)
+    );
+
+    let modified = vec![ModifiedFile::new(
+        "src/redis/lock.rs",
+        FileChangeStatus::Modified,
+    )];
+    let diff_loadout = builder
+        .build_with_diff("redis-cache", &modified)
+        .unwrap()
+        .expect("diff-aware loadout should resolve the redis-cache project");
+
+    assert!(
+        diff_loadout.markdown.contains("redis_setnx_unscoped"),
+        "Guard rule must survive diff-aware loadout packing:\n{}",
+        diff_loadout.markdown
+    );
+    assert!(
+        diff_loadout.markdown.contains("[Guard:"),
+        "Guard rule must be rendered with its compact tag in diff mode:\n{}",
+        diff_loadout.markdown
+    );
+    assert!(
+        estimate_tokens(&diff_loadout.markdown) < 300,
+        "Diff-aware loadout with guard rule MUST stay under 300 tokens, got {}",
+        estimate_tokens(&diff_loadout.markdown)
+    );
+}
+
+#[test]
+fn test_loadout_forwards_superseded_card_to_replacement() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let projects_dir = root.join("10_Projects");
+    let cards_dir = root.join("20_Cards");
+    fs::create_dir_all(&projects_dir).unwrap();
+    fs::create_dir_all(&cards_dir).unwrap();
+
+    fs::write(
+        projects_dir.join("payment-settlement.md"),
+        r#"---
+title: Payment Settlement
+status: active
+---
+# Payment Settlement
+
+## Architecture Rules
+- [[20_Cards/adr-010-legacy-setnx-lock]]
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        cards_dir.join("adr-010-legacy-setnx-lock.md"),
+        r#"---
+title: ADR-010 Legacy Lock
+status: superseded
+superseded_by: "[[20_Cards/adr-042-fenced-lease-lock]]"
+---
+> [SUPERSEDED] Superseded by [[20_Cards/adr-042-fenced-lease-lock]]
+
+# ADR-010 Legacy Lock
+
+> **Core Concept**: Legacy unscoped lock.
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        cards_dir.join("adr-042-fenced-lease-lock.md"),
+        r#"---
+title: ADR-042 Fenced Lease Lock
+status: active
+supersedes:
+  - "[[20_Cards/adr-010-legacy-setnx-lock]]"
+---
+# ADR-042 Fenced Lease Lock
+
+> **Core Concept**: All handlers MUST use fenced lease locks.
+"#,
+    )
+    .unwrap();
+
+    let adapter = ObsidianAdapter::new(root);
+    let mut storage = SqliteStorage::in_memory().unwrap();
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false).unwrap();
+
+    let builder = LoadoutBuilder::new(&adapter, &storage);
+    let loadout = builder
+        .build("payment-settlement")
+        .unwrap()
+        .expect("loadout should resolve");
+
+    assert!(
+        !loadout
+            .l3_cards
+            .iter()
+            .any(|card| card.path.contains("adr-010")),
+        "Superseded ADR-010 must not appear in loadout: {:?}",
+        loadout.l3_cards
+    );
+    assert!(
+        loadout
+            .l3_cards
+            .iter()
+            .any(|card| card.path.contains("adr-042-fenced-lease-lock")),
+        "Loadout must automatically forward superseded link to ADR-042: {:?}",
+        loadout.l3_cards
+    );
+}

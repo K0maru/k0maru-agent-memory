@@ -316,6 +316,7 @@ pub fn import_pack(
             tags: note.tags.clone(),
             related_notes: note.related_notes.clone(),
             dry_run: options.dry_run,
+            supersedes: Vec::new(),
         };
 
         let result = engine

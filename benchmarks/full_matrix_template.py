@@ -844,21 +844,25 @@ def run_concurrency_stress_suite(k0maru_bin: str, model_tag: str, vault_path: Pa
         capture_output=True,
         text=True
     )
-    
-    gc_data = json.loads(gc_res.stdout) if gc_res.returncode == 0 else {}
-    pruned_token_count = gc_data.get("pruned_tokens", raw_token_count * 0.053)
-    measured_trr = gc_data.get("trr_percent", 94.67)
+    if gc_res.returncode != 0:
+        raise RuntimeError(f"k0maru gc failed: {gc_res.stderr}")
+
+    gc_data = json.loads(gc_res.stdout)
+    raw_token_count = gc_data.get("original_tokens", raw_token_count)
+    pruned_token_count = gc_data["compacted_tokens"] if "compacted_tokens" in gc_data else gc_data["pruned_tokens"]
+    measured_trr = gc_data["trr"] if "trr" in gc_data else gc_data["trr_percent"]
+    smart_zone_ok = gc_data.get("within_smart_zone", False)
     
     print(f"  -> Raw Trajectory Tokens: {raw_token_count} tokens")
     print(f"  -> Pruned Trajectory Tokens: {pruned_token_count:.0f} tokens")
     print(f"  -> Token Reduction Ratio (TRR): {measured_trr:.2f}% (Target: >= 85.0%)")
-    print(f"  -> Smart-Zone Status: COMPLIANT (Retained in 15% - 60% window)")
+    print(f"  -> Smart-Zone Status: {'COMPLIANT' if smart_zone_ok else 'NON-COMPLIANT'} (Retained in 15% - 60% window)")
     
     concurrency_report["context_gc"] = {
         "raw_tokens": raw_token_count,
         "pruned_tokens": round(pruned_token_count),
         "trr_percent": round(measured_trr, 2),
-        "smart_zone_compliant": True,
+        "smart_zone_compliant": smart_zone_ok,
         "turns_processed": len(raw_trajectory)
     }
 
@@ -959,15 +963,15 @@ def main():
                 "is_kanban": False
             },
             {
-                "id": "qwen3.8:27b",
-                "display": "Qwen3.8-27B",
-                "fallbacks": ["qwen2.5:32b", "qwen2.5:14b"],
+                "id": "qwen2.5:32b",
+                "display": "Qwen2.5-32B-Instruct",
+                "fallbacks": ["qwen3.8:27b", "qwen2.5:14b"],
                 "is_kanban": False
             },
             {
-                "id": "gemma4:31b",
-                "display": "Google Gemma 4 31B",
-                "fallbacks": ["gemma4:26b", "gemma4:12b", "gemma2:27b"],
+                "id": "gemma2:27b",
+                "display": "Google Gemma 2 27B",
+                "fallbacks": ["gemma4:31b", "gemma4:26b", "gemma2:9b"],
                 "is_kanban": False
             }
         ]
@@ -977,15 +981,24 @@ def main():
         for m_cfg in MODELS_CONFIG:
             raw_tag = m_cfg["id"]
             actual_tag = pull_model_robust(raw_tag, m_cfg["fallbacks"])
+            m_cfg["actual_model_tag"] = actual_tag
+            full_benchmark_output.setdefault("models", {})[m_cfg["display"]] = {
+                "display": m_cfg["display"],
+                "configured_id": raw_tag,
+                "actual_model_tag": actual_tag
+            }
             
             # Part 1: 5 Defects evaluation
             defects_res = evaluate_model_on_5_defects(actual_tag)
+            defects_res["display"] = m_cfg["display"]
+            defects_res["actual_model_tag"] = actual_tag
             full_benchmark_output["part1_defect_matrix"][m_cfg["display"]] = defects_res
             
             # Part 2: 4 Invariants evaluation
             invariants_res = evaluate_model_on_invariants(actual_tag, k0maru_bin, vault_path)
+            invariants_res["display"] = m_cfg["display"]
+            invariants_res["actual_model_tag"] = actual_tag
             full_benchmark_output["part2_invariants_matrix"][m_cfg["display"]] = invariants_res
-            
             if m_cfg["is_kanban"]:
                 kanban_tag = actual_tag
                 

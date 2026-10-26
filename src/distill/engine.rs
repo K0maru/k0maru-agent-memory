@@ -119,6 +119,7 @@ impl DistillEngine {
             tags: skill.tags.clone(),
             related_notes: skill.related_notes.clone(),
             dry_run: opts.dry_run,
+            supersedes: Vec::new(),
         };
 
         let flush_result = flush_engine.flush(flush_req)?;

@@ -11,15 +11,16 @@ pub use k0maru_core::{
     resolve_embedding_engine, scanner, storage, vector, CacheStorage, CachedDocMeta,
     ContextGcEngine, DirtySets, Document, EmbeddingEngine, EmbeddingModelType, GcError, GcEvent,
     GcOptions, GcResult, GenericWikiAdapter, HierarchyLevel, HybridSearchEngine,
-    IncrementalScanner, MockEmbeddingEngine, Note, ObsidianAdapter, SearchMode, SearchResult,
-    SessionTrajectory, SqliteStorage, SyncStats, TrajectoryTurn, TurnRole, VaultAdapter,
-    VectorError, VectorSyncEngine, VectorSyncStats, WikiLink, DEFAULT_BATCH_SIZE,
-    VECTOR_DIMENSIONS,
+    IncrementalScanner, MockEmbeddingEngine, Note, NoteLifecycleStatus, ObsidianAdapter,
+    RuleCondition, RuleSeverity, SearchMode, SearchResult, SessionTrajectory, SqliteStorage,
+    SyncStats, TrajectoryTurn, TurnRole, VaultAdapter, VectorError, VectorSyncEngine,
+    VectorSyncStats, WikiLink, DEFAULT_BATCH_SIZE, VECTOR_DIMENSIONS,
 };
 #[cfg(feature = "fastembed")]
 pub use k0maru_core::{resolve_cache_dir, FastEmbedBackend};
 
 // Application modules
+pub mod bootstrap;
 pub mod convention;
 pub mod distill;
 pub mod doctor;
@@ -33,6 +34,7 @@ pub mod offload;
 pub mod pack;
 pub mod ui;
 
+pub use bootstrap::{format_bootstrap_report, run_bootstrap, BootstrapOptions, BootstrapReport};
 pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
@@ -49,11 +51,11 @@ pub use ecosystem::{
 pub use git::{parse_diff_stream, FileChangeStatus, GitInspector, ModifiedFile};
 pub use guard::{
     format_guard_report, get_git_diff, resolve_guard_rules, run_guard_check, run_guard_install,
-    GuardArgs, GuardCheckArgs, GuardInstallArgs, GuardSubcommand,
+    GuardArgs, GuardCheckArgs, GuardEngine, GuardInstallArgs, GuardSubcommand,
 };
 pub use install::{
-    format_install_report, inject_k0maru_mcp, run_install, ClientInstallOutcome, InstallOptions,
-    InstallReport, InstallTarget,
+    format_install_report, inject_k0maru_mcp, install_claude_project_hooks, install_repo_hooks,
+    run_install, ClientInstallOutcome, InstallOptions, InstallReport, InstallTarget,
 };
 pub use loadout::{
     copy_to_clipboard, estimate_tokens, L2LogSummary, L3CardSummary, LoadoutBuilder, LoadoutResult,

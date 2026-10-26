@@ -105,6 +105,9 @@ pub struct FlushRequest {
     pub tags: Vec<String>,
     pub related_notes: Vec<String>,
     pub dry_run: bool,
+    /// Optional list of existing notes/ADRs that this note supersedes
+    #[serde(default)]
+    pub supersedes: Vec<String>,
 }
 
 /// Result of a flush operation (simulated if dry_run, executed on disk otherwise).
@@ -117,4 +120,7 @@ pub struct FlushResult {
     pub appended: bool,
     pub content_preview: String,
     pub dry_run: bool,
+    /// Relative paths of existing notes that were marked as superseded by this flush
+    #[serde(default)]
+    pub superseded_files: Vec<PathBuf>,
 }

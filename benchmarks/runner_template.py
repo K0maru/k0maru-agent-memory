@@ -517,21 +517,25 @@ def run_benchmark_suite(k0maru_bin: str, model_tag: str) -> Dict[str, Any]:
         capture_output=True,
         text=True
     )
-    
-    gc_data = json.loads(gc_res.stdout) if gc_res.returncode == 0 else {}
-    pruned_token_count = gc_data.get("pruned_tokens", raw_token_count * 0.053)
-    measured_trr = gc_data.get("trr_percent", 94.67)
+    if gc_res.returncode != 0:
+        raise RuntimeError(f"k0maru gc failed: {gc_res.stderr}")
+
+    gc_data = json.loads(gc_res.stdout)
+    raw_token_count = gc_data.get("original_tokens", raw_token_count)
+    pruned_token_count = gc_data["compacted_tokens"] if "compacted_tokens" in gc_data else gc_data["pruned_tokens"]
+    measured_trr = gc_data["trr"] if "trr" in gc_data else gc_data["trr_percent"]
+    smart_zone_ok = gc_data.get("within_smart_zone", False)
     
     print(f"  -> Raw Trajectory Tokens: {raw_token_count} tokens")
     print(f"  -> Pruned Trajectory Tokens: {pruned_token_count:.0f} tokens")
     print(f"  -> Token Reduction Ratio (TRR): {measured_trr:.2f}% (Target: >= 85.0%)")
-    print(f"  -> Smart-Zone Status: COMPLIANT (Retained in 15% - 60% window)")
+    print(f"  -> Smart-Zone Status: {'COMPLIANT' if smart_zone_ok else 'NON-COMPLIANT'} (Retained in 15% - 60% window)")
     
     results["metrics"]["test3_context_gc"] = {
         "raw_tokens": raw_token_count,
         "pruned_tokens": round(pruned_token_count),
         "trr_percent": round(measured_trr, 2),
-        "smart_zone_compliant": True,
+        "smart_zone_compliant": smart_zone_ok,
         "turns_processed": len(raw_trajectory)
     }
 

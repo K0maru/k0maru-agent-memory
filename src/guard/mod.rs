@@ -7,7 +7,9 @@ use std::process::Command;
 use clap::{Args, Subcommand};
 use k0maru_core::adapters::GenericWikiAdapter;
 use k0maru_core::core::traits::VaultAdapter;
-use k0maru_core::guard::extractor::{extract_rules_from_document, extract_rules_from_vault};
+use k0maru_core::guard::extractor::{
+    extract_rules_from_config, extract_rules_from_document, extract_rules_from_vault,
+};
 use k0maru_core::guard::models::{GuardReport, GuardRule, RuleSeverity};
 pub use k0maru_core::guard::GuardEngine;
 
@@ -68,6 +70,79 @@ pub struct GuardInstallArgs {
     pub path: Option<PathBuf>,
 }
 
+/// Collects guard rules declared under `<root>/.k0maru/rules`, which may be
+/// either a single config file or a directory of `.toml` / `.yaml` / `.yml` /
+/// `.md` rule files.
+fn collect_dot_k0maru_rules(
+    root: &Path,
+    seen: &mut HashSet<(String, String)>,
+    rules: &mut Vec<GuardRule>,
+) {
+    let rules_path = root.join(".k0maru").join("rules");
+    let mut files: Vec<PathBuf> = Vec::new();
+
+    if rules_path.is_file() {
+        files.push(rules_path.clone());
+    } else if rules_path.is_dir() {
+        if let Ok(entries) = fs::read_dir(&rules_path) {
+            files = entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file())
+                .filter(|path| {
+                    matches!(
+                        path.extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext.to_lowercase())
+                            .as_deref(),
+                        Some("toml" | "yaml" | "yml" | "md")
+                    )
+                })
+                .collect();
+            files.sort();
+        }
+    }
+
+    for file in files {
+        let is_markdown = file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+
+        let extracted = if is_markdown {
+            // Markdown rule notes carry their invariants in frontmatter/body,
+            // so parse them as documents rather than YAML configs.
+            let file_name = file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_default();
+            let adapter_root = if rules_path.is_dir() {
+                rules_path.clone()
+            } else {
+                rules_path
+                    .parent()
+                    .map(|parent| parent.to_path_buf())
+                    .unwrap_or_else(|| rules_path.clone())
+            };
+            let adapter = GenericWikiAdapter::new(adapter_root);
+            adapter
+                .read_document(Path::new(&file_name))
+                .map(|doc| extract_rules_from_document(&doc))
+                .unwrap_or_default()
+        } else {
+            extract_rules_from_config(&file).unwrap_or_default()
+        };
+
+        for rule in extracted {
+            if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                rules.push(rule);
+            }
+        }
+    }
+}
+
 /// Resolves active GuardRules from vault configuration files and document notes.
 pub fn resolve_guard_rules(
     vault_path: &Path,
@@ -95,8 +170,12 @@ pub fn resolve_guard_rules(
                     }
                 }
             }
+            collect_dot_k0maru_rules(&cwd, &mut seen, &mut rules);
         }
     }
+
+    // 1b. `.k0maru/rules` in the vault root (single file or rule directory)
+    collect_dot_k0maru_rules(vault_path, &mut seen, &mut rules);
 
     // 2. Scan vault notes for living ADR invariants (topology-agnostic)
     if vault_path.is_dir() {
@@ -166,71 +245,50 @@ pub fn resolve_guard_rules(
     Ok(rules)
 }
 
+/// Runs `git diff` with extra arguments, returning stdout on success.
+fn git_diff_output(repo_root: &Path, extra_args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .arg("diff")
+        .args(extra_args)
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        None
+    }
+}
+
 /// Obtains git diff output for the current repository.
 pub fn get_git_diff(
     repo_root: &Path,
     branch: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let mut diff_str = String::new();
-
     if let Some(target_branch) = branch {
         let triple_dot = format!("{}...HEAD", target_branch);
-        let output = Command::new("git")
-            .arg("diff")
-            .arg(&triple_dot)
-            .current_dir(repo_root)
-            .output();
-
-        if let Ok(out) = output {
-            if out.status.success() {
-                diff_str = String::from_utf8_lossy(&out.stdout).to_string();
+        if let Some(diff) = git_diff_output(repo_root, &[&triple_dot]) {
+            if !diff.trim().is_empty() {
+                return Ok(diff);
             }
         }
     }
 
-    if diff_str.is_empty() {
-        // Try `git diff HEAD`
-        let head_output = Command::new("git")
-            .arg("diff")
-            .arg("HEAD")
-            .current_dir(repo_root)
-            .output();
-
-        if let Ok(out) = head_output {
-            if out.status.success() {
-                diff_str = String::from_utf8_lossy(&out.stdout).to_string();
-            }
+    // `git diff HEAD` covers staged + unstaged changes against HEAD. It fails
+    // on an unborn branch (no HEAD commit yet), which is exactly when we need
+    // the staged + unstaged concatenation below.
+    if let Some(diff) = git_diff_output(repo_root, &["HEAD"]) {
+        if !diff.trim().is_empty() {
+            return Ok(diff);
         }
     }
 
-    // Fallback: combine unstaged and staged
-    if diff_str.is_empty() {
-        let mut combined = String::new();
-        if let Ok(out) = Command::new("git")
-            .arg("diff")
-            .current_dir(repo_root)
-            .output()
-        {
-            if out.status.success() {
-                combined.push_str(&String::from_utf8_lossy(&out.stdout));
-            }
-        }
+    // Fallback: combine staged (`--cached`) and unstaged changes.
+    let mut combined = git_diff_output(repo_root, &["--cached"]).unwrap_or_default();
+    combined.push_str(&git_diff_output(repo_root, &[]).unwrap_or_default());
 
-        if let Ok(out) = Command::new("git")
-            .arg("diff")
-            .arg("--cached")
-            .current_dir(repo_root)
-            .output()
-        {
-            if out.status.success() {
-                combined.push_str(&String::from_utf8_lossy(&out.stdout));
-            }
-        }
-
-        diff_str = combined;
-    }
-
-    Ok(diff_str)
+    Ok(combined)
 }
 
 /// Executes `k0maru guard check`.
@@ -238,6 +296,7 @@ pub fn run_guard_check(
     args: GuardCheckArgs,
     vault_path: &Path,
 ) -> Result<GuardReport, Box<dyn std::error::Error>> {
+    let wall_start = std::time::Instant::now();
     let rules = resolve_guard_rules(vault_path, args.project.as_deref())?;
 
     let mut report = if !args.files.is_empty() {
@@ -271,10 +330,55 @@ pub fn run_guard_check(
         report.is_passed = false;
     }
 
+    // Report end-to-end wall time: rule resolution + git diff + engine audit.
+    report.duration_ms = wall_start.elapsed().as_millis();
+
     Ok(report)
 }
 
-/// Installs the `k0maru guard check --diff` pre-commit hook into `.git/hooks/`.
+/// Resolves the directory Git actually executes hooks from, honoring
+/// `core.hooksPath` (Husky / worktrees) and `git rev-parse --git-path hooks`.
+fn resolve_hooks_dir(repo_dir: &Path) -> PathBuf {
+    let configured = Command::new("git")
+        .args(["config", "--get", "core.hooksPath"])
+        .current_dir(repo_dir)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(hooks_path) = configured {
+        let path = PathBuf::from(hooks_path);
+        return if path.is_absolute() {
+            path
+        } else {
+            repo_dir.join(path)
+        };
+    }
+
+    if let Ok(out) = Command::new("git")
+        .args(["rev-parse", "--git-path", "hooks"])
+        .current_dir(repo_dir)
+        .output()
+    {
+        if out.status.success() {
+            let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !resolved.is_empty() {
+                let path = PathBuf::from(resolved);
+                return if path.is_absolute() {
+                    path
+                } else {
+                    repo_dir.join(path)
+                };
+            }
+        }
+    }
+
+    repo_dir.join(".git").join("hooks")
+}
+
+/// Installs the `k0maru guard check --diff` pre-commit hook into the repo hooks directory.
 pub fn run_guard_install(args: GuardInstallArgs) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let repo_dir = args.path.unwrap_or_else(|| PathBuf::from("."));
     let git_dir = repo_dir.join(".git");
@@ -287,7 +391,7 @@ pub fn run_guard_install(args: GuardInstallArgs) -> Result<PathBuf, Box<dyn std:
         .into());
     }
 
-    let hooks_dir = git_dir.join("hooks");
+    let hooks_dir = resolve_hooks_dir(&repo_dir);
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join(&args.hook);
@@ -298,10 +402,16 @@ pub fn run_guard_install(args: GuardInstallArgs) -> Result<PathBuf, Box<dyn std:
             return Ok(hook_path);
         }
 
-        let chained = format!(
-            "{}\n\n# --- k0maru guard sentinel ---\nif command -v k0maru >/dev/null 2>&1; then\n    k0maru guard check --diff\nfi\n",
-            existing.trim_end()
-        );
+        let sentinel = "# --- k0maru guard sentinel ---\nif command -v k0maru >/dev/null 2>&1; then\n    k0maru guard check --diff\nfi";
+
+        // Insert before a trailing `exit 0` so the guard actually executes.
+        let trimmed_end = existing.trim_end();
+        let chained = match trimmed_end.strip_suffix("exit 0") {
+            Some(prefix) if !prefix.trim().is_empty() => {
+                format!("{}\n{}\nexit 0\n", prefix.trim_end(), sentinel)
+            }
+            _ => format!("{}\n\n{}\n", trimmed_end, sentinel),
+        };
         fs::write(&hook_path, chained)?;
     } else {
         let script = r#"#!/bin/sh

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::models::Document;
 use crate::core::traits::CacheStorage;
 use crate::storage::SqliteStorage;
 use crate::vector::EmbeddingEngine;
@@ -60,8 +61,53 @@ impl<'a> HybridSearchEngine<'a> {
     pub const DEFAULT_WEIGHT_BM25: f32 = 0.5;
     /// Default vector fusion weight ($0.5$).
     pub const DEFAULT_WEIGHT_VECTOR: f32 = 0.5;
-    /// Default graph boost weight added for connected nodes ($0.05$).
-    pub const DEFAULT_GRAPH_BOOST: f32 = 0.05;
+    /// Default graph boost weight added for connected nodes ($0.004$, ~25% of top-1 RRF score).
+    pub const DEFAULT_GRAPH_BOOST: f32 = 0.004;
+    /// Score multiplier applied to superseded or deprecated notes (0.2).
+    pub const SUPERSEDED_PENALTY_MULTIPLIER: f32 = 0.2;
+
+    /// Checks document lifecycle and applies deprecation penalty and snippet annotation if inactive.
+    pub fn apply_lifecycle_penalty(
+        doc: Option<&Document>,
+        score: &mut f32,
+        graph_boost: &mut f32,
+        snippet: &mut String,
+    ) {
+        if let Some(doc) = doc {
+            if !doc.is_active() {
+                *graph_boost = 0.0;
+                *score *= Self::SUPERSEDED_PENALTY_MULTIPLIER;
+                if !snippet.starts_with("[SUPERSEDED") && !snippet.starts_with("[DEPRECATED") {
+                    if let Some(target) = doc.superseded_by() {
+                        *snippet = if snippet.is_empty() {
+                            format!("[SUPERSEDED by {}]", target)
+                        } else {
+                            format!("[SUPERSEDED by {}] {}", target, snippet)
+                        };
+                    } else {
+                        *snippet = if snippet.is_empty() {
+                            "[DEPRECATED]".to_string()
+                        } else {
+                            format!("[DEPRECATED] {}", snippet)
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    /// Checks document lifecycle by path from storage and applies deprecation penalty and snippet annotation.
+    pub fn apply_lifecycle_penalty_by_path(
+        &self,
+        path_str: &str,
+        score: &mut f32,
+        graph_boost: &mut f32,
+        snippet: &mut String,
+    ) {
+        if let Ok(doc_opt) = self.storage.get_document(Path::new(path_str)) {
+            Self::apply_lifecycle_penalty(doc_opt.as_ref(), score, graph_boost, snippet);
+        }
+    }
 
     /// Creates a new `HybridSearchEngine` bound to SQLite storage and optional embedding engine.
     pub fn new(storage: &'a SqliteStorage, embedder: Option<Arc<dyn EmbeddingEngine>>) -> Self {
@@ -138,13 +184,17 @@ impl<'a> HybridSearchEngine<'a> {
         query: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
-        let docs = self.storage.search_fts(query, limit)?;
+        let pool_limit = (limit * 3).max(20);
+        let docs = self.storage.search_fts(query, pool_limit)?;
         let mut results = Vec::with_capacity(docs.len());
 
         for (i, doc) in docs.into_iter().enumerate() {
             let rank = i + 1;
-            let score = 1.0 / (self.rrf_k as f32 + rank as f32);
-            let snippet = generate_snippet(&doc.body, query, 200);
+            let mut score = 1.0 / (self.rrf_k as f32 + rank as f32);
+            let mut snippet = generate_snippet(&doc.body, query, 200);
+            let mut graph_boost = 0.0;
+
+            Self::apply_lifecycle_penalty(Some(&doc), &mut score, &mut graph_boost, &mut snippet);
 
             results.push(SearchResult {
                 path: doc.path.to_string_lossy().to_string(),
@@ -152,11 +202,25 @@ impl<'a> HybridSearchEngine<'a> {
                 score,
                 bm25_rank: Some(rank),
                 vector_rank: None,
-                graph_boost: 0.0,
+                graph_boost,
                 snippet,
             });
         }
 
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| match (a.bm25_rank, b.bm25_rank) {
+                    (Some(ra), Some(rb)) => ra.cmp(&rb),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                })
+                .then_with(|| a.path.cmp(&b.path))
+        });
+
+        results.truncate(limit);
         Ok(results)
     }
 
@@ -170,8 +234,9 @@ impl<'a> HybridSearchEngine<'a> {
             .as_ref()
             .ok_or("No embedding engine configured for vector search")?;
 
+        let pool_limit = (limit * 3).max(20);
         let query_emb = embedder.embed(query)?;
-        let hits = self.storage.search_vectors(&query_emb, limit)?;
+        let hits = self.storage.search_vectors(&query_emb, pool_limit)?;
         if hits.is_empty() {
             return Ok(Vec::new());
         }
@@ -179,11 +244,12 @@ impl<'a> HybridSearchEngine<'a> {
         let mut results = Vec::with_capacity(hits.len());
         for (i, (path_str, _distance)) in hits.into_iter().enumerate() {
             let rank = i + 1;
-            let score = 1.0 / (self.rrf_k as f32 + rank as f32);
+            let mut score = 1.0 / (self.rrf_k as f32 + rank as f32);
 
             let path = PathBuf::from(&path_str);
-            let (title, body) = match self.storage.get_document(&path)? {
-                Some(doc) => (doc.title, doc.body),
+            let doc_opt = self.storage.get_document(&path)?;
+            let (title, body) = match doc_opt.as_ref() {
+                Some(doc) => (doc.title.clone(), doc.body.clone()),
                 None => (
                     path.file_stem()
                         .and_then(|s| s.to_str())
@@ -193,7 +259,15 @@ impl<'a> HybridSearchEngine<'a> {
                 ),
             };
 
-            let snippet = generate_snippet(&body, query, 200);
+            let mut snippet = generate_snippet(&body, query, 200);
+            let mut graph_boost = 0.0;
+
+            Self::apply_lifecycle_penalty(
+                doc_opt.as_ref(),
+                &mut score,
+                &mut graph_boost,
+                &mut snippet,
+            );
 
             results.push(SearchResult {
                 path: path_str,
@@ -201,11 +275,25 @@ impl<'a> HybridSearchEngine<'a> {
                 score,
                 bm25_rank: None,
                 vector_rank: Some(rank),
-                graph_boost: 0.0,
+                graph_boost,
                 snippet,
             });
         }
 
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| match (a.vector_rank, b.vector_rank) {
+                    (Some(ra), Some(rb)) => ra.cmp(&rb),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                })
+                .then_with(|| a.path.cmp(&b.path))
+        });
+
+        results.truncate(limit);
         Ok(results)
     }
 
@@ -264,12 +352,16 @@ impl<'a> HybridSearchEngine<'a> {
             body: String,
             bm25_rank: Option<usize>,
             vector_rank: Option<usize>,
+            is_active: bool,
+            superseded_label: Option<String>,
         }
 
         let mut candidates: HashMap<String, CandidateEntry> = HashMap::new();
 
         for (i, doc) in bm25_docs.into_iter().enumerate() {
             let path_str = doc.path.to_string_lossy().to_string();
+            let is_active = doc.is_active();
+            let superseded_label = doc.superseded_by();
             candidates.insert(
                 path_str.clone(),
                 CandidateEntry {
@@ -278,6 +370,8 @@ impl<'a> HybridSearchEngine<'a> {
                     body: doc.body,
                     bm25_rank: Some(i + 1),
                     vector_rank: None,
+                    is_active,
+                    superseded_label,
                 },
             );
         }
@@ -288,14 +382,22 @@ impl<'a> HybridSearchEngine<'a> {
                 entry.vector_rank = Some(rank);
             } else {
                 let path = PathBuf::from(&path_str);
-                let (title, body) = match self.storage.get_document(&path)? {
-                    Some(doc) => (doc.title, doc.body),
+                let doc_opt = self.storage.get_document(&path)?;
+                let (title, body, is_active, superseded_label) = match doc_opt.as_ref() {
+                    Some(doc) => (
+                        doc.title.clone(),
+                        doc.body.clone(),
+                        doc.is_active(),
+                        doc.superseded_by(),
+                    ),
                     None => (
                         path.file_stem()
                             .and_then(|s| s.to_str())
                             .unwrap_or(&path_str)
                             .to_string(),
                         String::new(),
+                        true,
+                        None,
                     ),
                 };
                 candidates.insert(
@@ -306,6 +408,8 @@ impl<'a> HybridSearchEngine<'a> {
                         body,
                         bm25_rank: None,
                         vector_rank: Some(rank),
+                        is_active,
+                        superseded_label,
                     },
                 );
             }
@@ -372,7 +476,7 @@ impl<'a> HybridSearchEngine<'a> {
                 }
             }
 
-            let graph_boost = if has_graph_connection {
+            let graph_boost = if has_graph_connection && cand.is_active {
                 self.graph_boost_weight
             } else {
                 0.0
@@ -387,8 +491,27 @@ impl<'a> HybridSearchEngine<'a> {
                 rrf_score += w_vec / (self.rrf_k as f32 + r_vec as f32);
             }
 
-            let final_score = rrf_score + graph_boost;
-            let snippet = generate_snippet(&cand.body, query, 200);
+            let mut final_score = rrf_score + graph_boost;
+            let mut snippet = generate_snippet(&cand.body, query, 200);
+
+            if !cand.is_active {
+                final_score *= Self::SUPERSEDED_PENALTY_MULTIPLIER;
+                if !snippet.starts_with("[SUPERSEDED") && !snippet.starts_with("[DEPRECATED") {
+                    if let Some(target) = &cand.superseded_label {
+                        snippet = if snippet.is_empty() {
+                            format!("[SUPERSEDED by {}]", target)
+                        } else {
+                            format!("[SUPERSEDED by {}] {}", target, snippet)
+                        };
+                    } else {
+                        snippet = if snippet.is_empty() {
+                            "[DEPRECATED]".to_string()
+                        } else {
+                            format!("[DEPRECATED] {}", snippet)
+                        };
+                    }
+                }
+            }
 
             results.push(SearchResult {
                 path: cand.path.clone(),
@@ -525,5 +648,97 @@ fn generate_snippet(body: &str, query: &str, max_len: usize) -> String {
             snippet.push_str("...");
         }
         snippet
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::{Document, HierarchyLevel, WikiLink};
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_superseded_note_penalized_and_stripped_of_graph_boost() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory db");
+        storage.initialize().expect("initialize storage");
+
+        let adr_old = Document {
+            path: PathBuf::from("ADR-001.md"),
+            title: "ADR 001 Old Architecture".to_string(),
+            hierarchy: HierarchyLevel::L3Evergreen,
+            frontmatter: json!({
+                "status": "superseded",
+                "superseded_by": "ADR-002.md"
+            }),
+            links: Vec::new(),
+            tags: vec!["architecture".to_string()],
+            content_hash: "h1".to_string(),
+            mtime: 100,
+            body: "Architectural decision: we use REST architecture for distributed communication."
+                .to_string(),
+        };
+
+        let adr_new = Document {
+            path: PathBuf::from("ADR-002.md"),
+            title: "ADR 002 New Architecture".to_string(),
+            hierarchy: HierarchyLevel::L3Evergreen,
+            frontmatter: json!({
+                "status": "active",
+                "supersedes": ["ADR-001.md"]
+            }),
+            links: Vec::new(),
+            tags: vec!["architecture".to_string()],
+            content_hash: "h2".to_string(),
+            mtime: 200,
+            body: "Architectural decision: we migrate REST architecture to high throughput gRPC."
+                .to_string(),
+        };
+
+        let overview = Document {
+            path: PathBuf::from("Overview.md"),
+            title: "System Overview".to_string(),
+            hierarchy: HierarchyLevel::L1Resource,
+            frontmatter: json!({}),
+            links: vec![WikiLink {
+                target: "ADR 001 Old Architecture".to_string(),
+                alias: None,
+                raw_text: "[[ADR 001 Old Architecture]]".to_string(),
+            }],
+            tags: Vec::new(),
+            content_hash: "h3".to_string(),
+            mtime: 300,
+            body: "Overview of services. See [[ADR 001 Old Architecture]] for REST architecture."
+                .to_string(),
+        };
+
+        storage.upsert_document(&adr_old).expect("upsert adr_old");
+        storage.upsert_document(&adr_new).expect("upsert adr_new");
+        storage.upsert_document(&overview).expect("upsert overview");
+
+        let engine = HybridSearchEngine::new(&storage, None);
+        let results = engine
+            .search("REST architecture", SearchMode::Hybrid, 10)
+            .expect("search");
+
+        assert!(results.len() >= 2);
+
+        let old_res = results
+            .iter()
+            .find(|r| r.path == "ADR-001.md")
+            .expect("old adr found");
+        let new_res = results
+            .iter()
+            .find(|r| r.path == "ADR-002.md")
+            .expect("new adr found");
+
+        // Old superseded ADR must be stripped of graph boost despite backlink from Overview.md
+        assert_eq!(old_res.graph_boost, 0.0);
+
+        // Active ADR-002 must outrank superseded ADR-001
+        assert!(new_res.score > old_res.score);
+
+        // Superseded ADR snippet must be prefixed with [SUPERSEDED by ...]
+        assert!(old_res.snippet.starts_with("[SUPERSEDED by ADR-002.md]"));
     }
 }

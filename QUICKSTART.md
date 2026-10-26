@@ -35,7 +35,36 @@ k0maru --version
 
 ---
 
-## 🎒 第二步：开局秒级给 AI 读档 (`loadout`)
+## 🚀 场景 A：零知识库极速冷启动（任意 Git 仓库，30 秒免配置）
+
+**你完全不需要提前安装 Obsidian 或手动创建知识库目录！** 只要你有一个 Git 仓库，即可在项目根目录下秒级初始化：
+
+```bash
+# 1. 一键安装单二进制（<4MB，零常驻后台进程）
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+
+# 2. 在项目根目录执行初始化并自动挂载已安装智能体与 Git 钩子
+k0maru init --install
+```
+
+**`k0maru init --install`（别名 `k0maru bootstrap`）在 1 秒内为你自动完成了什么？**
+1. 🔍 **自动嗅探项目**：分析项目 `README.md`、包管理清单（`Cargo.toml`、`package.json`、`pyproject.toml`、`go.mod`）、智能体宪法（`AGENTS.md`、`CLAUDE.md`）与近期 Git 提交历史；
+2. 📐 **脚手架生成知识库**：在项目根目录创建 `.k0maru/wiki/` 目录：
+   - `10_Projects/<project_slug>.md`：自动提取项目核心架构范围、模块分界与工程操作指南；
+   - `20_Cards/adr-001-repository-guardrails.md`：首张活体 ADR 守卫卡片，内置可执行正则与边界规则（自动阻断敏感密钥泄漏、调试 dump 与违规提交）；
+   - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`：基于 Git 提交历史自动编织初始交接日志；
+3. 🔗 **自动挂载 FastMCP 与钩子**：将 FastMCP 写入 Claude Code、Cursor、Codex、Windsurf、Gemini CLI、Cline 等已安装工具，并安装 `.git/hooks/pre-commit` 提交阻断钩子与 Claude Code `SessionStart` 自动读档钩子（`k0maru install --hooks`）；
+4. ⚡ **秒级构建瞬态缓存**：编译生成 `cache.sqlite` 倒排与向量索引，开箱即用支持 `k0maru loadout` 与 `k0maru guard check --diff`！
+
+接下来即可直接在 Claude Code / Cursor / Codex 中开启会话，智能体会自动读档并受到 Living ADR Guard 严格审查。
+
+---
+
+## 📚 场景 B：挂载已有 Markdown / Obsidian 知识库 (Power Users)
+
+若您已有长期维护的知识库（如 Obsidian、Logseq、Foam 或平铺 Markdown 目录），按以下日常步骤进行：
+
+### 第二步：开局秒级给 AI 读档 (`loadout`)
 
 当你开启一个新的 Claude Code、Cursor、ChatGPT 窗口准备写代码时，别再自己手动交代项目背景了。
 
@@ -98,7 +127,7 @@ k0maru inspect node_54697ed3
 ### 1. 一键全生态自动挂载（推荐）
 ```bash
 # 自动检测并写入所有已安装客户端（Claude Code、Cursor、Gemini CLI、Windsurf、Cline）：
-k0maru install --vault ~/wiki
+k0maru install --vault ~/wiki --hooks
 
 # 运行健康诊断体检：
 k0maru doctor
@@ -190,8 +219,13 @@ k0maru flush --title "缓存层迁移至 SQLite-Vec" \
 
 | 命令 | 关键参数 | 功能说明 |
 | :--- | :--- | :--- |
+| `k0maru init` *(别名: `bootstrap`)* | `--repo <path>` | 待扫描的代码仓库根目录（默认当前工作区路径） |
+| | `--vault <path>` | 目标知识库 Wiki 路径（默认 `<repo>/.k0maru/wiki`） |
+| | `--install` | 初始化完成后自动挂载已安装智能体 FastMCP 并安装 Git/会话钩子 |
+| | `--json` | 输出机器可读的 JSON 初始化摘要 |
 | `k0maru install` | `--vault <path>` | 一键将 `k0maru-memory` 挂载至智能体客户端配置文件 |
-| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`) |
+| | `--hooks` | 一键安装 `.git/hooks/pre-commit` 架构守卫钩子与 Claude Code 会话自动读档钩子 |
+| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`, `hermes`, `openclaw`, `omp`) |
 | | `--dry-run` | 仅预览配置变更差异，不实际写入磁盘 |
 | `k0maru doctor` | `--vault <path>` | 全面体检二进制环境、知识库、缓存索引与生态挂载健康度 |
 | | `--json` | 输出机器可读的结构化诊断报告 |
