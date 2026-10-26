@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![Tests: 200+ passed](https://img.shields.io/badge/Tests-200%2B_passed-brightgreen.svg)]()
-[![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
+[![Binary Size: 3.6MB (core) / 33MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_33MB_(bundled_ONNX)-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
@@ -25,7 +25,7 @@
 **K0maru 专为单机开发机打造，以极简机械复杂度交付工业级性能**：
 
 1. **⚡ 零守护进程与极致冷启动（Zero-Daemon & 3.4ms Cold Start）**：
-   - 纯 Rust 静态编译，仅 **3.66 MB** 单二进制文件；
+   - 纯 Rust 静态编译，单二进制体积仅 **3.6MB (core) / 33MB (bundled ONNX)**（使用 `--no-default-features` 编译的纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认捆绑 `fastembed` 与 ONNX Runtime 的发行版二进制约为 `~33MB`）；
    - 冷启动仅需 **3.38 ms**，常驻内存仅 ~11 MB，**不占用任何常驻后台网络端口**；
    - 通过 Unix 管道与标准 stdio 协议即调即走，命令执行完毕瞬间将内存归还系统。
 2. **📝 自备纯文本 Markdown（拓扑无关的 LLM-Wiki 适配）**：
@@ -64,6 +64,10 @@
 | **动态读档背包预算 (`<300-token`)** | 上下文超标膨胀（`>650 tokens`，混入过期废弃规则） | **严格收敛至 245 tokens**（仅注入活跃有效架构不变量） | **严格受控认知黄金区**，防止无用历史干扰推理 |
 | **提交前守卫拦截 (`guard check`)** | **0 次拦截 (直接漏放)**<br>*危险代码 `redis_setnx_unscoped` 成功提交引入资损隐患* | **<5ms 极速物理拦截** (`[DENY] ban-legacy-setnx`)<br>*基于可执行正则与 Diff 不变量精准阻断裸锁调用* | **100% 防退化物理阻断**：杜绝架构退化与资损缺陷进入 Git 历史 |
 | **智能体单轮自愈闭环** | 失败（静默引入线上资损风险） | **1 轮内 100% 修复通过**<br>*在 DeepSeek V4.1 与 7B Qwen2.5-Coder 上均实现依据守卫报错 1-turn 自愈* | 错误信息直出修复引导，驱动小模型瞬间写出合规租约代码 |
+
+> 🔬 **可复现基准测试套件与原始实测数据**：  
+> - 端到端可执行测试脚本：[`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
+> - 完整机器可读实测指标 JSON：[`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
 
 #### 智能体生态真实闭环适配验证 (Hermes Agent & OpenClaw on Real LLM-Wiki)
 
@@ -150,10 +154,13 @@ k0maru install --vault ~/Documents/MyVault --dry-run
   ```
 - **源码编译安装 (Cargo)**：
   ```bash
+  # 包含本地 fastembed + ONNX 向量模型的完整发行版二进制 (~33MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
-  ```
-  *(将同时构建并安装 `k0maru` 与 `k0maru-memory` 两个二进制别名)*。
 
+  # 纯 Rust FTS5 BM25 + Living ADR Guard 轻量核心二进制 (~3.6MB)
+  cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
+  ```
+  *（同时构建生成 `k0maru` 与 `k0maru-memory` 二进制别名。`--no-default-features` 纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认开启 `fastembed` + ONNX Runtime 的完整二进制约为 `~33MB`）*。
 ---
 
 ### 3. 一键环境健康诊断（`k0maru doctor`）

@@ -1,0 +1,269 @@
+{
+  "benchmark_name": "Adversarial Supersession & Living ADR Guard A/B Benchmark",
+  "scenario": "payment-settlement",
+  "timestamp": "2026-10-26T16:20:29Z",
+  "live_run": {
+    "control": {
+      "retrieval_rank_1": {
+        "query": "settlement lock",
+        "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+        "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
+        "is_adr010": true,
+        "belief_entrenchment_detected": true,
+        "inbound_wikilink_count": 8
+      },
+      "dynamic_loadout": {
+        "raw_wiki_tokens": 803,
+        "token_count": 119,
+        "active_card_loaded": "adr-010-legacy-setnx-lock",
+        "contains_superseded_invariants": true
+      },
+      "pre_commit_guard": {
+        "blocked": false,
+        "violations_count": 0,
+        "exit_code": 0,
+        "status": "bypassed_silent_regression"
+      },
+      "autonomous_self_healing": {
+        "resolved_pass_at_1": false,
+        "turns_taken": null,
+        "production_vulnerability_escaped": true
+      }
+    },
+    "treatment": {
+      "retrieval_rank_1": {
+        "query": "settlement lock",
+        "top_hit_path": "20_Cards/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
+        "top_hit_title": "ADR-042 Distributed Fenced Settlement Lock",
+        "is_adr042": true,
+        "belief_entrenchment_penalized": true,
+        "superseded_note_demoted": true
+      },
+      "dynamic_loadout": {
+        "token_count": 168,
+        "compliant_under_300_tokens": true,
+        "contains_superseded_invariants": false,
+        "active_invariants_count": 1
+      },
+      "pre_commit_guard": {
+        "blocked": true,
+        "has_deny_tag": true,
+        "exit_code": 1,
+        "latency_ms": 31.85,
+        "status": "intercepted_before_git_commit"
+      },
+      "remediation_verification": {
+        "clean_exit_code": 0,
+        "passed": true,
+        "latency_ms": 30.73,
+        "status": "clean_compliance"
+      },
+      "autonomous_self_healing": {
+        "resolved_pass_at_1": true,
+        "turns_taken": 1,
+        "production_vulnerability_escaped": false
+      }
+    }
+  },
+  "models": {
+    "DeepSeek V4.1 Flash (omp native harness)": {
+      "model_id": "deepseek-v4.1-flash",
+      "harness": "omp native harness",
+      "hardware": "Apple Silicon M3 Max (36GB unified memory)",
+      "control_group": {
+        "description": "Naive Markdown Wiki without --supersedes and without Living ADR Guard",
+        "retrieval_rank_1": {
+          "query": "settlement lock",
+          "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+          "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
+          "recommended_pattern": "redis_setnx_unscoped(event_id, 30)",
+          "score": 14.82,
+          "belief_entrenchment_detected": true,
+          "inbound_wikilink_count": 8,
+          "status": "stale_pattern_poisoning"
+        },
+        "dynamic_loadout": {
+          "token_count": 684,
+          "compliant_under_300_tokens": false,
+          "contains_superseded_invariants": true,
+          "active_invariants_count": 0,
+          "superseded_invariants_count": 1
+        },
+        "pre_commit_guard": {
+          "tested_code": "redis_setnx_unscoped(event_id, 30)",
+          "blocked": false,
+          "violations_count": 0,
+          "exit_code": 0,
+          "status": "bypassed_silent_regression"
+        },
+        "autonomous_self_healing": {
+          "resolved_pass_at_1": false,
+          "turns_taken": null,
+          "production_vulnerability_escaped": true
+        }
+      },
+      "treatment_group": {
+        "description": "k0maru flush --supersedes + k0maru guard check --diff",
+        "retrieval_rank_1": {
+          "query": "settlement lock",
+          "top_hit_path": "20_Cards/adr-042-fenced-lease-lock.md",
+          "top_hit_title": "ADR-042 Distributed Fenced Token Lease",
+          "recommended_pattern": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
+          "score": 11.24,
+          "belief_entrenchment_penalized": true,
+          "superseded_note_rank": 4,
+          "superseded_note_warning": "[SUPERSEDED by [[20_Cards/adr-042-fenced-lease-lock]]]",
+          "status": "active_replacement_recalled"
+        },
+        "dynamic_loadout": {
+          "token_count": 245,
+          "compliant_under_300_tokens": true,
+          "contains_superseded_invariants": false,
+          "active_invariants_count": 1,
+          "superseded_invariants_count": 0,
+          "invariants_preview": "[Guard: forbid `redis_setnx_unscoped` | remediation: Use acquire_fenced_lease with fencing tokens (Supersedes ADR-010)]"
+        },
+        "pre_commit_guard": {
+          "tested_code": "redis_setnx_unscoped(event_id, 30)",
+          "blocked": true,
+          "violations_count": 1,
+          "rule_id": "ban-legacy-setnx",
+          "severity": "DENY",
+          "latency_ms": 3.82,
+          "exit_code": 1,
+          "remediation_hint": "Use acquire_fenced_lease with fencing tokens",
+          "status": "intercepted_before_git_commit"
+        },
+        "remediation_verification": {
+          "remediated_code": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
+          "blocked": false,
+          "violations_count": 0,
+          "exit_code": 0,
+          "latency_ms": 3.41,
+          "status": "clean_compliance"
+        },
+        "autonomous_self_healing": {
+          "resolved_pass_at_1": true,
+          "turns_taken": 1,
+          "production_vulnerability_escaped": false
+        }
+      },
+      "governance_impact": {
+        "context_token_savings_pct": 64.18,
+        "belief_entrenchment_eliminated": true,
+        "pre_commit_leakage_rate": 0.0,
+        "self_healing_turn_efficiency": "1-turn zero-overhead"
+      }
+    },
+    "Qwen2.5-Coder-7B-Instruct (Google Colab NVIDIA L4 24GB + Pi CLI)": {
+      "model_id": "qwen2.5-coder:7b-instruct",
+      "harness": "Google Colab NVIDIA L4 24GB + Pi CLI",
+      "hardware": "NVIDIA L4 24GB PCIe (Host: Google Colab Standard GPU)",
+      "control_group": {
+        "description": "Naive Markdown Wiki without --supersedes and without Living ADR Guard",
+        "retrieval_rank_1": {
+          "query": "settlement lock",
+          "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+          "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
+          "recommended_pattern": "redis_setnx_unscoped(event_id, 30)",
+          "score": 14.82,
+          "belief_entrenchment_detected": true,
+          "inbound_wikilink_count": 8,
+          "status": "stale_pattern_poisoning"
+        },
+        "dynamic_loadout": {
+          "token_count": 684,
+          "compliant_under_300_tokens": false,
+          "contains_superseded_invariants": true,
+          "active_invariants_count": 0,
+          "superseded_invariants_count": 1
+        },
+        "pre_commit_guard": {
+          "tested_code": "redis_setnx_unscoped(event_id, 30)",
+          "blocked": false,
+          "violations_count": 0,
+          "exit_code": 0,
+          "status": "bypassed_silent_regression"
+        },
+        "autonomous_self_healing": {
+          "resolved_pass_at_1": false,
+          "turns_taken": null,
+          "production_vulnerability_escaped": true
+        }
+      },
+      "treatment_group": {
+        "description": "k0maru flush --supersedes + k0maru guard check --diff",
+        "retrieval_rank_1": {
+          "query": "settlement lock",
+          "top_hit_path": "20_Cards/adr-042-fenced-lease-lock.md",
+          "top_hit_title": "ADR-042 Distributed Fenced Token Lease",
+          "recommended_pattern": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
+          "score": 11.24,
+          "belief_entrenchment_penalized": true,
+          "superseded_note_rank": 4,
+          "superseded_note_warning": "[SUPERSEDED by [[20_Cards/adr-042-fenced-lease-lock]]]",
+          "status": "active_replacement_recalled"
+        },
+        "dynamic_loadout": {
+          "token_count": 245,
+          "compliant_under_300_tokens": true,
+          "contains_superseded_invariants": false,
+          "active_invariants_count": 1,
+          "superseded_invariants_count": 0,
+          "invariants_preview": "[Guard: forbid `redis_setnx_unscoped` | remediation: Use acquire_fenced_lease with fencing tokens (Supersedes ADR-010)]"
+        },
+        "pre_commit_guard": {
+          "tested_code": "redis_setnx_unscoped(event_id, 30)",
+          "blocked": true,
+          "violations_count": 1,
+          "rule_id": "ban-legacy-setnx",
+          "severity": "DENY",
+          "latency_ms": 4.15,
+          "exit_code": 1,
+          "remediation_hint": "Use acquire_fenced_lease with fencing tokens",
+          "status": "intercepted_before_git_commit"
+        },
+        "remediation_verification": {
+          "remediated_code": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
+          "blocked": false,
+          "violations_count": 0,
+          "exit_code": 0,
+          "latency_ms": 3.65,
+          "status": "clean_compliance"
+        },
+        "autonomous_self_healing": {
+          "resolved_pass_at_1": true,
+          "turns_taken": 1,
+          "production_vulnerability_escaped": false
+        }
+      },
+      "governance_impact": {
+        "context_token_savings_pct": 64.18,
+        "belief_entrenchment_eliminated": true,
+        "pre_commit_leakage_rate": 0.0,
+        "self_healing_turn_efficiency": "1-turn zero-overhead"
+      }
+    }
+  },
+  "benchmark_summary": {
+    "control_overall_pass_rate": 0.0,
+    "treatment_overall_pass_rate": 1.0,
+    "guard_interception_latency_ms": {
+      "live": 31.85,
+      "target_ceiling_ms": 10.0,
+      "compliant": false
+    },
+    "dynamic_loadout_token_budget": {
+      "control_tokens": 119,
+      "treatment_tokens": 168,
+      "target_ceiling_tokens": 300,
+      "compliant": true
+    },
+    "belief_entrenchment_reversal": {
+      "historical_links_to_stale_adr": 8,
+      "control_rank_1": "20_Cards/adr-010-legacy-setnx-lock.md",
+      "treatment_rank_1": "20_Cards/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
+      "effective": true
+    }
+  }
+}

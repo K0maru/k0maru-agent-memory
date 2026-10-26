@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![Tests: 200+ passed](https://img.shields.io/badge/Tests-200%2B_passed-brightgreen.svg)]()
-[![Binary Size: 3.66MB](https://img.shields.io/badge/Binary_Size-3.66MB-success.svg)]()
+[![Binary Size: 3.6MB (core) / 33MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_33MB_(bundled_ONNX)-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
@@ -25,7 +25,7 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 **K0maru is engineered specifically for local developer workstations, delivering industrial-grade performance with minimal mechanical complexity**:
 
 1. **⚡ Zero-Daemon & Sub-Millisecond Cold Start**:
-   - Pure Rust, statically compiled into a single **3.66 MB** standalone binary.
+   - Pure Rust, statically compiled into a single **3.6MB (core) / 33MB (bundled ONNX)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).
    - Cold-starts in just **3.38 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
    - Runs on demand via standard Unix pipes and `stdio` streams, releasing all memory immediately upon process exit.
 2. **📝 Bring Your Own Markdown (Topology-Agnostic LLM-Wiki)**:
@@ -64,6 +64,10 @@ Tested across **DeepSeek V4.1 Flash** and **Google Colab NVIDIA L4 + Qwen2.5-Cod
 | **Dynamic Loadout (`<300-token`)** | Bloated / Stale (`>650 tokens` including superseded notes) | **Compact: 245 tokens** (only active invariants injected) | **Strict Context Budget**: Keeps prompt within cognitive Smart-Zone |
 | **Pre-Commit Guard Enforcement** | **0 violations (Bypassed)**<br>*Unsafe `redis_setnx_unscoped` committed to codebase* | **BLOCKED in <5ms** (`[DENY] ban-legacy-setnx`)<br>*Executable regex & diff guard rejects unsafe lock pattern* | **100% Defect Interception**: Zero architectural regression reaches Git history |
 | **Autonomous Agent Self-Healing** | Failed (Silent production vulnerability) | **100% Pass in 1 Turn**<br>*Drives 1-turn self-healing on both DeepSeek V4.1 and 7B Qwen2.5-Coder* | Autonomous remediation using active ADR invariants and guard feedback |
+
+> 🔬 **Reproducible Benchmark Suite & Empirical Data**:  
+> - Executable harness script: [`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
+> - Raw empirical matrix results: [`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
 
 #### Autonomous Agent Ecosystem Adaptation (Hermes Agent & OpenClaw on Real LLM-Wiki)
 
@@ -150,10 +154,13 @@ Or install via the Claude Code Plugin Marketplace:
   ```
 - **Build from Source (Cargo)**:
   ```bash
+  # Standard release bundling fastembed + ONNX Runtime (~33MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
-  ```
-  *(Builds both `k0maru` and `k0maru-memory` binary aliases).*
 
+  # Lightweight pure Rust FTS5 + Living ADR Guard core binary (~3.6MB)
+  cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
+  ```
+  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).*
 ---
 
 ### 3. Verify Health & Environment (`k0maru doctor`)

@@ -468,3 +468,223 @@ mod vector_catalog {
         assert_eq!(engine.model_name(), "mock-embedding-384");
     }
 }
+
+mod round2_adversarial_tests {
+    use k0maru_core::core::models::{Document, NoteLifecycleStatus};
+    use k0maru_core::guard::engine::GuardEngine;
+    use k0maru_core::guard::extractor::parse_markdown_list_rule;
+    use k0maru_core::guard::models::{GuardRule, RuleCondition, RuleSeverity};
+    use serde_json::json;
+
+    #[test]
+    fn test_inj_diff_header_injection() {
+        let at = "@@";
+        let diff = format!(
+            "diff --git a/src/app.js b/src/app.js\n--- a/src/app.js\n+++ b/src/app.js\n{} -1,4 +1,6 {}\n const a = 1;\n+++ b/zzz.md\n+legacy_api();\n const b = 2;\n",
+            at, at
+        );
+        let rules = vec![GuardRule {
+            id: "RULE-LEGACY".to_string(),
+            title: "No Legacy API".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.js".to_string()),
+            condition: RuleCondition::Forbidden("legacy_api()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "use new api".to_string(),
+        }];
+        let report = GuardEngine::check_diff(&diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].file_path, "src/app.js");
+        assert_eq!(report.violations[0].rule_id, "RULE-LEGACY");
+    }
+
+    #[test]
+    fn test_s4_prose_superseded_does_not_deactivate() {
+        let mut doc = Document::default();
+        doc.title = "ADR-099".to_string();
+        doc.frontmatter = json!({"status": "active"});
+        doc.body =
+            "This document explains why we do NOT use `> [SUPERSEDED]` in prose.\nStill active!"
+                .to_string();
+        assert_eq!(doc.lifecycle_status(), NoteLifecycleStatus::Active);
+        assert!(doc.is_active());
+        assert_eq!(doc.superseded_by(), None);
+    }
+
+    #[test]
+    fn test_bold_and_brk_markdown_rule_parsing() {
+        let bold_line = r#"- **BOLD-1**: forbidden: "bold_one_banned", files: "*.rs""#;
+        let bold_rules =
+            parse_markdown_list_rule(bold_line, "20_Cards/adr-bold.md").expect("parse bold");
+        assert_eq!(bold_rules.len(), 1);
+        assert_eq!(bold_rules[0].id, "BOLD-1");
+        assert_eq!(bold_rules[0].file_pattern, Some("*.rs".to_string()));
+        assert_eq!(
+            bold_rules[0].condition,
+            RuleCondition::Forbidden("bold_one_banned".to_string())
+        );
+
+        let brk_line = r#"- [BRK-1] [src/[ab]*.rs] forbidden: "brk_call""#;
+        let brk_rules =
+            parse_markdown_list_rule(brk_line, "20_Cards/adr-brk.md").expect("parse brk");
+        assert_eq!(brk_rules.len(), 1);
+        assert_eq!(brk_rules[0].id, "BRK-1");
+        assert_eq!(brk_rules[0].file_pattern, Some("src/[ab]*.rs".to_string()));
+        assert_eq!(
+            brk_rules[0].condition,
+            RuleCondition::Forbidden("brk_call".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rx_word_boundaries_and_plain_literals() {
+        let at = "@@";
+        let rules = vec![
+            GuardRule {
+                id: "RX-DEBUG".to_string(),
+                title: "No Debug Class".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("[DEBUG]".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "remove debug".to_string(),
+            },
+            GuardRule {
+                id: "RX-UNSAFE".to_string(),
+                title: "No Unsafe Mode".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("config.unsafe_mode".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "fix config".to_string(),
+            },
+            GuardRule {
+                id: "RX-OLD-FN".to_string(),
+                title: "No Old Fn".to_string(),
+                source_note: "ADR-001.md".to_string(),
+                file_pattern: None,
+                condition: RuleCondition::Forbidden("old_fn".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "use new_fn".to_string(),
+            },
+        ];
+
+        // 1. [DEBUG] literal should not match single letter 'D'
+        let diff_non_debug = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let letter_d = 'D';\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_non_debug, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_debug = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+println!(\"[DEBUG] tracing\");\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_debug, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-DEBUG");
+
+        // 2. config.unsafe_mode literal should not match configXunsafe_mode
+        let diff_wildcard = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let val = configXunsafe_mode;\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_wildcard, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_dot = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+let val = config.unsafe_mode;\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_dot, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-UNSAFE");
+
+        // 3. old_fn should not false-positive on old_fn_safe()
+        let diff_safe = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+old_fn_safe();\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_safe, &rules);
+        assert_eq!(report.violations.len(), 0);
+
+        let diff_unsafe = format!(
+            "diff --git a/test.rs b/test.rs\n--- a/test.rs\n+++ b/test.rs\n{} -1,2 +1,3 {}\n+old_fn();\n",
+            at, at
+        );
+        let report = GuardEngine::check_diff(&diff_unsafe, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RX-OLD-FN");
+    }
+
+    #[test]
+    fn test_js_private_field_not_stripped_as_comment() {
+        let at = "@@";
+        let diff = format!(
+            "diff --git a/src/service.js b/src/service.js\n--- a/src/service.js\n+++ b/src/service.js\n{} -1,2 +1,3 {}\n+class Evaluator {{ #eval_fn = eval(code); }}\n",
+            at, at
+        );
+        let rules = vec![GuardRule {
+            id: "NO-EVAL".to_string(),
+            title: "No Eval".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.js".to_string()),
+            condition: RuleCondition::Forbidden("eval(code)".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "do not use eval".to_string(),
+        }];
+        let report = GuardEngine::check_diff(&diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "NO-EVAL");
+    }
+
+    #[test]
+    fn test_transitive_supersession_target_chain() {
+        use k0maru_core::core::traits::CacheStorage;
+        use k0maru_core::storage::{HybridSearchEngine, SqliteStorage};
+        use std::path::PathBuf;
+
+        let mut storage = SqliteStorage::in_memory().expect("in-memory storage");
+        let mut doc1 = Document::default();
+        doc1.path = PathBuf::from("20_Cards/adr-010.md");
+        doc1.title = "adr-010".to_string();
+        doc1.frontmatter = json!({
+            "status": "superseded",
+            "superseded_by": "adr-020.md"
+        });
+        storage.upsert_document(&doc1).expect("upsert 1");
+
+        let mut doc2 = Document::default();
+        doc2.path = PathBuf::from("20_Cards/adr-020.md");
+        doc2.title = "adr-020".to_string();
+        doc2.frontmatter = json!({
+            "status": "superseded",
+            "superseded_by": "adr-030.md"
+        });
+        storage.upsert_document(&doc2).expect("upsert 2");
+
+        let mut doc3 = Document::default();
+        doc3.path = PathBuf::from("20_Cards/adr-030.md");
+        doc3.title = "adr-030".to_string();
+        doc3.frontmatter = json!({
+            "status": "active"
+        });
+        storage.upsert_document(&doc3).expect("upsert 3");
+
+        let engine = HybridSearchEngine::new(&storage, None);
+        let mut score = 1.0;
+        let mut boost = 0.5;
+        let mut snippet = "Initial snippet".to_string();
+        engine.apply_lifecycle_penalty_by_path(
+            "20_Cards/adr-010.md",
+            &mut score,
+            &mut boost,
+            &mut snippet,
+        );
+
+        assert_eq!(boost, 0.0);
+        assert!((score - 0.2).abs() < 1e-4);
+        assert!(snippet.starts_with("[SUPERSEDED by adr-030.md]"));
+    }
+}

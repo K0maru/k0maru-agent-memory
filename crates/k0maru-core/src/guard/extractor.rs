@@ -59,7 +59,7 @@ pub fn parse_rule_object(
         .or_else(|| obj.get("level"))
         .and_then(|v| v.as_str())
         .map(|s| match s.to_lowercase().as_str() {
-            "warn" | "warning" => RuleSeverity::Warn,
+            "warn" | "warning" | "info" | "notice" => RuleSeverity::Warn,
             _ => RuleSeverity::Deny,
         })
         .unwrap_or(RuleSeverity::Deny);
@@ -257,8 +257,7 @@ fn extract_rules_from_body(body: &str, source_note: &str) -> Vec<GuardRule> {
         }
 
         if in_invariant_section && (trimmed.starts_with('-') || trimmed.starts_with('*')) {
-            let item_text = trimmed[1..].trim();
-            if let Some(extracted) = parse_markdown_list_rule(item_text, source_note) {
+            if let Some(extracted) = parse_markdown_list_rule(trimmed, source_note) {
                 rules.extend(extracted);
             }
         }
@@ -267,16 +266,39 @@ fn extract_rules_from_body(body: &str, source_note: &str) -> Vec<GuardRule> {
     rules
 }
 
+/// Bracket-balanced helper that requires `s.starts_with('[')` and returns
+/// the content inside balanced outer brackets and the remainder of the string.
+fn take_bracketed(s: &str) -> Option<(&str, &str)> {
+    if !s.starts_with('[') {
+        return None;
+    }
+    let mut depth = 0;
+    for (idx, c) in s.char_indices() {
+        if c == '[' {
+            depth += 1;
+        } else if c == ']' {
+            depth -= 1;
+            if depth == 0 {
+                return Some((&s[1..idx], &s[idx + 1..]));
+            }
+        }
+    }
+    None
+}
+
 /// Helper to parse a single bullet item in an invariant section.
 /// Supports formats:
 /// - `[ID] (severity) [file_pattern] forbidden: "pattern" | remediation: "..."`
 /// - `**ID**: files: "pattern", forbidden: "pattern", severity: deny, remediation: "..."`
 pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<GuardRule>> {
-    let trimmed = text
-        .trim()
-        .trim_start_matches('-')
-        .trim_start_matches('*')
-        .trim();
+    let t = text.trim();
+    let trimmed = if let Some(r) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+        r.trim()
+    } else if t.starts_with('-') && !t.starts_with("--") {
+        t[1..].trim()
+    } else {
+        t
+    };
     if trimmed.is_empty() {
         return None;
     }
@@ -290,40 +312,39 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
     let mut remediation = String::new();
 
     // Check if starts with `[ID]`
-    if let Some(rest) = trimmed.strip_prefix('[') {
-        if let Some((id_part, mut after_id)) = rest.split_once(']') {
-            id = id_part.trim().to_string();
-            after_id = after_id.trim();
+    if let Some((id_part, mut after_id)) = take_bracketed(trimmed) {
+        id = id_part.trim().to_string();
+        after_id = after_id.trim();
 
-            // Check for optional `(severity)`
-            if after_id.starts_with('(') {
-                if let Some((sev_part, rest_sev)) = after_id[1..].split_once(')') {
-                    if sev_part.trim().eq_ignore_ascii_case("warn") {
-                        severity = RuleSeverity::Warn;
-                    }
-                    after_id = rest_sev.trim();
+        // Check for optional `(severity)`
+        if after_id.starts_with('(') {
+            if let Some((sev_part, rest_sev)) = after_id[1..].split_once(')') {
+                let s = sev_part.trim().to_lowercase();
+                if s == "warn" || s == "warning" || s == "info" || s == "notice" {
+                    severity = RuleSeverity::Warn;
                 }
+                after_id = rest_sev.trim();
             }
-
-            // Check for optional `[file_pattern]`
-            if after_id.starts_with('[') {
-                if let Some((pat_part, rest_pat)) = after_id[1..].split_once(']') {
-                    file_pattern = Some(pat_part.trim().to_string());
-                    after_id = rest_pat.trim();
-                }
-            }
-
-            // Parse key-values in after_id (separated by `|` or `,`)
-            parse_key_value_tokens(
-                after_id,
-                &mut file_pattern,
-                &mut severity,
-                &mut must_contain,
-                &mut forbidden,
-                &mut remediation,
-                &mut title,
-            );
         }
+
+        // Check for optional `[file_pattern]`
+        if after_id.starts_with('[') {
+            if let Some((pat_part, rest_pat)) = take_bracketed(after_id) {
+                file_pattern = Some(pat_part.trim().to_string());
+                after_id = rest_pat.trim();
+            }
+        }
+
+        // Parse key-values in after_id (separated by `|` or `,`)
+        parse_key_value_tokens(
+            after_id,
+            &mut file_pattern,
+            &mut severity,
+            &mut must_contain,
+            &mut forbidden,
+            &mut remediation,
+            &mut title,
+        );
     } else if let Some(rest) = trimmed.strip_prefix("**") {
         if let Some((id_part, after_id)) = rest.split_once("**") {
             let mut id_clean = id_part.trim();
@@ -331,7 +352,26 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
                 id_clean = &id_clean[1..id_clean.len() - 1];
             }
             id = id_clean.trim().to_string();
-            let after_clean = after_id.trim_start_matches(':').trim();
+            let mut after_clean = after_id.trim_start_matches(':').trim();
+
+            // Check for optional `(severity)`
+            if after_clean.starts_with('(') {
+                if let Some((sev_part, rest_sev)) = after_clean[1..].split_once(')') {
+                    let s = sev_part.trim().to_lowercase();
+                    if s == "warn" || s == "warning" || s == "info" || s == "notice" {
+                        severity = RuleSeverity::Warn;
+                    }
+                    after_clean = rest_sev.trim_start_matches(':').trim();
+                }
+            }
+
+            // Check for optional `[file_pattern]`
+            if after_clean.starts_with('[') {
+                if let Some((pat_part, rest_pat)) = take_bracketed(after_clean) {
+                    file_pattern = Some(pat_part.trim().to_string());
+                    after_clean = rest_pat.trim_start_matches(':').trim();
+                }
+            }
 
             parse_key_value_tokens(
                 after_clean,
@@ -346,7 +386,14 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
     } else {
         // Fallback: check if line contains forbidden: or must_contain:
         if trimmed.contains("forbidden:") || trimmed.contains("must_contain:") {
-            id = format!("RULE-{}", crate::core::models::HierarchyLevel::L3Evergreen);
+            let stem = Path::new(source_note)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("anon");
+            let sum: u32 = trimmed
+                .bytes()
+                .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+            id = format!("RULE-{}-{:04x}", stem, sum & 0xffff);
             parse_key_value_tokens(
                 trimmed,
                 &mut file_pattern,
@@ -396,6 +443,48 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
 }
 
 /// Helper to parse key-value tokens like `files: "*.rs", forbidden: "pattern", remediation: "..."`
+/// Checks if a string starts with a valid rule key identifier followed by a colon.
+fn starts_with_rule_key(s: &str) -> bool {
+    let trimmed = s.trim_start();
+    let ident_end = trimmed
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(0);
+    if ident_end == 0 {
+        return false;
+    }
+    let ident = &trimmed[..ident_end];
+    let after_ident = trimmed[ident_end..].trim_start();
+    if !after_ident.starts_with(':') {
+        return false;
+    }
+    let key_clean = ident.to_lowercase();
+    matches!(
+        key_clean.as_str(),
+        "files"
+            | "file"
+            | "file_pattern"
+            | "scope"
+            | "paths"
+            | "severity"
+            | "level"
+            | "must_contain"
+            | "must"
+            | "require"
+            | "forbidden"
+            | "forbid"
+            | "deny"
+            | "remediation"
+            | "fix"
+            | "fix_hint"
+            | "description"
+            | "action"
+            | "title"
+            | "id"
+            | "condition"
+            | "pattern"
+    )
+}
+
 fn parse_key_value_tokens(
     text: &str,
     file_pattern: &mut Option<String>,
@@ -426,7 +515,7 @@ fn parse_key_value_tokens(
             }
         } else if c == '"' || c == '\'' || c == '`' {
             in_quote = Some(c);
-        } else if c == '|' || c == ',' {
+        } else if (c == '|' || c == ',') && starts_with_rule_key(&text[i + c.len_utf8()..]) {
             parts.push(&text[cur_start..i]);
             cur_start = i + c.len_utf8();
         }
@@ -444,7 +533,12 @@ fn parse_key_value_tokens(
                     *file_pattern = Some(val);
                 }
                 "severity" | "level" => {
-                    if val.eq_ignore_ascii_case("warn") || val.eq_ignore_ascii_case("warning") {
+                    let v_lower = val.to_lowercase();
+                    if v_lower == "warn"
+                        || v_lower == "warning"
+                        || v_lower == "info"
+                        || v_lower == "notice"
+                    {
                         *severity = RuleSeverity::Warn;
                     } else {
                         *severity = RuleSeverity::Deny;

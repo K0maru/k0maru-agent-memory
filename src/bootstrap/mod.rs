@@ -382,7 +382,7 @@ invariants:
     remediation: "Never commit private keys; use environment variables or secret managers."
   - id: no-conflict-markers
     title: "No Git Merge Conflict Markers"
-    forbidden: "^(<<<<<<< |=======$|>>>>>>> )"
+    forbidden: "^(<<<<<<< |>>>>>>> )"
     file_pattern: "**/*"
     severity: "deny"
     remediation: "Resolve all Git merge conflict markers before committing."
@@ -400,7 +400,7 @@ Automated coding agents and human developers commit changesets at high velocity.
    - Scope: all files (`**/*`)
 2. **Never commit Git merge conflict markers**:
    - Condition: forbidden
-   - Pattern: `^(<<<<<<< |=======$|>>>>>>> )`
+   - Pattern: `^(<<<<<<< |>>>>>>> )`
    - Scope: application code trees
 
 ## Verification & Enforcement

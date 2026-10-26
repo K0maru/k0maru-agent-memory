@@ -305,31 +305,36 @@ fn strip_folder_prefix<'a>(target: &'a str, prefixes: &[&str]) -> &'a str {
     target
 }
 
-/// Extracts a card concept and folds in the first Living ADR guard rule so that
+/// Extracts a card concept and folds in the Living ADR guard rules so that
 /// architectural invariants surface inside the compact sub-300-token loadout.
 fn extract_guard_aware_concept(doc: &crate::core::models::Document) -> Option<String> {
     let mut concept = extract_card_concept(&doc.body);
     let rules = k0maru_core::guard::extractor::extract_rules_from_document(doc);
 
-    if let Some(rule) = rules.first() {
-        let cond_str = match &rule.condition {
-            k0maru_core::guard::models::RuleCondition::Forbidden(pattern) => {
-                format!("forbid `{}`", pattern)
-            }
-            k0maru_core::guard::models::RuleCondition::MustContain(pattern) => {
-                format!("require `{}`", pattern)
-            }
-        };
+    if !rules.is_empty() {
+        let mut guards: Vec<String> = Vec::new();
+        for rule in rules.iter().take(3) {
+            let cond_str = match &rule.condition {
+                k0maru_core::guard::models::RuleCondition::Forbidden(pattern) => {
+                    format!("forbid `{}`", pattern)
+                }
+                k0maru_core::guard::models::RuleCondition::MustContain(pattern) => {
+                    format!("require `{}`", pattern)
+                }
+            };
 
-        let mut guard = format!("[Guard: {}", cond_str);
-        if !rule.remediation.is_empty() {
-            guard.push_str(&format!(" -> {}", rule.remediation));
+            let mut guard = format!("[Guard: {}", cond_str);
+            if !rule.remediation.is_empty() {
+                guard.push_str(&format!(" -> {}", rule.remediation));
+            }
+            guard.push(']');
+            guards.push(guard);
         }
-        guard.push(']');
 
+        let guard_block = guards.join("; ");
         concept = Some(match concept {
-            Some(existing) => format!("{} {}", existing, guard),
-            None => guard,
+            Some(existing) => format!("{} {}", existing, guard_block),
+            None => guard_block,
         });
     }
 
@@ -678,15 +683,17 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
     /// vault topologies (`20_Cards/`, `cards/`, `decisions/`, `adr/`,
     /// `concepts/`, `notes/`, `wiki/`, or flat root notes).
     fn resolve_l3_card(&self, raw_target: &str) -> Option<(String, PathBuf, Option<String>)> {
-        self.resolve_l3_card_with_depth(raw_target, 0)
+        let mut visited: Vec<String> = Vec::new();
+        self.resolve_l3_card_with_depth(raw_target, 0, &mut visited)
     }
 
     fn resolve_l3_card_with_depth(
         &self,
         raw_target: &str,
         depth: usize,
+        visited: &mut Vec<String>,
     ) -> Option<(String, PathBuf, Option<String>)> {
-        if depth > 3 {
+        if depth > 16 {
             return None;
         }
         let mut trimmed_target = raw_target.trim();
@@ -719,6 +726,11 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             return None;
         }
 
+        if visited.iter().any(|seen| seen.eq_ignore_ascii_case(clean)) {
+            return None;
+        }
+        visited.push(clean.to_string());
+
         let candidate_dirs = [
             "20_Cards",
             "cards",
@@ -745,9 +757,18 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     if let Some(replacement) = doc.superseded_by() {
                         let first_rep =
                             replacement.split(',').next().unwrap_or(&replacement).trim();
-                        return self.resolve_l3_card_with_depth(first_rep, depth + 1);
+                        if !first_rep.is_empty() {
+                            if let Some(resolved) =
+                                self.resolve_l3_card_with_depth(first_rep, depth + 1, visited)
+                            {
+                                return Some(resolved);
+                            }
+                        }
                     }
-                    return None;
+                    // A broken or over-long supersession chain must never make
+                    // the card vanish; surface the superseded note itself.
+                    let concept = extract_guard_aware_concept(&doc);
+                    return Some((clean.to_string(), doc.path.clone(), concept));
                 }
                 let doc_path_lower = doc.path.to_string_lossy().replace('\\', "/").to_lowercase();
                 if is_non_knowledge_path(&doc_path_lower) {
@@ -786,9 +807,16 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                         if let Some(replacement) = doc.superseded_by() {
                             let first_rep =
                                 replacement.split(',').next().unwrap_or(&replacement).trim();
-                            return self.resolve_l3_card_with_depth(first_rep, depth + 1);
+                            if !first_rep.is_empty() {
+                                if let Some(resolved) =
+                                    self.resolve_l3_card_with_depth(first_rep, depth + 1, visited)
+                                {
+                                    return Some(resolved);
+                                }
+                            }
                         }
-                        return None;
+                        let concept = extract_guard_aware_concept(&doc);
+                        return Some((clean.to_string(), doc.path.clone(), concept));
                     }
                     let concept = extract_guard_aware_concept(&doc);
                     return Some((clean.to_string(), doc.path, concept));

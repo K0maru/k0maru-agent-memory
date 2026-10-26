@@ -8,7 +8,7 @@
 
 ## 🛠️ 第一步：极速安装
 
-`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6MB，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
+`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB (core) / 33 MB (bundled ONNX)，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
 
 ### 推荐方式：官方一键安装脚本（macOS & Linux）
 ```bash
@@ -30,7 +30,7 @@ rm -f ~/.local/bin/k0maru && cp target/release/k0maru ~/.local/bin/ && codesign 
 
 # 3. 验证安装
 k0maru --version
-# 输出: k0maru 0.6.0
+# 输出: k0maru 1.0.0
 ```
 
 ---

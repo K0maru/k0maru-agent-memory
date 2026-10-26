@@ -6,8 +6,11 @@ use std::path::PathBuf;
 /// - L1 (Resource): Static references, cheatsheets, project assets
 /// - L2 (Log): AI analysis traces, evaluation runs, technical logs
 /// - L3 (Evergreen): Atomic permanent notes, architectural principles
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum HierarchyLevel {
+    #[default]
     L0Ephemeral,
     L1Resource,
     L2Log,
@@ -88,7 +91,7 @@ impl WikiLink {
 }
 
 /// Canonical document entity representing an immutable parsed Markdown file in the vault.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Document {
     /// Relative path within the vault root
     pub path: PathBuf,
@@ -116,11 +119,17 @@ impl Document {
         // 1. Check frontmatter "status" field
         if let Some(status_str) = self.frontmatter.get("status").and_then(|v| v.as_str()) {
             let s = status_str.trim().to_lowercase();
-            match s.as_str() {
-                "superseded" => return NoteLifecycleStatus::Superseded,
-                "deprecated" | "obsolete" => return NoteLifecycleStatus::Deprecated,
-                "archived" | "retired" => return NoteLifecycleStatus::Archived,
-                _ => {}
+            if s == "superseded" || s.starts_with("superseded ") || s.starts_with("superseded_by") {
+                return NoteLifecycleStatus::Superseded;
+            } else if s == "deprecated"
+                || s == "obsolete"
+                || s == "rejected"
+                || s.starts_with("deprecated ")
+                || s.starts_with("rejected ")
+            {
+                return NoteLifecycleStatus::Deprecated;
+            } else if s == "archived" || s == "retired" || s.starts_with("archived ") {
+                return NoteLifecycleStatus::Archived;
             }
         }
 
@@ -144,12 +153,14 @@ impl Document {
 
         // 4. Check first 5 lines of body for callouts
         for line in self.body.lines().take(5) {
-            let upper = line.to_uppercase();
-            if upper.contains("> [SUPERSEDED]") || upper.contains("> [WARN] SUPERSEDED") {
+            let trimmed_upper = line.trim_start().to_uppercase();
+            if trimmed_upper.starts_with("> [SUPERSEDED]")
+                || trimmed_upper.starts_with("> [!WARN] SUPERSEDED")
+                || trimmed_upper.starts_with("> [WARN] SUPERSEDED")
+            {
                 return NoteLifecycleStatus::Superseded;
             }
         }
-
         NoteLifecycleStatus::Active
     }
 
@@ -175,13 +186,33 @@ impl Document {
 
         // Fallback: check first 5 lines of markdown body
         for line in self.body.lines().take(5) {
-            let lower = line.to_lowercase();
-            for pattern in &["> [superseded] superseded by", "> [warn] superseded by"] {
-                if let Some(pos) = lower.find(pattern) {
-                    let remainder = line[pos + pattern.len()..].trim();
-                    let remainder = remainder.strip_prefix(':').unwrap_or(remainder).trim();
-                    if !remainder.is_empty() {
-                        return Some(remainder.to_string());
+            let trimmed_upper = line.trim_start().to_uppercase();
+            if trimmed_upper.starts_with("> [SUPERSEDED]")
+                || trimmed_upper.starts_with("> [!WARN] SUPERSEDED")
+                || trimmed_upper.starts_with("> [WARN] SUPERSEDED")
+            {
+                let mut links = Vec::new();
+                let mut rest = line;
+                while let Some(start) = rest.find("[[") {
+                    if let Some(end) = rest[start..].find("]]") {
+                        links.push(&rest[start..start + end + 2]);
+                        rest = &rest[start + end + 2..];
+                    } else {
+                        break;
+                    }
+                }
+                if !links.is_empty() {
+                    return Some(links.join(", "));
+                }
+
+                let lower = line.to_lowercase();
+                for pattern in &["superseded by", "superseded_by"] {
+                    if let Some(pos) = lower.find(pattern) {
+                        let remainder = line[pos + pattern.len()..].trim();
+                        let remainder = remainder.strip_prefix(':').unwrap_or(remainder).trim();
+                        if !remainder.is_empty() {
+                            return Some(remainder.to_string());
+                        }
                     }
                 }
             }

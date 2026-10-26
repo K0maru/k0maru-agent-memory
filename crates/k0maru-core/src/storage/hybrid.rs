@@ -104,8 +104,105 @@ impl<'a> HybridSearchEngine<'a> {
         graph_boost: &mut f32,
         snippet: &mut String,
     ) {
-        if let Ok(doc_opt) = self.storage.get_document(Path::new(path_str)) {
-            Self::apply_lifecycle_penalty(doc_opt.as_ref(), score, graph_boost, snippet);
+        if let Ok(Some(doc)) = self.storage.get_document(Path::new(path_str)) {
+            if !doc.is_active() {
+                *graph_boost = 0.0;
+                *score *= Self::SUPERSEDED_PENALTY_MULTIPLIER;
+
+                if !snippet.starts_with("[SUPERSEDED") && !snippet.starts_with("[DEPRECATED") {
+                    if let Some(initial_target) = doc.superseded_by() {
+                        let mut final_target = initial_target.clone();
+                        let mut seen = HashSet::new();
+                        seen.insert(path_str.to_string());
+                        let mut hops = 0;
+
+                        // Helper to resolve a document from storage by path, name, or stem
+                        let resolve_doc = |target_str: &str| -> Option<Document> {
+                            let clean = target_str
+                                .trim()
+                                .trim_start_matches("[[")
+                                .trim_end_matches("]]")
+                                .trim();
+                            if clean.is_empty() {
+                                return None;
+                            }
+                            // 1. Direct path
+                            if let Ok(Some(d)) = self.storage.get_document(Path::new(clean)) {
+                                return Some(d);
+                            }
+                            // 2. Direct path with .md
+                            if !clean.ends_with(".md") {
+                                if let Ok(Some(d)) = self
+                                    .storage
+                                    .get_document(Path::new(&format!("{}.md", clean)))
+                                {
+                                    return Some(d);
+                                }
+                            }
+                            // 3. Search cached metadata by stem or file_name
+                            let stem = clean.strip_suffix(".md").unwrap_or(clean);
+                            if let Ok(meta_list) = self.storage.get_cached_metadata() {
+                                for meta in meta_list {
+                                    let matches_name = meta
+                                        .path
+                                        .file_name()
+                                        .and_then(|f| f.to_str())
+                                        .map(|n| n == clean || n == format!("{}.md", clean))
+                                        .unwrap_or(false);
+                                    let matches_stem = meta
+                                        .path
+                                        .file_stem()
+                                        .and_then(|f| f.to_str())
+                                        .map(|s| s == stem)
+                                        .unwrap_or(false);
+                                    if matches_name || matches_stem {
+                                        if let Ok(Some(d)) = self.storage.get_document(&meta.path) {
+                                            return Some(d);
+                                        }
+                                    }
+                                }
+                            }
+                            None
+                        };
+
+                        while hops < 16 {
+                            hops += 1;
+                            let clean_target = final_target
+                                .trim()
+                                .trim_start_matches("[[")
+                                .trim_end_matches("]]")
+                                .trim()
+                                .to_string();
+                            if !seen.insert(clean_target) {
+                                break;
+                            }
+                            if let Some(next_doc) = resolve_doc(&final_target) {
+                                let next_path = next_doc.path.to_string_lossy().to_string();
+                                seen.insert(next_path);
+                                if let Some(next_target) = next_doc.superseded_by() {
+                                    final_target = next_target;
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+
+                        *snippet = if snippet.is_empty() {
+                            format!("[SUPERSEDED by {}]", final_target)
+                        } else {
+                            format!("[SUPERSEDED by {}] {}", final_target, snippet)
+                        };
+                    } else {
+                        *snippet = if snippet.is_empty() {
+                            "[DEPRECATED]".to_string()
+                        } else {
+                            format!("[DEPRECATED] {}", snippet)
+                        };
+                    }
+                }
+            }
         }
     }
 

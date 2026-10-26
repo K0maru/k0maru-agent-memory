@@ -1235,6 +1235,9 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let cache_path = cache_dir.join("cache.sqlite");
 
     let storage = SqliteStorage::open(&cache_path)?;
+    if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+        return Err("Vector index is empty. Run 'k0maru sync --vector' first.".into());
+    }
     let model_cache = if vault_path.join(".k0maru").join("models").exists() {
         Some(vault_path.join(".k0maru").join("models"))
     } else {
