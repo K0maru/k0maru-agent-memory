@@ -3,8 +3,148 @@ use std::path::Path;
 use crate::core::models::Document;
 use crate::guard::models::{GuardRule, RuleCondition, RuleSeverity};
 
+/// Helper to parse a single JSON-compatible rule object map into one or more GuardRules.
+pub fn parse_rule_object(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    default_id: String,
+    source_note: &str,
+) -> Vec<GuardRule> {
+    let id = obj
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or(default_id);
+
+    let title = obj
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&id)
+        .to_string();
+
+    let extract_pattern = |v: &serde_json::Value| -> Option<String> {
+        if let Some(s) = v.as_str() {
+            Some(s.to_string())
+        } else if let Some(arr) = v.as_array() {
+            let strs: Vec<&str> = arr.iter().filter_map(|x| x.as_str()).collect();
+            if !strs.is_empty() {
+                Some(strs.join(","))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let mut file_pattern = obj
+        .get("file_pattern")
+        .or_else(|| obj.get("files"))
+        .or_else(|| obj.get("scope"))
+        .or_else(|| obj.get("paths"))
+        .and_then(extract_pattern);
+
+    let has_condition = obj.get("condition").and_then(|v| v.as_str()).is_some();
+    let has_forbid_or_must = obj.get("forbidden").is_some()
+        || obj.get("forbid").is_some()
+        || obj.get("must_contain").is_some();
+
+    if file_pattern.is_none() && !has_condition && has_forbid_or_must {
+        if let Some(pat) = obj.get("pattern").and_then(|v| v.as_str()) {
+            file_pattern = Some(pat.to_string());
+        }
+    }
+
+    let severity = obj
+        .get("severity")
+        .or_else(|| obj.get("level"))
+        .and_then(|v| v.as_str())
+        .map(|s| match s.to_lowercase().as_str() {
+            "warn" | "warning" => RuleSeverity::Warn,
+            _ => RuleSeverity::Deny,
+        })
+        .unwrap_or(RuleSeverity::Deny);
+
+    let remediation = obj
+        .get("remediation")
+        .or_else(|| obj.get("fix"))
+        .or_else(|| obj.get("fix_hint"))
+        .or_else(|| obj.get("description"))
+        .or_else(|| obj.get("action"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let mut rules = Vec::new();
+
+    if let Some(must) = obj.get("must_contain").and_then(|v| v.as_str()) {
+        rules.push(GuardRule {
+            id: id.clone(),
+            title: title.clone(),
+            source_note: source_note.to_string(),
+            file_pattern: file_pattern.clone(),
+            condition: RuleCondition::MustContain(must.to_string()),
+            severity,
+            remediation: remediation.clone(),
+        });
+    }
+
+    if let Some(forbid) = obj
+        .get("forbidden")
+        .or_else(|| obj.get("forbid"))
+        .and_then(|v| v.as_str())
+    {
+        rules.push(GuardRule {
+            id: id.clone(),
+            title: title.clone(),
+            source_note: source_note.to_string(),
+            file_pattern: file_pattern.clone(),
+            condition: RuleCondition::Forbidden(forbid.to_string()),
+            severity,
+            remediation: remediation.clone(),
+        });
+    }
+
+    if let (Some(cond), Some(pat)) = (
+        obj.get("condition").and_then(|v| v.as_str()),
+        obj.get("pattern").and_then(|v| v.as_str()),
+    ) {
+        let cond_lower = cond.to_lowercase();
+        match cond_lower.as_str() {
+            "forbidden" | "forbid" | "deny" => {
+                rules.push(GuardRule {
+                    id: id.clone(),
+                    title: title.clone(),
+                    source_note: source_note.to_string(),
+                    file_pattern: file_pattern.clone(),
+                    condition: RuleCondition::Forbidden(pat.to_string()),
+                    severity,
+                    remediation: remediation.clone(),
+                });
+            }
+            "must_contain" | "must" | "require" => {
+                rules.push(GuardRule {
+                    id: id.clone(),
+                    title: title.clone(),
+                    source_note: source_note.to_string(),
+                    file_pattern: file_pattern.clone(),
+                    condition: RuleCondition::MustContain(pat.to_string()),
+                    severity,
+                    remediation: remediation.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    rules
+}
+
 /// Extracts guard invariant rules declared in a document's frontmatter and markdown body.
 pub fn extract_rules_from_document(doc: &Document) -> Vec<GuardRule> {
+    if !doc.is_active() {
+        return Vec::new();
+    }
+
     let mut rules = Vec::new();
     let source_note = if !doc.path.as_os_str().is_empty() {
         doc.path.to_string_lossy().to_string()
@@ -22,68 +162,8 @@ pub fn extract_rules_from_document(doc: &Document) -> Vec<GuardRule> {
         if let Some(invariants_array) = invariants_val.and_then(|v| v.as_array()) {
             for (idx, item) in invariants_array.iter().enumerate() {
                 if let Some(obj) = item.as_object() {
-                    let id = obj
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("{}-{}", doc.title, idx + 1));
-
-                    let title = obj
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&id)
-                        .to_string();
-
-                    let file_pattern = obj
-                        .get("file_pattern")
-                        .or_else(|| obj.get("files"))
-                        .or_else(|| obj.get("scope"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-
-                    let severity = obj
-                        .get("severity")
-                        .and_then(|v| v.as_str())
-                        .map(|s| match s.to_lowercase().as_str() {
-                            "warn" => RuleSeverity::Warn,
-                            _ => RuleSeverity::Deny,
-                        })
-                        .unwrap_or(RuleSeverity::Deny);
-
-                    let remediation = obj
-                        .get("remediation")
-                        .or_else(|| obj.get("fix"))
-                        .or_else(|| obj.get("description"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    let must_contain = obj.get("must_contain").and_then(|v| v.as_str());
-                    let forbidden = obj.get("forbidden").and_then(|v| v.as_str());
-
-                    if let Some(must) = must_contain {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::MustContain(must.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
-                    }
-
-                    if let Some(forbid) = forbidden {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::Forbidden(forbid.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
-                    }
+                    let default_id = format!("{}-{}", doc.title, idx + 1);
+                    rules.extend(parse_rule_object(obj, default_id, &source_note));
                 }
             }
         }
@@ -92,6 +172,19 @@ pub fn extract_rules_from_document(doc: &Document) -> Vec<GuardRule> {
     // 2. Extract rules from markdown body sections (## Non-Negotiable Invariants or ## 核心工程铁律)
     let body_rules = extract_rules_from_body(&doc.body, &source_note);
     rules.extend(body_rules);
+    let supersedes = doc.supersedes();
+    if !supersedes.is_empty() {
+        let provenance = format!(" (Supersedes {})", supersedes.join(", "));
+        for rule in &mut rules {
+            if !rule.remediation.contains("Supersedes ") {
+                if rule.remediation.is_empty() {
+                    rule.remediation = format!("(Supersedes {})", supersedes.join(", "));
+                } else {
+                    rule.remediation.push_str(&provenance);
+                }
+            }
+        }
+    }
 
     rules
 }
@@ -122,61 +215,8 @@ fn extract_rules_from_body(body: &str, source_note: &str) -> Vec<GuardRule> {
                         if let Some(arr) = yaml_val.as_array() {
                             for (idx, item) in arr.iter().enumerate() {
                                 if let Some(obj) = item.as_object() {
-                                    let id = obj
-                                        .get("id")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string())
-                                        .unwrap_or_else(|| format!("BODY-RULE-{}", idx + 1));
-                                    let title = obj
-                                        .get("title")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or(&id)
-                                        .to_string();
-                                    let file_pattern = obj
-                                        .get("file_pattern")
-                                        .or_else(|| obj.get("files"))
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string());
-                                    let severity = obj
-                                        .get("severity")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| match s.to_lowercase().as_str() {
-                                            "warn" => RuleSeverity::Warn,
-                                            _ => RuleSeverity::Deny,
-                                        })
-                                        .unwrap_or(RuleSeverity::Deny);
-                                    let remediation = obj
-                                        .get("remediation")
-                                        .or_else(|| obj.get("fix"))
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string();
-                                    if let Some(must) =
-                                        obj.get("must_contain").and_then(|v| v.as_str())
-                                    {
-                                        rules.push(GuardRule {
-                                            id: id.clone(),
-                                            title: title.clone(),
-                                            source_note: source_note.to_string(),
-                                            file_pattern: file_pattern.clone(),
-                                            condition: RuleCondition::MustContain(must.to_string()),
-                                            severity,
-                                            remediation: remediation.clone(),
-                                        });
-                                    }
-                                    if let Some(forbid) =
-                                        obj.get("forbidden").and_then(|v| v.as_str())
-                                    {
-                                        rules.push(GuardRule {
-                                            id: id.clone(),
-                                            title: title.clone(),
-                                            source_note: source_note.to_string(),
-                                            file_pattern: file_pattern.clone(),
-                                            condition: RuleCondition::Forbidden(forbid.to_string()),
-                                            severity,
-                                            remediation: remediation.clone(),
-                                        });
-                                    }
+                                    let default_id = format!("BODY-RULE-{}", idx + 1);
+                                    rules.extend(parse_rule_object(obj, default_id, source_note));
                                 }
                             }
                         }
@@ -231,8 +271,12 @@ fn extract_rules_from_body(body: &str, source_note: &str) -> Vec<GuardRule> {
 /// Supports formats:
 /// - `[ID] (severity) [file_pattern] forbidden: "pattern" | remediation: "..."`
 /// - `**ID**: files: "pattern", forbidden: "pattern", severity: deny, remediation: "..."`
-fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<GuardRule>> {
-    let trimmed = text.trim();
+pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<GuardRule>> {
+    let trimmed = text
+        .trim()
+        .trim_start_matches('-')
+        .trim_start_matches('*')
+        .trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -362,24 +406,32 @@ fn parse_key_value_tokens(
     title: &mut String,
 ) {
     let mut parts: Vec<&str> = Vec::new();
-    if text.contains('|') {
-        parts = text.split('|').collect();
-    } else {
-        // Split by comma outside quotes
-        let mut cur_start = 0;
-        let mut in_quote = false;
-        let mut quote_char = '"';
-        for (i, c) in text.char_indices() {
-            if (c == '"' || c == '\'') && (!in_quote || c == quote_char) {
-                in_quote = !in_quote;
-                quote_char = c;
-            } else if c == ',' && !in_quote {
-                parts.push(&text[cur_start..i]);
-                cur_start = i + 1;
-            }
+    let mut cur_start = 0;
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+
+    for (i, c) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
         }
-        parts.push(&text[cur_start..]);
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if let Some(q) = in_quote {
+            if c == q {
+                in_quote = None;
+            }
+        } else if c == '"' || c == '\'' || c == '`' {
+            in_quote = Some(c);
+        } else if c == '|' || c == ',' {
+            parts.push(&text[cur_start..i]);
+            cur_start = i + c.len_utf8();
+        }
     }
+    parts.push(&text[cur_start..]);
 
     for part in parts {
         let trimmed = part.trim();
@@ -388,11 +440,11 @@ fn parse_key_value_tokens(
             let val = clean_token_value(v.trim());
 
             match key.as_str() {
-                "files" | "file" | "file_pattern" | "scope" => {
+                "files" | "file" | "file_pattern" | "scope" | "paths" => {
                     *file_pattern = Some(val);
                 }
                 "severity" | "level" => {
-                    if val.eq_ignore_ascii_case("warn") {
+                    if val.eq_ignore_ascii_case("warn") || val.eq_ignore_ascii_case("warning") {
                         *severity = RuleSeverity::Warn;
                     } else {
                         *severity = RuleSeverity::Deny;
@@ -404,7 +456,7 @@ fn parse_key_value_tokens(
                 "forbidden" | "forbid" | "deny" => {
                     *forbidden = Some(val);
                 }
-                "remediation" | "fix" | "action" => {
+                "remediation" | "fix" | "fix_hint" | "description" | "action" => {
                     *remediation = val;
                 }
                 "title" => {
@@ -474,58 +526,9 @@ pub fn extract_rules_from_config(
         if let Some(arr) = rules_val.and_then(|v| v.as_array()) {
             for (idx, item) in arr.iter().enumerate() {
                 if let Some(table) = item.as_table() {
-                    let id = table
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("CONF-{}", idx + 1));
-                    let title = table
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&id)
-                        .to_string();
-                    let file_pattern = table
-                        .get("file_pattern")
-                        .or_else(|| table.get("files"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    let severity = table
-                        .get("severity")
-                        .and_then(|v| v.as_str())
-                        .map(|s| match s.to_lowercase().as_str() {
-                            "warn" => RuleSeverity::Warn,
-                            _ => RuleSeverity::Deny,
-                        })
-                        .unwrap_or(RuleSeverity::Deny);
-                    let remediation = table
-                        .get("remediation")
-                        .or_else(|| table.get("fix"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    if let Some(must) = table.get("must_contain").and_then(|v| v.as_str()) {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::MustContain(must.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
-                    }
-
-                    if let Some(forbid) = table.get("forbidden").and_then(|v| v.as_str()) {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::Forbidden(forbid.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
+                    let default_id = format!("CONF-{}", idx + 1);
+                    if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(table) {
+                        rules.extend(parse_rule_object(&map, default_id, &source_note));
                     }
                 }
             }
@@ -547,63 +550,83 @@ pub fn extract_rules_from_config(
         if let Some(arr) = rules_val.and_then(|v| v.as_array()) {
             for (idx, item) in arr.iter().enumerate() {
                 if let Some(obj) = item.as_object() {
-                    let id = obj
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("CONF-{}", idx + 1));
-                    let title = obj
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&id)
-                        .to_string();
-                    let file_pattern = obj
-                        .get("file_pattern")
-                        .or_else(|| obj.get("files"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    let severity = obj
-                        .get("severity")
-                        .and_then(|v| v.as_str())
-                        .map(|s| match s.to_lowercase().as_str() {
-                            "warn" => RuleSeverity::Warn,
-                            _ => RuleSeverity::Deny,
-                        })
-                        .unwrap_or(RuleSeverity::Deny);
-                    let remediation = obj
-                        .get("remediation")
-                        .or_else(|| obj.get("fix"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    if let Some(must) = obj.get("must_contain").and_then(|v| v.as_str()) {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::MustContain(must.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
-                    }
-
-                    if let Some(forbid) = obj.get("forbidden").and_then(|v| v.as_str()) {
-                        rules.push(GuardRule {
-                            id: id.clone(),
-                            title: title.clone(),
-                            source_note: source_note.clone(),
-                            file_pattern: file_pattern.clone(),
-                            condition: RuleCondition::Forbidden(forbid.to_string()),
-                            severity,
-                            remediation: remediation.clone(),
-                        });
-                    }
+                    let default_id = format!("CONF-{}", idx + 1);
+                    rules.extend(parse_rule_object(obj, default_id, &source_note));
                 }
             }
         }
     }
 
     Ok(rules)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::{Document, HierarchyLevel};
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_superseded_document_emits_no_guard_rules() {
+        let doc = Document {
+            path: PathBuf::from("ADR-001.md"),
+            title: "ADR 001 Old".to_string(),
+            hierarchy: HierarchyLevel::L3Evergreen,
+            frontmatter: json!({
+                "status": "superseded",
+                "rules": [
+                    {
+                        "id": "RULE-OLD",
+                        "title": "Old Invariant",
+                        "forbidden": "legacy_api()",
+                        "severity": "deny"
+                    }
+                ]
+            }),
+            links: Vec::new(),
+            tags: vec!["status/superseded".to_string()],
+            content_hash: "hash".to_string(),
+            mtime: 0,
+            body: "## Non-Negotiable Invariants\n- [RULE-BODY] (deny) [*.rs] forbidden: \"old_call()\" | remediation: \"do not call\"".to_string(),
+        };
+
+        let rules = extract_rules_from_document(&doc);
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn test_superseding_document_attaches_provenance_to_remediation() {
+        let doc = Document {
+            path: PathBuf::from("ADR-002.md"),
+            title: "ADR 002 New".to_string(),
+            hierarchy: HierarchyLevel::L3Evergreen,
+            frontmatter: json!({
+                "status": "active",
+                "supersedes": ["ADR-001.md"],
+                "rules": [
+                    {
+                        "id": "RULE-NEW",
+                        "title": "New Invariant",
+                        "forbidden": "new_forbidden()",
+                        "severity": "deny",
+                        "remediation": "Use updated API"
+                    }
+                ]
+            }),
+            links: Vec::new(),
+            tags: Vec::new(),
+            content_hash: "hash2".to_string(),
+            mtime: 0,
+            body: String::new(),
+        };
+
+        let rules = extract_rules_from_document(&doc);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "RULE-NEW");
+        assert_eq!(
+            rules[0].remediation,
+            "Use updated API (Supersedes ADR-001.md)"
+        );
+    }
 }

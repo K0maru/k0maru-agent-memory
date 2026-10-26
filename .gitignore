@@ -22,7 +22,7 @@ __pycache__/
 # Runtime Logs & Offloaded Context
 *.log
 !benchmarks/fixtures/*.log
-.scratch/refs/
+.scratch/
 *.tmp
 tmp/
 

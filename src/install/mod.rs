@@ -406,3 +406,105 @@ pub fn format_install_report(report: &InstallReport) -> String {
     }
     out
 }
+
+/// Creates or safely merges `<repo_path>/.claude/settings.local.json`, registering a
+/// non-destructive `hooks.SessionStart` command entry that automatically briefs Claude Code
+/// with the sub-300-token project loadout at session initiation.
+pub fn install_claude_project_hooks(
+    repo_path: &Path,
+    vault_path: &Path,
+    project_slug: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    let claude_dir = repo_path.join(".claude");
+    std::fs::create_dir_all(&claude_dir)?;
+
+    let config_path = claude_dir.join("settings.local.json");
+    let mut root: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(v) if v.is_object() => v,
+            _ => serde_json::json!({}),
+        }
+    } else {
+        serde_json::json!({})
+    };
+
+    let root_obj = root
+        .as_object_mut()
+        .ok_or("Root settings must be a JSON object")?;
+
+    if !root_obj.contains_key("hooks") || !root_obj["hooks"].is_object() {
+        root_obj.insert("hooks".to_string(), serde_json::json!({}));
+    }
+
+    let hooks_obj = root_obj
+        .get_mut("hooks")
+        .and_then(|v| v.as_object_mut())
+        .ok_or("Field 'hooks' must be a JSON object")?;
+
+    if !hooks_obj.contains_key("SessionStart") || !hooks_obj["SessionStart"].is_array() {
+        hooks_obj.insert("SessionStart".to_string(), serde_json::json!([]));
+    }
+
+    let session_start_arr = hooks_obj
+        .get_mut("SessionStart")
+        .and_then(|v| v.as_array_mut())
+        .ok_or("Field 'SessionStart' must be a JSON array")?;
+
+    let vault_str = vault_path.to_string_lossy();
+    let loadout_cmd = format!("k0maru loadout {} --vault \"{}\"", project_slug, vault_str);
+
+    let already_configured = session_start_arr.iter().any(|entry| {
+        if let Some(cmd) = entry.get("command").and_then(|c| c.as_str()) {
+            cmd.contains("k0maru loadout")
+        } else if let Some(s) = entry.as_str() {
+            s.contains("k0maru loadout")
+        } else {
+            false
+        }
+    });
+
+    if !already_configured {
+        session_start_arr.push(serde_json::json!({
+            "command": loadout_cmd
+        }));
+    }
+
+    let formatted = serde_json::to_string_pretty(&root)?;
+    let content_with_newline = if formatted.ends_with('\n') {
+        formatted
+    } else {
+        format!("{}\n", formatted)
+    };
+
+    let tmp_path = config_path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp_path, &content_with_newline)?;
+    if std::fs::rename(&tmp_path, &config_path).is_err() {
+        std::fs::write(&config_path, &content_with_newline)?;
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    Ok(config_path)
+}
+
+/// Installs proactive repository hooks: Git pre-commit guard (if `.git` is present)
+/// and Claude Code `.claude/settings.local.json` SessionStart loadout briefing hook.
+pub fn install_repo_hooks(
+    repo_path: &Path,
+    vault_path: &Path,
+    project_slug: &str,
+) -> (Option<PathBuf>, Option<PathBuf>) {
+    let guard_hook = if repo_path.join(".git").exists() {
+        crate::guard::run_guard_install(crate::guard::GuardInstallArgs {
+            hook: "pre-commit".to_string(),
+            path: Some(repo_path.to_path_buf()),
+        })
+        .ok()
+    } else {
+        None
+    };
+
+    let claude_hook = install_claude_project_hooks(repo_path, vault_path, project_slug).ok();
+
+    (guard_hook, claude_hook)
+}

@@ -165,6 +165,19 @@ fn build_yaml_frontmatter(request: &FlushRequest, date_str: &str) -> String {
     fm.push_str(&format!("title: \"{}\"\n", safe_title));
     fm.push_str(&format!("date: {}\n", date_str));
     fm.push_str(&format!("category: {}\n", request.category.to_lowercase()));
+    fm.push_str("status: active\n");
+
+    if !request.supersedes.is_empty() {
+        fm.push_str("supersedes:\n");
+        for target in &request.supersedes {
+            let trimmed = target.trim();
+            if trimmed.starts_with("[[") && trimmed.ends_with("]]") {
+                fm.push_str(&format!("  - \"{}\"\n", trimmed));
+            } else {
+                fm.push_str(&format!("  - \"[[{}]]\"\n", trimmed));
+            }
+        }
+    }
 
     if request.tags.is_empty() {
         fm.push_str("tags: []\n");

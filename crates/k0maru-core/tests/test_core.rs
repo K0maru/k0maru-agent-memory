@@ -241,10 +241,48 @@ mod guard_core {
         assert_eq!(rules[0].id, "ADR-SETTLE-001");
         assert_eq!(rules[0].severity, RuleSeverity::Deny);
     }
+
+    #[test]
+    fn test_extract_rules_from_readme_schema() {
+        let doc = Document {
+            path: PathBuf::from("20_Cards/ADR-SEC-002.md"),
+            title: "No Unprepared SQL".to_string(),
+            hierarchy: HierarchyLevel::L3Evergreen,
+            frontmatter: json!({
+                "invariants": [
+                    {
+                        "id": "SEC-002",
+                        "title": "Forbid raw execute_unprepared",
+                        "condition": "forbidden",
+                        "pattern": "execute_unprepared",
+                        "paths": ["src/api/**/*.rs"],
+                        "fix_hint": "Use sqlx query! macro instead."
+                    }
+                ]
+            }),
+            links: vec![],
+            tags: vec!["adr".to_string()],
+            content_hash: "hash".to_string(),
+            mtime: 1000,
+            body: String::new(),
+        };
+
+        let rules = extract_rules_from_document(&doc);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "SEC-002");
+        assert_eq!(rules[0].title, "Forbid raw execute_unprepared");
+        assert_eq!(rules[0].file_pattern, Some("src/api/**/*.rs".to_string()));
+        assert_eq!(
+            rules[0].condition,
+            RuleCondition::Forbidden("execute_unprepared".to_string())
+        );
+        assert_eq!(rules[0].remediation, "Use sqlx query! macro instead.");
+    }
 }
 
 mod guard_engine {
     use k0maru_core::guard::engine::GuardEngine;
+    use k0maru_core::guard::extractor::parse_markdown_list_rule;
     use k0maru_core::guard::models::{GuardRule, RuleCondition, RuleSeverity};
 
     #[test]
@@ -274,6 +312,118 @@ diff --git a/src/payment/settle.go b/src/payment/settle.go
         assert!(!report.is_passed);
         assert_eq!(report.violations.len(), 1);
         assert_eq!(report.violations[0].rule_id, "ADR-SETTLE-001");
+    }
+
+    #[test]
+    fn test_parse_markdown_list_rule_with_pipe_in_quotes() {
+        let line = r#"- [NO-UNWRAP] (deny) [*.rs] forbidden: "unwrap\(\)|expect\(" | remediation: "no unwrap""#;
+        let rules = parse_markdown_list_rule(line, "20_Cards/ADR-001.md").expect("parsed rule");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "NO-UNWRAP");
+        assert_eq!(rules[0].remediation, "no unwrap");
+
+        // Verify it matches foo.expect("boom")
+        let diff = r#"
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -10,3 +10,4 @@ fn work() {
++    let val = foo.expect("boom");
+ }
+"#;
+        let report = GuardEngine::check_diff(diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "NO-UNWRAP");
+    }
+
+    #[test]
+    fn test_guard_engine_ignores_code_comment() {
+        let diff = r#"
+diff --git a/src/api.rs b/src/api.rs
+--- a/src/api.rs
++++ b/src/api.rs
+@@ -1,3 +1,4 @@
++// do not call legacy_api()
+ fn safe() {}
+"#;
+        let rules = vec![GuardRule {
+            id: "RULE-LEGACY".to_string(),
+            title: "No Legacy API".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.rs".to_string()),
+            condition: RuleCondition::Forbidden("legacy_api()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "use new api".to_string(),
+        }];
+        let report = GuardEngine::check_diff(diff, &rules);
+        assert_eq!(
+            report.violations.len(),
+            0,
+            "Comment line must not trigger violation"
+        );
+    }
+
+    #[test]
+    fn test_guard_engine_accurate_line_numbers_with_blank_context() {
+        let diff = "diff --git a/src/api.rs b/src/api.rs\n--- a/src/api.rs\n+++ b/src/api.rs\n@@ -10,6 +10,6 @@\n let a = 1;\n \n let b = 2;\n+legacy_api();\n";
+        let rules = vec![GuardRule {
+            id: "RULE-LEGACY".to_string(),
+            title: "No Legacy API".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: Some("*.rs".to_string()),
+            condition: RuleCondition::Forbidden("legacy_api()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "use new api".to_string(),
+        }];
+        let report = GuardEngine::check_diff(diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].line_number, Some(13));
+    }
+
+    #[test]
+    fn test_guard_engine_blocks_deletion_of_must_contain() {
+        let diff = r#"
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,4 +1,3 @@
+-#![forbid(unsafe_code)]
+ fn main() {}
+"#;
+        let rules = vec![GuardRule {
+            id: "RULE-UNSAFE".to_string(),
+            title: "Require Forbid Unsafe".to_string(),
+            source_note: "ADR-002.md".to_string(),
+            file_pattern: Some("*.rs".to_string()),
+            condition: RuleCondition::MustContain("#![forbid(unsafe_code)]".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Add #![forbid(unsafe_code)]".to_string(),
+        }];
+        let report = GuardEngine::check_diff(diff, &rules);
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].rule_id, "RULE-UNSAFE");
+    }
+
+    #[test]
+    fn test_guard_engine_ignores_k0maru_wiki_self_matches() {
+        let diff = r#"
+diff --git a/.k0maru/wiki/ADR-001.md b/.k0maru/wiki/ADR-001.md
+--- a/.k0maru/wiki/ADR-001.md
++++ b/.k0maru/wiki/ADR-001.md
+@@ -1,3 +1,4 @@
++legacy_api() must never be called.
+"#;
+        let rules = vec![GuardRule {
+            id: "RULE-LEGACY".to_string(),
+            title: "No Legacy API".to_string(),
+            source_note: "ADR-001.md".to_string(),
+            file_pattern: None,
+            condition: RuleCondition::Forbidden("legacy_api()".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "use new api".to_string(),
+        }];
+        let report = GuardEngine::check_diff(diff, &rules);
+        assert_eq!(report.violations.len(), 0);
     }
 }
 

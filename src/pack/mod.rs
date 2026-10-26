@@ -15,8 +15,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapters::GenericWikiAdapter;
 use crate::convention::{generate_filename, slugify, ConventionSniffer, FlushRequest};
-use crate::{Document, VaultAdapter};
-use k0maru_core::guard::{extract_rules_from_document, GuardRule};
+use crate::{
+    Document, IncrementalScanner, ObsidianAdapter, SqliteStorage, VaultAdapter, VectorSyncEngine,
+};
+use k0maru_core::guard::{
+    extract_rules_from_document, extract_rules_from_vault, GuardRule, RuleCondition,
+};
 
 /// A single portable note inside a [`MemoryPack`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +92,44 @@ pub struct PackInspectReport {
     pub guard_rules_count: usize,
     pub note_titles: Vec<String>,
     pub predicted_paths: Vec<PathBuf>,
+}
+
+/// Options controlling [`install_pack`].
+#[derive(Debug, Clone)]
+pub struct PackInstallOptions {
+    pub vault_path: PathBuf,
+    pub source_path: PathBuf,
+    pub home_override: Option<PathBuf>,
+    pub dry_run: bool,
+}
+
+/// Metadata persisted alongside an installed pack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledPackManifest {
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub source_kind: String,
+    pub notes_count: usize,
+    pub guard_rules_count: usize,
+    pub installed_skills: Vec<String>,
+}
+
+/// Result of installing a pack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackInstallResult {
+    pub manifest: InstalledPackManifest,
+    pub install_dir: PathBuf,
+    pub skill_paths: Vec<PathBuf>,
+    pub dry_run: bool,
+}
+
+/// Result of uninstalling a pack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackUninstallResult {
+    pub name: String,
+    pub removed_dir: PathBuf,
+    pub removed_skills: Vec<String>,
 }
 
 /// Rewrites folder-qualified WikiLinks so they are topology-agnostic.
@@ -274,6 +316,7 @@ pub fn import_pack(
             tags: note.tags.clone(),
             related_notes: note.related_notes.clone(),
             dry_run: options.dry_run,
+            supersedes: Vec::new(),
         };
 
         let result = engine
@@ -330,6 +373,593 @@ pub fn inspect_pack(pack: &MemoryPack, target_vault: Option<&Path>) -> PackInspe
         note_titles: pack.notes.iter().map(|note| note.title.clone()).collect(),
         predicted_paths,
     }
+}
+
+/// Installs a pack from a `.pack.json` file or an OpenHarness `DSH` directory
+/// into `<vault>/.k0maru/packs/<slug>/`, additionally exporting any bundled
+/// skills to `<home>/.omp/agent/skills/<skill>/SKILL.md`.
+pub fn install_pack(
+    options: &PackInstallOptions,
+) -> Result<PackInstallResult, Box<dyn std::error::Error>> {
+    if options.source_path.is_file() {
+        install_pack_from_file(options)
+    } else if options.source_path.is_dir() {
+        install_pack_from_directory(options)
+    } else {
+        Err(format!(
+            "Pack source {} does not exist",
+            options.source_path.display()
+        )
+        .into())
+    }
+}
+
+/// Installs a serialized [`MemoryPack`] note by note.
+fn install_pack_from_file(
+    options: &PackInstallOptions,
+) -> Result<PackInstallResult, Box<dyn std::error::Error>> {
+    let raw = fs::read_to_string(&options.source_path)?;
+    let pack: MemoryPack = serde_json::from_str(&raw).map_err(|error| {
+        format!(
+            "Failed to parse pack {}: {}",
+            options.source_path.display(),
+            error
+        )
+    })?;
+
+    let pack_slug = validated_pack_slug(&pack.name)?;
+    let install_dir = packs_root(&options.vault_path).join(&pack_slug);
+
+    if !options.dry_run {
+        fs::create_dir_all(&install_dir)?;
+        for note in &pack.notes {
+            let file_name = format!("{}.md", slugify(&note.title));
+            fs::write(install_dir.join(file_name), render_pack_note(note))?;
+        }
+    }
+
+    let manifest = InstalledPackManifest {
+        name: pack.name,
+        version: pack.version,
+        description: pack.description,
+        source_kind: "pack".to_string(),
+        notes_count: pack.notes.len(),
+        guard_rules_count: pack.guard_rules.len(),
+        installed_skills: Vec::new(),
+    };
+
+    if !options.dry_run {
+        write_pack_manifest(&install_dir, &manifest)?;
+        sync_vault_cache(&options.vault_path)?;
+    }
+
+    Ok(PackInstallResult {
+        manifest,
+        install_dir,
+        skill_paths: Vec::new(),
+        dry_run: options.dry_run,
+    })
+}
+
+/// Installs an OpenHarness `DSH` (or plain skill-pack) directory.
+fn install_pack_from_directory(
+    options: &PackInstallOptions,
+) -> Result<PackInstallResult, Box<dyn std::error::Error>> {
+    let (name, version, description) = read_dsh_metadata(&options.source_path)?;
+    let pack_slug = validated_pack_slug(&name)?;
+    let install_dir = packs_root(&options.vault_path).join(&pack_slug);
+
+    let adapter = GenericWikiAdapter::new(&options.source_path);
+    let note_files: Vec<PathBuf> = adapter
+        .scan_files()?
+        .into_iter()
+        .filter(|relative| !is_skill_path(relative))
+        .collect();
+
+    let mut guard_rules: Vec<GuardRule> = Vec::new();
+    let mut seen_rule_ids: HashSet<String> = HashSet::new();
+
+    for relative in &note_files {
+        let doc = adapter.read_document(relative)?;
+        for rule in extract_rules_from_document(&doc) {
+            if seen_rule_ids.insert(rule.id.clone()) {
+                guard_rules.push(rule);
+            }
+        }
+    }
+
+    if let Ok(vault_rules) = extract_rules_from_vault(&options.source_path) {
+        for rule in vault_rules {
+            if seen_rule_ids.insert(rule.id.clone()) {
+                guard_rules.push(rule);
+            }
+        }
+    }
+
+    let (installed_skills, skill_paths) = discover_and_install_skills(options)?;
+
+    let manifest = InstalledPackManifest {
+        name,
+        version,
+        description,
+        source_kind: "dsh".to_string(),
+        notes_count: note_files.len(),
+        guard_rules_count: guard_rules.len(),
+        installed_skills,
+    };
+
+    if !options.dry_run {
+        fs::create_dir_all(&install_dir)?;
+        for relative in &note_files {
+            let destination = install_dir.join(relative);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(options.source_path.join(relative), &destination)?;
+        }
+
+        if !guard_rules.is_empty() {
+            fs::write(
+                install_dir.join("pack-guard-rules.md"),
+                render_guard_note(&manifest.name, &guard_rules),
+            )?;
+        }
+
+        write_pack_manifest(&install_dir, &manifest)?;
+        sync_vault_cache(&options.vault_path)?;
+    }
+
+    Ok(PackInstallResult {
+        manifest,
+        install_dir,
+        skill_paths,
+        dry_run: options.dry_run,
+    })
+}
+
+/// Discovers skills under `<source>/skills/` and copies them into the OMP
+/// skills root. Returns `(installed skill names, target SKILL.md paths)`.
+fn discover_and_install_skills(
+    options: &PackInstallOptions,
+) -> Result<(Vec<String>, Vec<PathBuf>), Box<dyn std::error::Error>> {
+    let skills_root = options.source_path.join("skills");
+    if !skills_root.is_dir() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let omp_root = omp_skills_root(options.home_override.as_deref());
+    let mut discovered: Vec<(String, PathBuf)> = Vec::new();
+
+    for entry in fs::read_dir(&skills_root)? {
+        let entry = entry?;
+        let source = entry.path();
+        let file_type = entry.file_type()?;
+
+        if file_type.is_dir() {
+            let skill_name = entry.file_name().to_string_lossy().to_string();
+            if !is_safe_component(&skill_name) {
+                continue;
+            }
+
+            let canonical_skill = source.join("SKILL.md");
+            let fallback_skill = source.join(format!("{}.md", skill_name));
+            let source_skill = if canonical_skill.is_file() {
+                Some(canonical_skill)
+            } else if fallback_skill.is_file() {
+                Some(fallback_skill)
+            } else {
+                None
+            };
+
+            let Some(source_skill) = source_skill else {
+                continue;
+            };
+
+            let target_dir = omp_root.join(&skill_name);
+            discovered.push((skill_name, target_dir.join("SKILL.md")));
+
+            if !options.dry_run {
+                fs::create_dir_all(&target_dir)?;
+                copy_directory_contents(&source, &target_dir)?;
+                if !source_skill
+                    .file_name()
+                    .map(|name| name == "SKILL.md")
+                    .unwrap_or(false)
+                {
+                    fs::copy(&source_skill, target_dir.join("SKILL.md"))?;
+                }
+            }
+        } else if file_type.is_file() {
+            let is_markdown = source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| extension.eq_ignore_ascii_case("md"))
+                .unwrap_or(false);
+            if !is_markdown {
+                continue;
+            }
+
+            let skill_name = source
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !is_safe_component(&skill_name) {
+                continue;
+            }
+
+            let target_dir = omp_root.join(&skill_name);
+            discovered.push((skill_name, target_dir.join("SKILL.md")));
+
+            if !options.dry_run {
+                fs::create_dir_all(&target_dir)?;
+                fs::copy(&source, target_dir.join("SKILL.md"))?;
+            }
+        }
+    }
+
+    discovered.sort_by(|left, right| left.0.cmp(&right.0));
+    discovered.dedup_by(|left, right| left.0 == right.0);
+
+    let mut installed_skills = Vec::with_capacity(discovered.len());
+    let mut skill_paths = Vec::with_capacity(discovered.len());
+    for (skill_name, skill_path) in discovered {
+        installed_skills.push(skill_name);
+        skill_paths.push(skill_path);
+    }
+
+    Ok((installed_skills, skill_paths))
+}
+
+/// Removes an installed pack and every skill it exported.
+pub fn uninstall_pack(
+    vault_path: &Path,
+    name: &str,
+    home_override: Option<&Path>,
+) -> Result<PackUninstallResult, Box<dyn std::error::Error>> {
+    let root = packs_root(vault_path);
+
+    let mut candidates = Vec::new();
+    if is_safe_component(name) {
+        candidates.push(root.join(name));
+    }
+    let slug = slugify(name);
+    if is_safe_component(&slug)
+        && !candidates
+            .iter()
+            .any(|candidate| candidate.ends_with(&slug))
+    {
+        candidates.push(root.join(&slug));
+    }
+
+    let pack_dir = candidates
+        .into_iter()
+        .find(|candidate| candidate.is_dir())
+        .ok_or_else(|| format!("Pack '{}' is not installed in {}", name, root.display()))?;
+
+    let manifest_path = pack_dir.join("pack-manifest.json");
+    let manifest = if manifest_path.is_file() {
+        let raw = fs::read_to_string(&manifest_path)?;
+        Some(
+            serde_json::from_str::<InstalledPackManifest>(&raw).map_err(|error| {
+                format!("Failed to parse {}: {}", manifest_path.display(), error)
+            })?,
+        )
+    } else {
+        None
+    };
+
+    let omp_root = omp_skills_root(home_override);
+    let mut removed_skills = Vec::new();
+
+    if let Some(manifest) = &manifest {
+        for skill in &manifest.installed_skills {
+            if !is_safe_component(skill) {
+                continue;
+            }
+            let skill_dir = omp_root.join(skill);
+            if skill_dir.is_dir() {
+                fs::remove_dir_all(&skill_dir)?;
+                removed_skills.push(skill.clone());
+            } else if skill_dir.is_file() {
+                fs::remove_file(&skill_dir)?;
+                removed_skills.push(skill.clone());
+            }
+        }
+    }
+
+    fs::remove_dir_all(&pack_dir)?;
+    sync_vault_cache(vault_path)?;
+
+    Ok(PackUninstallResult {
+        name: manifest
+            .map(|manifest| manifest.name)
+            .unwrap_or_else(|| name.to_string()),
+        removed_dir: pack_dir,
+        removed_skills,
+    })
+}
+
+/// Lists every installed pack manifest, sorted by pack name.
+pub fn list_installed_packs(
+    vault_path: &Path,
+) -> Result<Vec<InstalledPackManifest>, Box<dyn std::error::Error>> {
+    let root = packs_root(vault_path);
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut manifests = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+
+        let manifest_path = entry.path().join("pack-manifest.json");
+        if !manifest_path.is_file() {
+            continue;
+        }
+
+        let raw = fs::read_to_string(&manifest_path)?;
+        let manifest = serde_json::from_str::<InstalledPackManifest>(&raw)
+            .map_err(|error| format!("Failed to parse {}: {}", manifest_path.display(), error))?;
+        manifests.push(manifest);
+    }
+
+    manifests.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(manifests)
+}
+
+/// Returns the vault-local pack install root.
+fn packs_root(vault_path: &Path) -> PathBuf {
+    vault_path.join(".k0maru").join("packs")
+}
+
+/// Verifies a pack name cannot escape its install root, then slugs it.
+fn validated_pack_slug(name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("Pack name must not be empty".into());
+    }
+    if trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(format!("Invalid pack name '{}'", name).into());
+    }
+
+    let slug = slugify(trimmed);
+    if slug.is_empty() || slug == "." || slug == ".." || slug.contains('/') || slug.contains('\\') {
+        return Err(format!("Invalid pack name '{}'", name).into());
+    }
+
+    Ok(slug)
+}
+
+/// Returns true when a relative path lives under the pack's `skills/` folder.
+fn is_skill_path(relative: &Path) -> bool {
+    relative
+        .components()
+        .next()
+        .map(|component| {
+            component
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("skills")
+        })
+        .unwrap_or(false)
+}
+
+/// Rejects empty names, `.`/`..`, and any name containing path separators.
+fn is_safe_component(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty()
+        && trimmed != "."
+        && trimmed != ".."
+        && !trimmed.contains('/')
+        && !trimmed.contains('\\')
+}
+
+/// Resolves the OMP skills root from an override, `OMP_HOME`, or the user home.
+fn omp_skills_root(home_override: Option<&Path>) -> PathBuf {
+    if let Some(home) = home_override {
+        return home.join(".omp").join("agent").join("skills");
+    }
+
+    if let Ok(omp_home) = std::env::var("OMP_HOME") {
+        if !omp_home.trim().is_empty() {
+            return PathBuf::from(omp_home).join("skills");
+        }
+    }
+
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".omp")
+        .join("agent")
+        .join("skills")
+}
+
+/// Reads `harness.json` metadata when present; otherwise derives it from the
+/// directory name.
+fn read_dsh_metadata(
+    source: &Path,
+) -> Result<(String, String, Option<String>), Box<dyn std::error::Error>> {
+    let harness_path = source.join("harness.json");
+    if !harness_path.is_file() {
+        return Ok((fallback_pack_name(source), "0.1.0".to_string(), None));
+    }
+
+    let raw = fs::read_to_string(&harness_path)?;
+    let value: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("Failed to parse {}: {}", harness_path.display(), error))?;
+
+    let name = ["name", "id"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(|value| value.as_str()))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| fallback_pack_name(source));
+
+    let version = value
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .unwrap_or("0.1.0")
+        .to_string();
+
+    let description = value
+        .get("description")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(String::from);
+
+    Ok((name, version, description))
+}
+
+/// Derives a pack name from its source directory.
+fn fallback_pack_name(source: &Path) -> String {
+    source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "pack".to_string())
+}
+
+/// Renders a `.pack.json` note, adding frontmatter only when it has none.
+fn render_pack_note(note: &PackNote) -> String {
+    if note.content.trim_start().starts_with("---") {
+        return note.content.clone();
+    }
+
+    let frontmatter = serde_json::json!({
+        "title": note.title.clone(),
+        "tags": note.tags.clone(),
+    });
+
+    match serde_yaml::to_string(&frontmatter) {
+        Ok(yaml) => format!("---\n{}\n---\n\n{}", yaml.trim_end(), note.content),
+        Err(_) => note.content.clone(),
+    }
+}
+
+/// Renders guard rules as a Living ADR note so the vault cache can extract them.
+fn render_guard_note(pack_name: &str, rules: &[GuardRule]) -> String {
+    let invariants: Vec<serde_json::Value> = rules
+        .iter()
+        .map(|rule| {
+            let mut item = serde_json::Map::new();
+            item.insert("id".to_string(), rule.id.clone().into());
+            item.insert("title".to_string(), rule.title.clone().into());
+            if let Some(pattern) = &rule.file_pattern {
+                item.insert("file_pattern".to_string(), pattern.clone().into());
+            }
+            item.insert("severity".to_string(), rule.severity.as_str().into());
+            match &rule.condition {
+                RuleCondition::Forbidden(value) => {
+                    item.insert("forbidden".to_string(), value.clone().into());
+                }
+                RuleCondition::MustContain(value) => {
+                    item.insert("must_contain".to_string(), value.clone().into());
+                }
+            }
+            item.insert("remediation".to_string(), rule.remediation.clone().into());
+            serde_json::Value::Object(item)
+        })
+        .collect();
+
+    let frontmatter = serde_json::json!({
+        "title": format!("{} Guard Rules", pack_name),
+        "tags": ["guard", "living-adr"],
+        "invariants": invariants,
+    });
+
+    match serde_yaml::to_string(&frontmatter) {
+        Ok(yaml) => format!(
+            "---\n{}\n---\n\n# {} Guard Rules\n\nAuto-generated from the pack's Living ADR configuration.\n",
+            yaml.trim_end(),
+            pack_name
+        ),
+        Err(_) => format!("# {} Guard Rules\n", pack_name),
+    }
+}
+
+/// Persists the install manifest inside a pack directory.
+fn write_pack_manifest(
+    install_dir: &Path,
+    manifest: &InstalledPackManifest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let json = serde_json::to_string_pretty(manifest)?;
+    fs::write(install_dir.join("pack-manifest.json"), json)?;
+    Ok(())
+}
+
+/// Recursively copies a directory's files into `destination`.
+fn copy_directory_contents(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in walkdir::WalkDir::new(source).follow_links(false) {
+        let entry = entry?;
+        let relative = entry.path().strip_prefix(source)?;
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+
+        let target = destination.join(relative);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target)?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Re-scans the vault's existing SQLite cache after pack mutations.
+fn sync_vault_cache(vault_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let cache_path = vault_path.join(".k0maru").join("cache.sqlite");
+    if !cache_path.exists() {
+        return Ok(());
+    }
+
+    let mut storage = SqliteStorage::open(&cache_path)?;
+    let is_obsidian = vault_path.join("10_Projects").is_dir()
+        || vault_path.join(".obsidian").exists()
+        || vault_path.join("20_Cards").is_dir();
+
+    let has_vectors = storage.has_vectors().unwrap_or(false);
+    let embedder = if has_vectors {
+        let model_cache = vault_path.join(".k0maru").join("models");
+        crate::vector::default_embedding_engine(model_cache.exists().then_some(model_cache)).ok()
+    } else {
+        None
+    };
+
+    if is_obsidian {
+        let adapter = ObsidianAdapter::new(vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(false)?;
+        if has_vectors {
+            if let Some(embedder) = &embedder {
+                let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**embedder);
+            }
+        }
+    } else {
+        let adapter = GenericWikiAdapter::new(vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(false)?;
+        if has_vectors {
+            if let Some(embedder) = &embedder {
+                let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**embedder);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Converts an exported file selection into a path relative to the vault root.

@@ -3,10 +3,14 @@ use std::str::FromStr;
 use tempfile::tempdir;
 
 use assert_cmd::Command;
+use k0maru::adapters::GenericWikiAdapter;
 use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget, DistilledSkill};
+use k0maru::guard::resolve_guard_rules;
+use k0maru::loadout::LoadoutBuilder;
+use k0maru::storage::SqliteStorage;
+use k0maru::RuleCondition;
 use predicates::prelude::*;
-
 #[test]
 fn test_distill_text_safe_flush_to_vault() {
     let vault_tmp = tempdir().unwrap();
@@ -80,6 +84,54 @@ fn test_distilled_skill_to_hermes_markdown_and_target() {
 }
 
 #[test]
+fn test_distill_target_omp_creates_skill_md() {
+    assert_eq!(DistillTarget::from_str("omp").unwrap(), DistillTarget::Omp);
+    assert_eq!(
+        DistillTarget::from_str("oh-my-pi").unwrap(),
+        DistillTarget::Omp
+    );
+    assert_eq!(DistillTarget::Omp.to_string(), "omp");
+
+    let vault_tmp = tempdir().unwrap();
+    let home_tmp = tempdir().unwrap();
+    let refs_tmp = tempdir().unwrap();
+
+    let engine = DistillEngine::new(vault_tmp.path(), refs_tmp.path());
+    let opts = DistillOptions {
+        title: Some("OMP Skill Export".to_string()),
+        context_hint: Some("Exporting a distilled skill into omp".to_string()),
+        target: DistillTarget::Omp,
+        home_override: Some(home_tmp.path().to_path_buf()),
+        dry_run: false,
+        ..Default::default()
+    };
+
+    let result = engine
+        .distill_text(
+            "error[E0432]: unresolved import `k0maru::distill`\n$ touch src/distill/mod.rs\n",
+            opts,
+        )
+        .unwrap();
+
+    let expected = home_tmp
+        .path()
+        .join(".omp")
+        .join("agent")
+        .join("skills")
+        .join("omp-skill-export")
+        .join("SKILL.md");
+
+    assert_eq!(result.export_path.as_deref(), Some(expected.as_path()));
+    assert!(expected.exists());
+
+    let content = fs::read_to_string(&expected).unwrap();
+    assert!(content.starts_with("---\n"));
+    assert!(content.contains("name: omp-skill-export\n"));
+    assert!(content.contains("description: "));
+    assert!(content.contains("# OMP Skill Export"));
+}
+
+#[test]
 fn test_flush_engine_dry_run_and_live_write() {
     let temp = tempdir().unwrap();
     let vault_root = temp.path();
@@ -94,6 +146,7 @@ fn test_flush_engine_dry_run_and_live_write() {
         tags: vec!["arch".to_string()],
         related_notes: vec!["Roadmap 2026".to_string()],
         dry_run: true,
+        supersedes: vec![],
     };
     let res_dry = engine.flush(req_dry).unwrap();
     assert!(res_dry.dry_run);
@@ -111,6 +164,7 @@ fn test_flush_engine_dry_run_and_live_write() {
         tags: vec!["live".to_string()],
         related_notes: vec![],
         dry_run: false,
+        supersedes: vec![],
     };
     let res_live = engine.flush(req_live).unwrap();
     assert!(!res_live.dry_run);
@@ -135,4 +189,160 @@ fn test_cli_distill_smoke() {
     .assert()
     .success()
     .stdout(predicate::str::contains("CLI Distill Smoke Test"));
+}
+
+#[test]
+fn test_flush_supersedes_marks_old_note_and_updates_guard_and_loadout() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+
+    // Pre-initialize .k0maru/cache.sqlite so FlushEngine auto-syncs cache on flush
+    let cache_dir = vault_root.join(".k0maru");
+    fs::create_dir_all(&cache_dir).unwrap();
+    let cache_path = cache_dir.join("cache.sqlite");
+    {
+        let _init_storage = SqliteStorage::open(&cache_path).unwrap();
+    }
+
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    // 1. Flush old ADR-010 with a guard rule Forbidden("legacy_bus")
+    let req_old = FlushRequest {
+        title: "ADR-010".to_string(),
+        summary: Some("Old bus architecture".to_string()),
+        content: "## Non-Negotiable Invariants\n\n- [RULE-BUS] forbidden: \"legacy_bus\" | remediation: \"Do not use legacy bus\"".to_string(),
+        category: "card".to_string(),
+        tags: vec!["adr".to_string()],
+        related_notes: vec![],
+        dry_run: false,
+        supersedes: vec![],
+    };
+    let res_old = engine.flush(req_old).unwrap();
+    assert!(res_old.file_path.exists());
+    assert!(res_old.superseded_files.is_empty());
+
+    // Verify ADR-010 rule is initially active
+    let rules_initial = resolve_guard_rules(vault_root, None).unwrap();
+    assert!(
+        rules_initial.iter().any(|r| {
+            if let RuleCondition::Forbidden(s) = &r.condition {
+                s == "legacy_bus"
+            } else {
+                false
+            }
+        }),
+        "ADR-010 rule should be active initially"
+    );
+
+    // 2. Flush new ADR-042 with --supersedes ADR-010 and new guard rule Forbidden("deprecated_v1_api")
+    let req_new = FlushRequest {
+        title: "ADR-042".to_string(),
+        summary: Some("New API architecture".to_string()),
+        content: "## Non-Negotiable Invariants\n\n- [RULE-API] forbidden: \"deprecated_v1_api\" | remediation: \"Migrate to v2 API\"".to_string(),
+        category: "card".to_string(),
+        tags: vec!["adr".to_string()],
+        related_notes: vec![],
+        dry_run: false,
+        supersedes: vec!["ADR-010".to_string()],
+    };
+    let res_new = engine.flush(req_new).unwrap();
+    assert!(res_new.file_path.exists());
+    assert_eq!(res_new.superseded_files.len(), 1);
+    assert_eq!(res_new.superseded_files[0], res_old.relative_path);
+
+    // 3. Verify ADR-010 content was updated on disk with status: superseded, superseded_by, and callout
+    let old_content = fs::read_to_string(&res_old.file_path).unwrap();
+    assert!(
+        old_content.contains("status: superseded"),
+        "ADR-010 frontmatter must have status: superseded"
+    );
+    assert!(
+        old_content.contains("superseded_by:"),
+        "ADR-010 frontmatter must have superseded_by"
+    );
+    assert!(
+        old_content.contains("> [SUPERSEDED] Superseded by"),
+        "ADR-010 body must have superseded callout"
+    );
+
+    // 4. Verify Guard rules: ADR-010 rule retired, ADR-042 rule active with provenance
+    let rules_after = resolve_guard_rules(vault_root, None).unwrap();
+    assert!(
+        !rules_after.iter().any(|r| {
+            if let RuleCondition::Forbidden(s) = &r.condition {
+                s == "legacy_bus"
+            } else {
+                false
+            }
+        }),
+        "ADR-010 rule should be retired"
+    );
+
+    let new_rule = rules_after
+        .iter()
+        .find(|r| {
+            if let RuleCondition::Forbidden(s) = &r.condition {
+                s == "deprecated_v1_api"
+            } else {
+                false
+            }
+        })
+        .expect("ADR-042 rule should be active");
+    assert!(
+        new_rule.remediation.contains("Supersedes") || new_rule.remediation.contains("ADR-010"),
+        "ADR-042 rule remediation should mention supersession provenance: {}",
+        new_rule.remediation
+    );
+
+    // 5. Create project note referencing both ADR-010 and ADR-042
+    let old_wikilink = res_old
+        .relative_path
+        .with_extension("")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let new_wikilink = res_new
+        .relative_path
+        .with_extension("")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let projects_dir = vault_root.join("10_Projects");
+    fs::create_dir_all(&projects_dir).unwrap();
+    let project_file = projects_dir.join("CoreService.md");
+    fs::write(
+        &project_file,
+        format!(
+            "---\ntitle: CoreService\nstatus: active\n---\n\n# CoreService\n\n> Platform Core Invariants.\n\n## References\n- [[{}]]\n- [[{}]]\n",
+            old_wikilink, new_wikilink
+        ),
+    )
+    .unwrap();
+
+    // Sync cache with project note
+    let adapter = GenericWikiAdapter::new(vault_root);
+    let mut storage = SqliteStorage::open(&cache_path).unwrap();
+    let mut scanner = k0maru::scanner::IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false).unwrap();
+
+    // 6. Build loadout and verify: ADR-010 is excluded, ADR-042 is included
+    let builder = LoadoutBuilder::new(&adapter, &storage);
+    let loadout = builder
+        .build("CoreService")
+        .unwrap()
+        .expect("Loadout should resolve CoreService");
+
+    let card_paths: Vec<&str> = loadout.l3_cards.iter().map(|c| c.path.as_str()).collect();
+    assert!(
+        card_paths
+            .iter()
+            .any(|p| p.contains("adr-042") || p.contains("ADR-042")),
+        "Loadout must include active ADR-042: {:?}",
+        card_paths
+    );
+    assert!(
+        !card_paths
+            .iter()
+            .any(|p| p.contains("adr-010") || p.contains("ADR-010")),
+        "Loadout must exclude superseded ADR-010: {:?}",
+        card_paths
+    );
 }
