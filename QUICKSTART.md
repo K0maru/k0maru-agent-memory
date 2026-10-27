@@ -1,6 +1,10 @@
 [English README](README.md) | [中文说明文档](README_zh.md)
 
-> 🤖 **Visiting AI Agent / 来访智能体**: Read **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** for the Zero-Human-in-the-Loop Playbook and **[`llms.txt`](llms.txt)** for machine-readable context.
+> 🤖 **一句话让 AI 自动接入（Claude Code / Cursor / Windsurf / Cline / `omp`）**：在任意代码仓库中直接给 AI 发送：
+> ```text
+> Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
+> ```
+> *（智能体全自主运行手册：**[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** · 机器可读规格：**[`llms.txt`](llms.txt)**）*
 
 # ⚡ K0maru-Agent-Memory 极速上手指南 (Quick Start)
 
