@@ -398,7 +398,7 @@ repo: "{repo}"
             title = project_slug,
             date = today,
             repo = project_slug,
-            scope = &extract_first_paragraph(&readme_summary),
+            scope = extract_first_paragraph(&readme_summary),
             readme = readme_summary,
             tech_stack = tech_stack_bullets.join("\n"),
             rules = agent_rules,
