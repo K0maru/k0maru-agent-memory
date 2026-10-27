@@ -467,3 +467,119 @@ fn test_flush_supersedes_marks_old_note_and_updates_guard_and_loadout() {
         card_paths
     );
 }
+
+#[test]
+fn test_flush_unescapes_shell_newlines_in_invariant_content() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    // Bash double quotes keep `\n` as two characters unless `$'...'` is used;
+    // both spellings must produce the same multi-line invariant block.
+    let content = "## Non-Negotiable Invariants\\n- [LOCK-011] (deny) [src/**/*.rs] forbidden: \"legacy_lock\" | remediation: \"Use the distributed lock\"";
+    assert!(content.contains("\\n") && !content.contains('\n'));
+
+    let result = engine
+        .flush(FlushRequest {
+            title: "Lock Rewrite".to_string(),
+            summary: Some("Escaped newline normalization".to_string()),
+            content: content.to_string(),
+            category: "card".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec![],
+        })
+        .unwrap();
+
+    let written = fs::read_to_string(&result.file_path).unwrap();
+    assert!(
+        written.contains("## Non-Negotiable Invariants\n- [LOCK-011]"),
+        "escaped newlines must be expanded into a real invariant block, got:\n{written}"
+    );
+    assert!(
+        !written.contains("\\n- [LOCK-011]"),
+        "no literal backslash-n may survive, got:\n{written}"
+    );
+    assert!(
+        written.contains("category: decision"),
+        "a card carrying invariants must be categorized as a decision, got:\n{written}"
+    );
+}
+
+#[test]
+fn test_flush_card_alias_maps_to_concept_without_invariants() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    fs::create_dir_all(vault_root.join("notes")).unwrap();
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    let result = engine
+        .flush(FlushRequest {
+            title: "Plain Concept Card".to_string(),
+            summary: None,
+            content: "A plain concept without invariants.".to_string(),
+            category: "card".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec![],
+        })
+        .unwrap();
+
+    assert_eq!(result.category, "concept");
+    assert_eq!(
+        result
+            .file_path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str()),
+        Some("notes"),
+        "the concept alias must land in the concept folder, got: {:?}",
+        result.file_path
+    );
+    let written = fs::read_to_string(&result.file_path).unwrap();
+    assert!(written.contains("category: concept"));
+}
+
+#[test]
+fn test_flush_supersedes_frontmatter_links_resolved_relative_path() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let cards = vault_root.join("20_Cards");
+    fs::create_dir_all(&cards).unwrap();
+    fs::write(
+        cards.join("adr-010-legacy-setnx-lock.md"),
+        "---\ntitle: ADR-010 Legacy Setnx Lock\nstatus: active\n---\n\n# ADR-010 Legacy Setnx Lock\n",
+    )
+    .unwrap();
+
+    let engine = FlushEngine::new(vault_root).unwrap();
+    let result = engine
+        .flush(FlushRequest {
+            title: "ADR-011 Distributed Lock".to_string(),
+            summary: Some("Replaces the legacy SETNX lock".to_string()),
+            content: "## Non-Negotiable Invariants\n- [LOCK-011] (deny) [src/**/*.rs] forbidden: \"setnx_lock\" | remediation: \"Use the distributed lock\"".to_string(),
+            category: "card".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec!["adr-010-legacy-setnx-lock".to_string()],
+        })
+        .unwrap();
+
+    assert_eq!(
+        result.superseded_files.len(),
+        1,
+        "the resolved supersede target must be reported"
+    );
+
+    let written = fs::read_to_string(&result.file_path).unwrap();
+    assert!(
+        written.contains("supersedes:\n  - \"[[20_Cards/adr-010-legacy-setnx-lock]]\""),
+        "frontmatter must link the resolved vault-relative note, got:\n{written}"
+    );
+
+    let old = fs::read_to_string(cards.join("adr-010-legacy-setnx-lock.md")).unwrap();
+    assert!(old.contains("status: superseded"), "got:\n{old}");
+}

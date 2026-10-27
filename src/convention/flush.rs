@@ -64,8 +64,20 @@ impl FlushEngine {
     /// Flushes crystallized memory or notes into the vault.
     pub fn flush(
         &self,
-        request: FlushRequest,
+        mut request: FlushRequest,
     ) -> Result<FlushResult, Box<dyn std::error::Error + Send + Sync>> {
+        // 0. Normalize the request: expand shell-escaped newlines in
+        //    `--content`, drop blank supersede entries and canonicalize the
+        //    `card` category alias.
+        request.content = normalize_flush_content(&request.content);
+        request.category = normalize_category(&request.category, &request.content);
+        request.supersedes = request
+            .supersedes
+            .iter()
+            .map(|target| target.trim().to_string())
+            .filter(|target| !target.is_empty())
+            .collect();
+
         // 1. Determine target directory
         let rel_target_dir = self.convention.target_subdir_for(&request.category);
 
@@ -94,10 +106,21 @@ impl FlushEngine {
             return Err("Security error: generated filename attempts directory traversal".into());
         }
 
-        // 3. Synthesize markdown content
+        // 3. Pre-resolve every supersede target so the new note's frontmatter
+        //    links the real vault-relative note instead of a dangling raw
+        //    string, and so a typo/ambiguity fails before anything is written.
+        let pre_resolved_supersedes = self.resolve_supersedes(&request, None)?;
+        if !pre_resolved_supersedes.is_empty() {
+            request.supersedes = pre_resolved_supersedes
+                .iter()
+                .map(|(_, rel_path)| wikilink_target(rel_path))
+                .collect();
+        }
+
+        // 4. Synthesize markdown content
         let content = synthesize_markdown(&request, &self.convention);
 
-        // 4. Resolve stem and extension for anti-collision
+        // 5. Resolve stem and extension for anti-collision
         let stem = file_path_base
             .file_stem()
             .and_then(|s| s.to_str())
@@ -107,7 +130,7 @@ impl FlushEngine {
             .and_then(|s| s.to_str())
             .unwrap_or("md");
 
-        // 5. Anti-Collision Resolution
+        // 6. Anti-Collision Resolution
         let mut candidate_path = target_dir.join(&base_filename);
 
         if candidate_path.exists() {
@@ -174,11 +197,14 @@ impl FlushEngine {
             .unwrap_or(&candidate_path)
             .to_path_buf();
 
-        // 6. Pre-validate every supersedes target BEFORE writing anything, so a
-        // typo or ambiguous reference never leaves an orphan note on disk.
-        let resolved_supersedes = self.resolve_supersedes(&request, &rel_path)?;
+        // 7. Keep only those pre-resolved targets that are not the note being
+        //    written (a self-reference stays a no-op).
+        let resolved_supersedes: Vec<(PathBuf, PathBuf)> = pre_resolved_supersedes
+            .into_iter()
+            .filter(|(_, target_rel)| target_rel != &rel_path)
+            .collect();
 
-        // 6b. Dry run handling
+        // 7b. Dry run handling
         if request.dry_run {
             return Ok(FlushResult {
                 file_path: candidate_path,
@@ -192,7 +218,7 @@ impl FlushEngine {
             });
         }
 
-        // 7. Live write to disk
+        // 8. Live write to disk
         if let Some(parent) = candidate_path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent)?;
@@ -200,10 +226,10 @@ impl FlushEngine {
         }
         fs::write(&candidate_path, &content)?;
 
-        // 7b. Mark superseded notes before cache sync
+        // 8b. Mark superseded notes before cache sync
         let superseded_files = Self::apply_resolved_supersedes(&resolved_supersedes, &rel_path)?;
 
-        // 8. Auto-sync cache if SQLite cache exists
+        // 9. Auto-sync cache if SQLite cache exists
         let cache_path = self.vault_root.join(".k0maru").join("cache.sqlite");
         if cache_path.exists() {
             if let Ok(mut storage) = SqliteStorage::open(&cache_path) {
@@ -211,15 +237,17 @@ impl FlushEngine {
                     || self.vault_root.join(".obsidian").exists()
                     || self.vault_root.join("20_Cards").is_dir();
 
-                let model_cache = if self.vault_root.join(".k0maru").join("models").exists() {
-                    Some(self.vault_root.join(".k0maru").join("models"))
+                let has_vectors = storage.has_vectors().unwrap_or(false);
+                let embedder = if has_vectors {
+                    let model_cache = if self.vault_root.join(".k0maru").join("models").exists() {
+                        Some(self.vault_root.join(".k0maru").join("models"))
+                    } else {
+                        None
+                    };
+                    crate::vector::default_embedding_engine(model_cache).ok()
                 } else {
                     None
                 };
-                let embedder = crate::vector::default_embedding_engine(model_cache).ok();
-
-                let has_vectors = storage.has_vectors().unwrap_or(false);
-
                 if is_obsidian {
                     let adapter = ObsidianAdapter::new(&self.vault_root);
                     let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
@@ -258,12 +286,12 @@ impl FlushEngine {
     fn resolve_supersedes(
         &self,
         request: &FlushRequest,
-        new_note_rel_path: &Path,
+        new_note_rel_path: Option<&Path>,
     ) -> Result<Vec<(PathBuf, PathBuf)>, Box<dyn std::error::Error + Send + Sync>> {
         let mut resolved = Vec::new();
         for target in &request.supersedes {
             if let Some(entry) =
-                resolve_supersede_target(&self.vault_root, target, Some(new_note_rel_path))?
+                resolve_supersede_target(&self.vault_root, target, new_note_rel_path)?
             {
                 resolved.push(entry);
             }
@@ -280,7 +308,7 @@ impl FlushEngine {
         if request.dry_run || request.supersedes.is_empty() {
             return Ok(Vec::new());
         }
-        let resolved = self.resolve_supersedes(request, new_note_rel_path)?;
+        let resolved = self.resolve_supersedes(request, Some(new_note_rel_path))?;
         Self::apply_resolved_supersedes(&resolved, new_note_rel_path)
     }
 
@@ -296,6 +324,61 @@ impl FlushEngine {
         }
         Ok(files)
     }
+}
+
+/// Expands shell-escaped `\n` / `\t` sequences inside `--content`.
+///
+/// Bash double-quoted strings keep `\n` as two literal characters, so
+/// `--content "## Non-Negotiable Invariants\n- [id] ..."` must behave exactly
+/// like a `$'...\n...'` heredoc. Content that already contains real newlines is
+/// only unescaped when it looks shell-escaped (invariant headers or `\n- `
+/// bullets) so genuinely literal `\n` inside prose/code survives.
+fn normalize_flush_content(content: &str) -> String {
+    let should_unescape = content.contains("\\n")
+        && (!content.contains('\n')
+            || content.contains("## Non-Negotiable Invariants\\n")
+            || content.contains("\\n- "));
+
+    if should_unescape {
+        content.replace("\\n", "\n").replace("\\t", "\t")
+    } else {
+        content.to_string()
+    }
+}
+
+/// Canonicalizes a flush category.
+///
+/// `card` / `cards` are aliases for `concept`, except when the content declares
+/// guard invariants (`## Non-Negotiable Invariants`), where a card *is* a
+/// decision ADR.
+fn normalize_category(category: &str, content: &str) -> String {
+    let lower = category.trim().to_lowercase();
+    match lower.as_str() {
+        "" => "log".to_string(),
+        "card" | "cards" => {
+            if content.contains("## Non-Negotiable Invariants") {
+                "decision".to_string()
+            } else {
+                "concept".to_string()
+            }
+        }
+        "adr" | "adrs" | "decisions" => "decision".to_string(),
+        "concepts" | "wiki" => "concept".to_string(),
+        "logs" | "journal" | "daily" => "log".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Converts a resolved vault-relative note path into the wikilink target used
+/// in `supersedes` frontmatter (extension stripped, e.g.
+/// `20_Cards/adr-010-legacy-setnx-lock`).
+fn wikilink_target(rel_path: &Path) -> String {
+    let stem_path = rel_path.with_extension("");
+    stem_path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_matches('/')
+        .to_string()
 }
 
 fn collect_markdown_files(dir: &Path, results: &mut Vec<PathBuf>) {

@@ -30,6 +30,7 @@ pub struct McpServer {
     refs_dir: PathBuf,
     storage: Option<SqliteStorage>,
     embedder: Option<Arc<dyn EmbeddingEngine>>,
+    embed_model_name: Option<String>,
     sidecar: bool,
 }
 
@@ -43,7 +44,8 @@ impl McpServer {
     ///
     /// `Some("mock")` resolves straight to the deterministic mock engine, so
     /// tests and offline runs never touch (or attempt to download) the default
-    /// `all-minilm-l6-v2` weights.
+    /// `all-minilm-l6-v2` weights. Other models are resolved lazily when a
+    /// vector-enabled vault is queried.
     pub fn new_with_model(vault_path: impl Into<PathBuf>, embed_model: Option<&str>) -> Self {
         let vault_path = vault_path.into();
         let refs_dir = if vault_path.join(".k0maru").join("refs").exists() {
@@ -52,18 +54,18 @@ impl McpServer {
             vault_path.join(".scratch").join("refs")
         };
 
-        let model_cache = if vault_path.join(".k0maru").join("models").exists() {
-            Some(vault_path.join(".k0maru").join("models"))
+        let embedder = if embed_model == Some("mock") {
+            resolve_embedding_engine(Some("mock"), None).ok()
         } else {
             None
         };
-        let embedder = resolve_embedding_engine(embed_model, model_cache).ok();
 
         Self {
             vault_path,
             refs_dir,
             storage: None,
             embedder,
+            embed_model_name: embed_model.map(|s| s.to_string()),
             sidecar: false,
         }
     }
@@ -99,6 +101,7 @@ impl McpServer {
 
     /// Sets custom embedding engine for hybrid recall by model name or canonical identifier.
     pub fn with_embed_model(mut self, model_name: Option<&str>) -> Self {
+        self.embed_model_name = model_name.map(|s| s.to_string());
         let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
             Some(self.vault_path.join(".k0maru").join("models"))
         } else {
@@ -108,6 +111,19 @@ impl McpServer {
             self.embedder = Some(embedder);
         }
         self
+    }
+
+    fn ensure_embedder(&mut self) -> Option<Arc<dyn EmbeddingEngine>> {
+        if self.embedder.is_none() {
+            let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
+                Some(self.vault_path.join(".k0maru").join("models"))
+            } else {
+                None
+            };
+            self.embedder =
+                resolve_embedding_engine(self.embed_model_name.as_deref(), model_cache).ok();
+        }
+        self.embedder.clone()
     }
 
     /// Returns the target vault root directory.
@@ -178,12 +194,42 @@ impl McpServer {
         Ok(())
     }
 
+    fn detect_default_project(&self) -> String {
+        let projects_dir = self.vault_path.join("10_Projects");
+        if projects_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+                let mut stems: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                    .filter_map(|e| {
+                        e.path()
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect();
+                stems.sort();
+                if let Some(first) = stems.into_iter().next() {
+                    return first;
+                }
+            }
+        }
+        let repo_root = crate::guard::resolve_repo_root(&self.vault_path);
+        repo_root
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("project")
+            .to_string()
+    }
+
     fn call_get_project_loadout(&mut self, arguments: &Value) -> Result<String, String> {
+        let default_proj = self.detect_default_project();
         let project_name = arguments
             .get("project_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing required parameter 'project_name'".to_string())?;
-
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&default_proj);
         let diff_requested = arguments
             .get("diff")
             .and_then(|v| v.as_bool())
@@ -291,18 +337,24 @@ impl McpServer {
             return Err(format!("Cache sync failed: {}", e));
         }
 
-        let embedder = self.embedder.clone();
+        let has_vectors = {
+            let storage = self
+                .get_or_init_storage()
+                .map_err(|e| format!("Storage initialization failed: {}", e))?;
+            if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+                return Err("Vector index is empty. Run 'k0maru sync --vector' first.".to_string());
+            }
+            storage.has_vectors().unwrap_or(false)
+        };
+
+        let effective_embedder = if has_vectors && mode != SearchMode::Bm25 {
+            self.ensure_embedder()
+        } else {
+            None
+        };
         let storage = self
             .get_or_init_storage()
             .map_err(|e| format!("Storage initialization failed: {}", e))?;
-
-        if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
-            return Err("Vector index is empty. Run 'k0maru sync --vector' first.".to_string());
-        }
-
-        let has_vectors = storage.has_vectors().unwrap_or(false);
-
-        let effective_embedder = if has_vectors { embedder } else { None };
         let engine = HybridSearchEngine::new(storage, effective_embedder);
         let results = engine
             .search(query, mode, limit)
@@ -749,12 +801,42 @@ impl McpServer {
             }
         };
 
-        let rules = crate::guard::resolve_guard_rules_with_repo(
+        let mut rules = crate::guard::resolve_guard_rules_with_repo(
             &self.vault_path,
             project_name,
             Some(&repo_dir),
         )
         .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
+
+        // A repository may own a `.k0maru/wiki` vault even when this MCP server
+        // was launched against a global vault. Its Living ADRs must still be
+        // enforced, so resolve and merge them without duplicating rules.
+        let repo_vault = repo_dir.join(".k0maru").join("wiki");
+        let self_canonical = self.vault_path.canonicalize();
+        if repo_vault.is_dir() {
+            let distinct_vault = match (&self_canonical, repo_vault.canonicalize()) {
+                (Ok(current), Ok(repo)) => current != &repo,
+                (Err(_), Ok(_)) => true,
+                _ => false,
+            };
+            if distinct_vault {
+                if let Ok(repo_rules) = crate::guard::resolve_guard_rules_with_repo(
+                    &repo_vault,
+                    project_name,
+                    Some(&repo_dir),
+                ) {
+                    let mut seen: std::collections::HashSet<(String, String)> = rules
+                        .iter()
+                        .map(|rule| (rule.id.clone(), format!("{:?}", rule.condition)))
+                        .collect();
+                    for rule in repo_rules {
+                        if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                            rules.push(rule);
+                        }
+                    }
+                }
+            }
+        }
 
         let report = if !files.is_empty() {
             let mut file_tuples: Vec<(PathBuf, String)> = Vec::new();
@@ -845,7 +927,8 @@ impl McpServer {
                 "serverInfo": {
                     "name": "k0maru",
                     "version": crate::VERSION
-                }
+                },
+                "instructions": "K0maru-Agent-Memory Autonomous Protocol: 1) Call get_project_loadout(diff=true) at session start. 2) Call recall_memory before searching external docs. 3) Call guard_check before git commit or yielding code edits. 4) On a guard DENY, either fix the code per Remedy or, if the user asked to replace the architecture, call flush_session with category='decision', supersedes=['<source_note>'], and content containing '## Non-Negotiable Invariants\\n- [id] (deny) [glob] forbidden: \"...\" | remediation: \"...\"'. Always stage .k0maru/wiki with code changes."
             }
         })
     }
@@ -860,7 +943,7 @@ impl McpServer {
                     "properties": {
                         "project_name": {
                             "type": "string",
-                            "description": "Target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway')"
+                            "description": "Optional target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway'); auto-detected from repository/vault when omitted"
                         },
                         "diff": {
                             "type": "boolean",
@@ -870,8 +953,7 @@ impl McpServer {
                             "type": "string",
                             "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
                         }
-                    },
-                    "required": ["project_name"]
+                    }
                 }
             },
             {
@@ -953,7 +1035,7 @@ impl McpServer {
                         },
                         "category": {
                             "type": "string",
-                            "description": "Category: 'decision', 'log', 'concept', or custom (default: 'log')"
+                            "description": "Category: 'decision', 'log', 'concept' (alias: 'card'), 'skill', or custom (default: 'log'). A 'card' whose content declares '## Non-Negotiable Invariants' is stored as a decision."
                         },
                         "tags": {
                             "type": "array",

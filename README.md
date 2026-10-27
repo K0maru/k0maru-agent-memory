@@ -1,5 +1,7 @@
 [English](README.md) | [简体中文](README_zh.md)
 
+> 🤖 **Visiting AI Agent / Evaluating this Repo?** Read **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** for the Zero-Human-in-the-Loop Playbook and **[`llms.txt`](llms.txt)** for machine-readable context.
+
 # K0maru-Agent-Memory
 
 > **Turn Your Markdown Wiki / Obsidian Vault into Executable Architectural Memory & `<10ms` Guardrails for AI Coding Agents.**  
@@ -8,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![Tests: 200+ passed](https://img.shields.io/badge/Tests-200%2B_passed-brightgreen.svg)]()
-[![Binary Size: 3.6MB (core) / 33MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_33MB_(bundled_ONNX)-success.svg)]()
+[![Binary Size: 3.6MB (core) / 34MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_34MB_(bundled_ONNX)-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
@@ -25,7 +27,7 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 **K0maru is engineered specifically for local developer workstations, delivering industrial-grade performance with minimal mechanical complexity**:
 
 1. **⚡ Zero-Daemon & Sub-Millisecond Cold Start**:
-   - Pure Rust, statically compiled into a single **3.6MB (core) / 33MB (bundled ONNX)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).
+   - Pure Rust, statically compiled into a single **3.6MB (core) / 34MB (bundled ONNX)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~34MB`).
    - Cold-starts in just **3.38 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
    - Runs on demand via standard Unix pipes and `stdio` streams, releasing all memory immediately upon process exit.
 2. **📝 Bring Your Own Markdown (Topology-Agnostic LLM-Wiki)**:
@@ -137,7 +139,8 @@ For manual setup, add this snippet to your IDE's MCP config:
 
 Or install via the Claude Code Plugin Marketplace:
 ```text
-/plugin add K0maru/k0maru-agent-memory
+/plugin marketplace add K0maru/k0maru-agent-memory
+/plugin install k0maru-memory
 ```
 
 ---
@@ -154,13 +157,13 @@ Or install via the Claude Code Plugin Marketplace:
   ```
 - **Build from Source (Cargo)**:
   ```bash
-  # Standard release bundling fastembed + ONNX Runtime (~33MB)
+  # Standard release bundling fastembed + ONNX Runtime (~34MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
   # Lightweight pure Rust FTS5 + Living ADR Guard core binary (~3.6MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
   ```
-  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~33MB`).*
+  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~34MB`).*
 ---
 
 ### 3. Verify Health & Environment (`k0maru doctor`)
@@ -257,7 +260,7 @@ k0maru flush \
   --category decision \
   --supersedes "ADR-010 Legacy Bus" \
   --summary "Replaced legacy tuple bus with zero-daemon stdio sidecar" \
-  --content "## Non-Negotiable Invariants\n- [no-legacy-bus] forbidden: \"legacy_bus_send\" | remediation: \"Use v2 sidecar RPC\"" \
+  --content $'## Non-Negotiable Invariants\n- [no-legacy-bus] (deny) [src/**/*] forbidden: "legacy_bus_send" | remediation: "Use v2 sidecar RPC"' \
   --tags "tokio,rust,architecture" \
   --vault ~/wiki
 # Distill troubleshooting trace into a reusable skill note
@@ -372,6 +375,15 @@ When connected via FastMCP, K0maru provides the complete suite of long-term memo
 > Add this single instruction to your `AGENTS.md` or global system prompt:  
 > `> Before designing architecture, debugging complex failures, or implementing core logic, inspect the local vault using k0maru-memory to align with historical ADRs and codebase conventions. Run guard_check before completing tasks.`  
 > Agents will proactively consult your security and architectural standards before writing code.
+
+### 🔄 The Complete No-Human-in-the-Loop Lifecycle
+
+K0maru is engineered for zero-human-in-the-loop autonomous execution across the entire agent lifecycle:
+
+1. **SessionStart (Auto-Briefing)**: Claude Code or IDE hook executes `k0maru loadout "<project>" --diff`, injecting a bounded `<300-token` context backpack (mission, recent logs, active ADR rules triggered by current git diff).
+2. **Pre-Yield Autonomous Guard (`hooks.Stop`)**: Before returning execution to the user, Claude Code triggers `k0maru guard check --diff --claude-stop-hook`. If violations exist, it exits with POSIX code 2, forcing the agent to autonomously self-heal (either refactoring code or superseding the old ADR via `k0maru flush --supersedes`) before the human ever sees the response.
+3. **Pre-Commit Gate (`.git/hooks/pre-commit`)**: Evaluates staged changes against Living ADR invariants deterministically in `<10ms`, halting non-compliant commits.
+4. **Post-Commit Synchronization & Crystallization (`.git/hooks/post-commit`)**: Automatically triggers `k0maru sync` (~11ms) and crystallizes structured milestone notes in `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
 
 ### 🎛️ Advanced: Multiplexer & Sidecar Ecosystem (Tern, omp, & K-DSL Wire Protocol)
 

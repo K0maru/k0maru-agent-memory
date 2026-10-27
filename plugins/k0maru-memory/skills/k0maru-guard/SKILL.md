@@ -57,7 +57,7 @@ k0maru guard check --json
 **POSIX Exit Codes**:
 - `0`: All architectural invariants passed.
 - `1`: Blocking violation (`severity = "deny"`) detected.
-- `2`: Internal error or invalid configuration.
+- `2`: Blocking violation in `--claude-stop-hook` mode (feeds `[AGENT_SELF_HEAL_PROTOCOL]` to stderr so the agent self-heals before yielding), or CLI argument/usage error.
 
 ### Seam 3: Git Pre-Commit Hook Installation
 Install the sub-5ms pre-commit sentinel directly into the repository:
@@ -73,7 +73,20 @@ k0maru guard install
 
 Invariants are extracted directly from your knowledge base (LLM-Wiki) or repository config:
 
-### Format A: YAML Frontmatter in ADR / Project Notes (Recommended)
+### Format A: Markdown List Syntax (Recommended for Notes & ADR Bodies)
+Add an `Invariants` section directly to any Markdown note or ADR:
+
+```markdown
+## Non-Negotiable Invariants
+
+- [no-raw-sql-in-controllers] (deny) [src/api/**/*.rs] forbidden: "SELECT " | remediation: "Delegate database operations to repository traits in src/storage/."
+- [must-use-fenced-lease] (deny) [src/settlement/**/*.rs] must_contain: "acquire_fenced_lease" | remediation: "All settlement methods must acquire a distributed fenced lease."
+- [must-propagate-result] (deny) [crates/**/*.rs] forbidden: ".unwrap()" | remediation: "Use ? operator or map_err to propagate custom errors."
+```
+
+**Format**: `- [<id>] (<severity>) [<path_glob>] <forbidden|must_contain>: "<pattern>" | remediation: "<fix_hint>"`
+
+### Format B: YAML Frontmatter in ADR / Project Notes
 Add an `invariants` block to the frontmatter of any markdown card or ADR:
 
 ```yaml
@@ -99,7 +112,7 @@ invariants:
 ---
 ```
 
-### Format B: Local Repository Fallback (`.k0maru/guard.toml`)
+### Format C: Local Repository Fallback (`.k0maru/rules` or `.k0maru/guard.toml`)
 For standalone repositories without an active vault mount:
 
 ```toml
@@ -111,7 +124,6 @@ severity = "deny"
 forbidden = "DANGEROUS_SECRET_KEY"
 remediation = "Use std::env::var or secret manager."
 ```
-
 ---
 
 ## 🛠️ Violation Triage & Auto-Remediation Workflow
@@ -122,15 +134,31 @@ When `guard_check` or `k0maru guard check` returns violations:
 flowchart TD
     Run["Run guard_check / k0maru guard check"] --> Evaluate{"Are there violations?"}
     Evaluate -->|No Violations| Commit["Proceed to git commit / PR"]
-    Evaluate -->|Violations Found| CheckSev{"Severity Level?"}
-    CheckSev -->|warning & non-strict| Warn["Log warning note in review report"]
-    CheckSev -->|deny| Block["BLOCK Commit / Abort Hand-off"]
-    Block --> ReadFix["Read rule id, file:line, and fix_hint"]
-    ReadFix --> Refactor["Refactor violating code lines to comply"]
+    Evaluate -->|Violations Found| CheckType{"Violation Type?"}
+    CheckType -->|Case A: Accidental Bug| Refactor["Refactor code per remediation"]
+    CheckType -->|Case B: Intentional Architectural Evolution| Supersede["k0maru flush --supersedes <old-adr>"]
     Refactor --> Run
+    Supersede --> Stage["git add .k0maru/wiki"]
+    Stage --> Run
 ```
 
+### Case A: Accidental Violation (Code Refactoring)
 1. **Never bypass a `deny` violation** by using `--no-verify` or ignoring the output.
-2. Read the `fix_hint` and inspect the flagged file and line numbers.
+2. Read the `remediation` / `fix_hint` and inspect the flagged file and line numbers.
 3. Refactor the diff so that forbidden patterns are removed or mandatory constraints are met.
 4. Re-run `k0maru guard check --diff` until the sentinel gives green: `✅ Ready to commit`.
+
+### Case B: Legitimate Architectural Evolution (Superseding Stale ADR)
+When the human developer explicitly asks to replace or evolve an older architectural decision:
+1. Do **NOT** delete the guard rule or bypass Git hooks.
+2. Supersede the obsolete ADR using `k0maru flush --supersedes`:
+   ```bash
+   k0maru flush \
+     --category decision \
+     --title "ADR-042: Fenced Distributed Token Lease Standard" \
+     --supersedes "ADR-010: Legacy Redis SetNX Lock" \
+     --summary "Migrated settlement locking to distributed fenced token leases" \
+     --content $'## Non-Negotiable Invariants\n- [fenced-lease-required] (deny) [src/settlement/**/*] must_contain: "acquire_fenced_lease" | remediation: "Use acquire_fenced_lease() for all settlement flows."'
+   ```
+3. Stage the updated knowledge base alongside code changes: `git add .k0maru/wiki`
+4. Re-run `k0maru guard check --diff`. The old invariant is automatically retired and the new invariant takes effect.

@@ -161,7 +161,11 @@ fn scan_readme_summary(repo_path: &Path) -> String {
                 let non_empty_lines: Vec<&str> = content
                     .lines()
                     .map(|l| l.trim())
-                    .filter(|l| !l.is_empty())
+                    .filter(|l| {
+                        !l.is_empty()
+                            && !(l.len() >= 3
+                                && (l.chars().all(|c| c == '=') || l.chars().all(|c| c == '-')))
+                    })
                     .take(40)
                     .collect();
                 if !non_empty_lines.is_empty() {
@@ -171,6 +175,50 @@ fn scan_readme_summary(repo_path: &Path) -> String {
         }
     }
     "Project codebase and operational assets.".to_string()
+}
+
+/// Extracts the first non-heading paragraph from markdown text, stripping leading `>` and `#`.
+pub fn extract_first_paragraph(content: &str) -> String {
+    let mut para_lines = Vec::new();
+    let mut started = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if started {
+                break;
+            }
+            continue;
+        }
+
+        let without_quote = trimmed.trim_start_matches('>').trim();
+        // Skip markdown headings even if wrapped in blockquotes
+        if without_quote.starts_with('#') {
+            if started {
+                break;
+            }
+            continue;
+        }
+
+        let cleaned = without_quote.trim_start_matches('#').trim();
+        let is_setext_underline = cleaned.len() >= 3
+            && (cleaned.chars().all(|c| c == '=') || cleaned.chars().all(|c| c == '-'));
+        if cleaned.is_empty() || is_setext_underline {
+            if started && cleaned.is_empty() {
+                break;
+            }
+            continue;
+        }
+
+        started = true;
+        para_lines.push(cleaned);
+    }
+
+    if !para_lines.is_empty() {
+        para_lines.join(" ")
+    } else {
+        "Core project repository".to_string()
+    }
 }
 
 /// Detects tech stack signatures from manifests and key project files.
@@ -350,10 +398,7 @@ repo: "{repo}"
             title = project_slug,
             date = today,
             repo = project_slug,
-            scope = readme_summary
-                .lines()
-                .next()
-                .unwrap_or("Core project repository"),
+            scope = &extract_first_paragraph(&readme_summary),
             readme = readme_summary,
             tech_stack = tech_stack_bullets.join("\n"),
             rules = agent_rules,
@@ -366,8 +411,12 @@ repo: "{repo}"
     // 2. 20_Cards/adr-001-repository-guardrails.md
     let adr_path = cards_dir.join("adr-001-repository-guardrails.md");
     if !adr_path.exists() {
-        let adr_content = r#"---
-title: "ADR-001 Repository Architectural & Security Guardrails"
+        let adr_content = format!(
+            r#"---
+id: ADR-001
+title: "ADR-001: Baseline Repository Guardrails"
+date: "{date}"
+status: active
 category: decision
 tags:
   - type/card
@@ -382,13 +431,13 @@ invariants:
     remediation: "Never commit private keys; use environment variables or secret managers."
   - id: no-conflict-markers
     title: "No Git Merge Conflict Markers"
-    forbidden: "^(<{7}( |$)|={7}$|>{7}( |$))"
+    forbidden: "^(<{{7}}( |$)|>{{7}}( |$))"
     file_pattern: "**/*"
     severity: "deny"
     remediation: "Resolve all Git merge conflict markers before committing."
 ---
 
-# ADR-001 Repository Architectural & Security Guardrails
+# ADR-001: Baseline Repository Guardrails
 
 ## Context
 Automated coding agents and human developers commit changesets at high velocity. To prevent accidental leakage of cryptographic private keys and prevent unresolved merge conflict markers from polluting production builds, mandatory living invariants are enforced.
@@ -400,7 +449,7 @@ Automated coding agents and human developers commit changesets at high velocity.
    - Scope: all files (`**/*`)
 2. **Never commit Git merge conflict markers**:
    - Condition: forbidden
-   - Pattern: `^(<{7}( |$)|={7}$|>{7}( |$))`
+   - Pattern: `^(<{{7}}( |$)|>{{7}}( |$))`
    - Scope: application code trees
 
 ## Verification & Enforcement
@@ -408,7 +457,9 @@ These invariants are evaluated automatically on every changeset via:
 ```sh
 k0maru guard check --diff
 ```
-"#;
+"#,
+            date = today,
+        );
         fs::write(&adr_path, adr_content)?;
         created_files.push(adr_path);
     }
@@ -463,11 +514,17 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
             cache_dir.join(".gitignore"),
             "cache.sqlite*\nmodels/\nrefs/\n",
         )?;
+        if vault_path.starts_with(&repo_path) {
+            fs::write(
+                vault_path.join(".gitignore"),
+                ".k0maru/\n01_AI_Logs/*-auto-commit-*.md\n",
+            )?;
+        }
         let top_k0maru = repo_path.join(".k0maru");
         if top_k0maru.is_dir() {
             fs::write(
                 top_k0maru.join(".gitignore"),
-                "**/cache.sqlite*\n**/models/\n**/refs/\n",
+                "**/cache.sqlite*\n**/models/\n**/refs/\n**/01_AI_Logs/*-auto-commit-*.md\n",
             )?;
         }
     }
@@ -487,6 +544,7 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
     // agent MCP configuration (which may point at a different existing vault)
     // is reserved for an explicit `k0maru install`.
     let (guard_hook_installed, claude_hook_installed) = if options.install_clients {
+        let _ = install_project_mcp_config(&repo_path, &vault_path);
         crate::install::install_repo_hooks(&repo_path, &vault_path, &project_slug)
     } else {
         (None, None)
@@ -501,6 +559,58 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         guard_hook_installed,
         claude_hook_installed,
     })
+}
+
+/// Configures or merges `<repo_path>/.mcp.json` with the project-scoped k0maru stdio server.
+pub fn install_project_mcp_config(
+    repo_path: &Path,
+    vault_path: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mcp_path = repo_path.join(".mcp.json");
+    let mut root_val = if mcp_path.exists() {
+        let content = fs::read_to_string(&mcp_path)?;
+        serde_json::from_str::<serde_json::Value>(&content)
+            .unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !root_val.is_object() {
+        root_val = serde_json::json!({});
+    }
+
+    let servers = root_val
+        .as_object_mut()
+        .unwrap()
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+
+    let vault_arg = if let Ok(rel) = vault_path.strip_prefix(repo_path) {
+        let s = rel.to_string_lossy().replace('\\', "/");
+        if s.is_empty() {
+            ".k0maru/wiki".to_string()
+        } else {
+            s
+        }
+    } else {
+        ".k0maru/wiki".to_string()
+    };
+
+    servers.as_object_mut().unwrap().insert(
+        "k0maru-memory".to_string(),
+        serde_json::json!({
+            "command": "k0maru",
+            "args": ["mcp", "--vault", vault_arg]
+        }),
+    );
+
+    let formatted = serde_json::to_string_pretty(&root_val)?;
+    fs::write(&mcp_path, format!("{}\n", formatted))?;
+    Ok(mcp_path)
 }
 
 /// Formats a BootstrapReport for clean terminal output.

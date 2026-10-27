@@ -1,5 +1,7 @@
 [English README](README.md) | [中文说明文档](README_zh.md)
 
+> 🤖 **Visiting AI Agent / 来访智能体**: Read **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** for the Zero-Human-in-the-Loop Playbook and **[`llms.txt`](llms.txt)** for machine-readable context.
+
 # ⚡ K0maru-Agent-Memory 极速上手指南 (Quick Start)
 
 本文档带你在 **1 分钟** 内掌握 `k0maru` 的日常核心实操！
@@ -8,7 +10,7 @@
 
 ## 🛠️ 第一步：极速安装
 
-`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB (core) / 33 MB (bundled ONNX)，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
+`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB (core) / 34 MB (bundled ONNX)，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
 
 ### 推荐方式：官方一键安装脚本（macOS & Linux）
 ```bash
@@ -57,6 +59,14 @@ k0maru init --install
 4. ⚡ **秒级构建瞬态缓存**：编译生成 `cache.sqlite` 倒排与向量索引，开箱即用支持 `k0maru loadout` 与 `k0maru guard check --diff`！
 
 接下来即可直接在 Claude Code / Cursor / Codex 中开启会话，智能体会自动读档并受到 Living ADR Guard 严格审查。
+
+### 🔄 智能体全自主无干预闭环运转机制 (No-Human-in-the-Loop)
+
+完成 `init --install` 后，智能体将在全生命周期中自主执行闭环治理，无需人类干预：
+1. **开局自动读档（`SessionStart`）**：自动执行 `k0maru loadout --diff` 注入 `<300 tokens` 项目核心规则与近期提交记录；
+2. **交付前自主审计（Claude Code `hooks.Stop`）**：在输出给用户前自动调用 `k0maru guard check --diff --claude-stop-hook`。若违规退出码为 2，驱动智能体自主修复违规或执行 `k0maru flush --supersedes` 升级 ADR；
+3. **代码提交前置拦截门禁（`.git/hooks/pre-commit`）**：`<10ms` 阻断非合规代码提交；
+4. **提交后增量同步与结晶（`.git/hooks/post-commit`）**：自动增量同步索引并在特性提交时在 `01_AI_Logs/` 结晶里程碑笔记。
 
 ---
 

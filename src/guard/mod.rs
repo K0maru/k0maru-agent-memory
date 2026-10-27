@@ -54,6 +54,11 @@ pub struct GuardCheckArgs {
     #[arg(long)]
     pub json: bool,
 
+    /// Claude Code `Stop` hook mode: audit the working tree, print violations to
+    /// stderr with exit code 2, and stay silent (exit 0) when the audit passes
+    #[arg(long)]
+    pub claude_stop_hook: bool,
+
     /// Strict mode: treat all warnings as blocking errors
     #[arg(long)]
     pub strict: bool,
@@ -924,14 +929,48 @@ pub fn repo_content_reader(root: &Path) -> impl Fn(&Path, &dyn Fn(&str) -> bool)
 }
 
 /// Executes `k0maru guard check`.
+///
+/// In `--claude-stop-hook` mode this behaves like a Claude Code `Stop` hook:
+/// a passing audit exits silently, a failing audit writes the report to stderr
+/// and exits 2 (the code Claude Code feeds back to the agent). The hook payload
+/// on stdin is read only to honor `stop_hook_active`, so a continuation can
+/// never loop forever.
 pub fn run_guard_check(
     args: GuardCheckArgs,
     vault_path: &Path,
 ) -> Result<GuardReport, Box<dyn std::error::Error>> {
     let wall_start = std::time::Instant::now();
 
+    // Stop-hook payloads arrive as JSON on stdin, never as a unified diff.
+    let hook_payload: Option<String> = if args.claude_stop_hook && !std::io::stdin().is_terminal() {
+        let mut payload = String::new();
+        match std::io::stdin().read_to_string(&mut payload) {
+            Ok(_) => Some(payload),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    if let Some(payload) = hook_payload.as_deref() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+            if value.get("stop_hook_active").and_then(|v| v.as_bool()) == Some(true) {
+                // Already continuing because of this hook: exit 0 silently.
+                return Ok(GuardReport::new(0, 0, Vec::new(), 0));
+            }
+        }
+    }
+
     if !vault_path.exists() {
-        return Err(format!("Vault path does not exist: '{}'", vault_path.display()).into());
+        if args.claude_stop_hook {
+            // An uninitialized repository must never trap the agent.
+            return Ok(GuardReport::new(0, 0, Vec::new(), 0));
+        }
+        return Err(format!(
+            "[FAIL] Vault path does not exist: '{}'. Run 'k0maru init --install' to initialize this repository.",
+            vault_path.display()
+        )
+        .into());
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -949,7 +988,9 @@ pub fn run_guard_check(
         }
         GuardEngine::check_files(&file_tuples, &rules)
     } else {
-        let diff_text = if !std::io::stdin().is_terminal() {
+        let diff_text = if hook_payload.is_some() {
+            get_git_diff_with_mode(&root, args.branch.as_deref(), args.staged)?
+        } else if !std::io::stdin().is_terminal() {
             let mut stdin_str = String::new();
             std::io::stdin().read_to_string(&mut stdin_str)?;
             if !stdin_str.trim().is_empty() {
@@ -973,6 +1014,26 @@ pub fn run_guard_check(
 
     // Report end-to-end wall time: rule resolution + git diff + engine audit.
     report.duration_ms = wall_start.elapsed().as_millis();
+
+    if args.claude_stop_hook {
+        if report.is_passed {
+            return Ok(report);
+        }
+        // Exit code 2 is Claude Code's blocking hook contract: stderr is fed
+        // straight back to the agent as the reason the turn cannot end.
+        eprintln!("{}", format_guard_report(&report));
+        std::process::exit(2);
+    }
+
+    if !report.is_passed && !args.json {
+        // Surface the same recovery protocol on both streams so pipelines that
+        // only capture stdout or only capture stderr both see it.
+        println!("{}", format_guard_report(&report));
+        if let Some(protocol) = self_heal_protocol(&report) {
+            eprintln!("{}", protocol);
+        }
+        std::process::exit(1);
+    }
 
     Ok(report)
 }
@@ -1019,34 +1080,74 @@ fn resolve_hooks_dir(repo_dir: &Path) -> PathBuf {
     repo_dir.join(".git").join("hooks")
 }
 
-/// Builds the fail-closed pre-commit guard snippet.
+/// Canonicalizes `path`, resolving the nearest existing ancestor when the leaf
+/// does not exist yet (e.g. an uninitialized `.k0maru/wiki`).
 ///
-/// The snippet aborts the commit when the audit fails (`|| exit 1`) and also
-/// when no `k0maru` binary can be located, unless `K0MARU_GUARD_OPTIONAL=1`.
-fn build_guard_sentinel(vault: Option<&Path>) -> String {
-    let vault_arg = match vault {
-        Some(path) => format!(" --vault \"{}\"", path.display()),
-        None => String::new(),
+/// This keeps generated hook paths stable across macOS `/var` -> `/private/var`
+/// symlinks without requiring the target directory to exist.
+pub(crate) fn canonicalize_best_effort(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+
+    let mut missing: Vec<std::ffi::OsString> = Vec::new();
+    let mut current = path;
+    loop {
+        let Some(parent) = current.parent() else {
+            return path.to_path_buf();
+        };
+        if let Some(name) = current.file_name() {
+            missing.push(name.to_os_string());
+        }
+        if let Ok(canonical_parent) = parent.canonicalize() {
+            let mut resolved = canonical_parent;
+            for name in missing.iter().rev() {
+                resolved.push(name);
+            }
+            return resolved;
+        }
+        current = parent;
+    }
+}
+
+/// Renders the `--vault "<path>"` argument for a generated Git hook.
+///
+/// A vault living inside the repository is referenced through `$REPO_ROOT`
+/// (resolved at hook runtime) so moving or cloning the repository never leaves
+/// a machine-specific `/Users/...` or `/private/tmp/...` path baked into
+/// `.git/hooks`. Only a vault outside the repository keeps an absolute path.
+fn hook_vault_arg(vault: Option<&Path>, repo_dir: &Path) -> String {
+    let Some(vault) = vault else {
+        return String::new();
     };
 
-    // Fall back to the binary that installed the hook: PATH may not include the
-    // non-standard location the user is currently running from.
-    let exe_fallback = std::env::current_exe()
+    let canonical_repo = canonicalize_best_effort(repo_dir);
+    let canonical_vault = canonicalize_best_effort(vault);
+
+    let relative = canonical_vault
+        .strip_prefix(&canonical_repo)
         .ok()
-        .map(|path| path.display().to_string())
+        .or_else(|| vault.strip_prefix(repo_dir).ok());
+
+    match relative {
+        Some(relative) if !relative.as_os_str().is_empty() => {
+            let slashed = relative.to_string_lossy().replace('\\', "/");
+            format!(" --vault \"$REPO_ROOT/{}\"", slashed.trim_matches('/'))
+        }
+        _ => format!(" --vault \"{}\"", vault.display()),
+    }
+}
+
+/// Resolves the `k0maru` binary at hook runtime, with a hard-coded fallback to
+/// the binary that installed the hook (PATH may not include it).
+fn hook_binary_resolver(exe: Option<&str>) -> String {
+    let exe_fallback = exe
         .filter(|path| !path.is_empty())
-        .map(|path| {
-            format!(
-                "elif [ -x \"{path}\" ]; then\n    K0MARU_BIN=\"{path}\"\n",
-                path = path
-            )
-        })
+        .map(|path| format!("elif [ -x \"{path}\" ]; then\n    K0MARU_BIN=\"{path}\"\n"))
         .unwrap_or_default();
 
     format!(
-        r#"# --- k0maru guard sentinel ---
-# k0maru guard check --diff --staged (fail-closed)
-if command -v k0maru >/dev/null 2>&1; then
+        r#"if command -v k0maru >/dev/null 2>&1; then
     K0MARU_BIN="$(command -v k0maru)"
 elif [ -x "$HOME/.local/bin/k0maru" ]; then
     K0MARU_BIN="$HOME/.local/bin/k0maru"
@@ -1055,7 +1156,29 @@ elif [ -x "$HOME/.cargo/bin/k0maru" ]; then
 {exe_fallback}else
     K0MARU_BIN=""
 fi
+"#,
+        exe_fallback = exe_fallback
+    )
+}
 
+/// Builds the fail-closed pre-commit guard snippet.
+///
+/// The snippet aborts the commit when the audit fails (`|| exit 1`) and also
+/// when no `k0maru` binary can be located, unless `K0MARU_GUARD_OPTIONAL=1`.
+fn build_guard_sentinel(vault: Option<&Path>, repo_dir: &Path) -> String {
+    let vault_arg = hook_vault_arg(vault, repo_dir);
+
+    // Fall back to the binary that installed the hook: PATH may not include the
+    // non-standard location the user is currently running from.
+    let exe_fallback = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string());
+
+    format!(
+        r#"# --- k0maru guard sentinel ---
+# k0maru guard check --diff --staged (fail-closed)
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+{binary_resolver}
 if [ -z "$K0MARU_BIN" ]; then
     if [ "${{K0MARU_GUARD_OPTIONAL:-0}}" = "1" ]; then
         echo "k0maru not found; K0MARU_GUARD_OPTIONAL=1 so the architectural guard check is skipped."
@@ -1068,8 +1191,137 @@ else
     "$K0MARU_BIN" guard check --diff --staged{vault_arg} || exit 1
 fi
 # --- end k0maru guard sentinel ---"#,
-        exe_fallback = exe_fallback
+        binary_resolver = hook_binary_resolver(exe_fallback.as_deref()),
+        vault_arg = vault_arg
     )
+}
+
+/// Builds the `post-commit` memory-capture snippet.
+///
+/// It refreshes the vault cache after every commit and, for conventional
+/// commit messages (`feat:`, `fix(scope):`, `adr!:` ...), records a log note.
+/// Every command is best-effort (`|| true`) so a vault problem can never fail
+/// the commit, and rebase/merge replays are skipped so synthetic commits are
+/// not captured.
+fn build_post_commit_sentinel(vault: Option<&Path>, repo_dir: &Path) -> String {
+    let vault_path_expr = match hook_vault_arg(vault, repo_dir) {
+        // `--vault "$REPO_ROOT/.k0maru/wiki"` -> `"$REPO_ROOT/.k0maru/wiki"`
+        arg if arg.starts_with(" --vault ") => arg[" --vault ".len()..].to_string(),
+        _ => "\"$REPO_ROOT/.k0maru/wiki\"".to_string(),
+    };
+
+    let exe_fallback = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string());
+
+    format!(
+        r#"# --- k0maru post-commit sentinel ---
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+{binary_resolver}
+VAULT_PATH={vault_path_expr}
+
+if [ -n "$K0MARU_BIN" ]; then
+    "$K0MARU_BIN" sync --vault "$VAULT_PATH" >/dev/null 2>&1 || true
+
+    if [ ! -d "$REPO_ROOT/.git/rebase-merge" ] && [ ! -d "$REPO_ROOT/.git/rebase-apply" ]; then
+        COMMIT_MSG="$(git log -1 --pretty=%s)"
+        if printf '%s' "$COMMIT_MSG" | grep -Eq '^(feat|fix|refactor|perf|adr)(\(.+\))?!?:'; then
+            "$K0MARU_BIN" flush --vault "$VAULT_PATH" --category log --title "Auto-Commit $(git rev-parse --short HEAD): $COMMIT_MSG" --content "$(git show --stat --oneline HEAD)" >/dev/null 2>&1 || true
+            "$K0MARU_BIN" sync --vault "$VAULT_PATH" >/dev/null 2>&1 || true
+        fi
+    fi
+fi
+# --- end k0maru post-commit sentinel ---"#,
+        binary_resolver = hook_binary_resolver(exe_fallback.as_deref()),
+        vault_path_expr = vault_path_expr
+    )
+}
+
+/// Sentinel markers identifying an already-installed k0maru hook block.
+struct SentinelMarkers {
+    start: &'static str,
+    end: &'static str,
+}
+
+const GUARD_SENTINEL: SentinelMarkers = SentinelMarkers {
+    start: "# --- k0maru guard sentinel ---",
+    end: "# --- end k0maru guard sentinel ---",
+};
+
+const POST_COMMIT_SENTINEL: SentinelMarkers = SentinelMarkers {
+    start: "# --- k0maru post-commit sentinel ---",
+    end: "# --- end k0maru post-commit sentinel ---",
+};
+
+/// Writes (or upgrades in place) a sentinel block inside a Git hook script.
+///
+/// Idempotent: an identical block is a no-op, an older block is replaced, and
+/// an existing hook keeps its own logic — the sentinel is inserted before a
+/// trailing `exit 0` so it actually executes.
+fn install_sentinel_block(
+    hook_path: &Path,
+    sentinel: &str,
+    markers: &SentinelMarkers,
+    header: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if hook_path.exists() {
+        let existing = fs::read_to_string(hook_path)?;
+
+        // The marker — not a textual mention inside an echo or comment — is the
+        // source of truth for "already installed".
+        if existing.contains(sentinel) {
+            return Ok(());
+        }
+        if let Some(start) = existing.find(markers.start) {
+            if let Some(end_rel) = existing[start..].find(markers.end) {
+                // Upgrade an older sentinel in place (`--diff` -> `--diff --staged`).
+                let end = start + end_rel + markers.end.len();
+                let rewritten = format!("{}{}{}", &existing[..start], sentinel, &existing[end..]);
+                fs::write(hook_path, rewritten)?;
+                return Ok(());
+            }
+        }
+
+        // Insert before a trailing `exit 0` so the sentinel actually executes.
+        let trimmed_end = existing.trim_end();
+        let chained = match trimmed_end.strip_suffix("exit 0") {
+            Some(prefix) if !prefix.trim().is_empty() => {
+                format!("{}\n{}\nexit 0\n", prefix.trim_end(), sentinel)
+            }
+            _ => {
+                let first_line = existing.lines().next().unwrap_or("");
+                if first_line.starts_with("#!") {
+                    let body = existing
+                        .split_once('\n')
+                        .map(|(_, rest)| rest.trim_end())
+                        .unwrap_or("");
+                    if body.is_empty() {
+                        format!("{}\n\n{}\n", first_line, sentinel)
+                    } else {
+                        format!("{}\n\n{}\n\n{}\n", first_line, sentinel, body)
+                    }
+                } else {
+                    format!("{}\n\n{}\n", trimmed_end, sentinel)
+                }
+            }
+        };
+        fs::write(hook_path, chained)?;
+    } else {
+        let script = format!("#!/bin/sh\n{}\n\n{}\n", header, sentinel);
+        fs::write(hook_path, script)?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(hook_path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(hook_path, perms);
+        }
+    }
+
+    Ok(())
 }
 
 /// Installs the `k0maru guard check --diff` pre-commit hook into the repo hooks directory.
@@ -1097,70 +1349,51 @@ pub fn run_guard_install(args: GuardInstallArgs) -> Result<PathBuf, Box<dyn std:
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join(&args.hook);
-    let sentinel = build_guard_sentinel(vault_for_hook.as_deref());
+    let sentinel = build_guard_sentinel(vault_for_hook.as_deref(), &repo_dir);
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
 
         // The marker — not a textual mention of `k0maru guard check` inside an
         // echo or comment — is the source of truth for "already installed".
-        const SENTINEL_START: &str = "# --- k0maru guard sentinel ---";
-        const SENTINEL_END: &str = "# --- end k0maru guard sentinel ---";
         if existing.contains(sentinel.as_str()) {
+            // The pre-commit guard is already current; still keep the
+            // post-commit capture hook in sync below.
+            if args.hook == "pre-commit" {
+                install_post_commit_hook(&hooks_dir, vault_for_hook.as_deref(), &repo_dir)?;
+            }
             return Ok(hook_path);
         }
-        if let Some(start) = existing.find(SENTINEL_START) {
-            if let Some(end_rel) = existing[start..].find(SENTINEL_END) {
-                // Upgrade an older sentinel in place (`--diff` -> `--diff --staged`).
-                let end = start + end_rel + SENTINEL_END.len();
-                let rewritten = format!("{}{}{}", &existing[..start], sentinel, &existing[end..]);
-                fs::write(&hook_path, rewritten)?;
-                return Ok(hook_path);
-            }
-        }
-
-        // Insert before a trailing `exit 0` so the guard actually executes.
-        let trimmed_end = existing.trim_end();
-        let chained = match trimmed_end.strip_suffix("exit 0") {
-            Some(prefix) if !prefix.trim().is_empty() => {
-                format!("{}\n{}\nexit 0\n", prefix.trim_end(), sentinel)
-            }
-            _ => {
-                let first_line = existing.lines().next().unwrap_or("");
-                if first_line.starts_with("#!") {
-                    let body = existing
-                        .split_once('\n')
-                        .map(|(_, rest)| rest.trim_end())
-                        .unwrap_or("");
-                    if body.is_empty() {
-                        format!("{}\n\n{}\n", first_line, sentinel)
-                    } else {
-                        format!("{}\n\n{}\n\n{}\n", first_line, sentinel, body)
-                    }
-                } else {
-                    format!("{}\n\n{}\n", trimmed_end, sentinel)
-                }
-            }
-        };
-        fs::write(&hook_path, chained)?;
-    } else {
-        let script = format!(
-            "#!/bin/sh\n# k0maru guard pre-commit hook\n# Automatically generated by `k0maru guard install`\n\n{}\n",
-            sentinel
-        );
-        fs::write(&hook_path, script)?;
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = fs::metadata(&hook_path) {
-            let mut perms = metadata.permissions();
-            perms.set_mode(0o755);
-            let _ = fs::set_permissions(&hook_path, perms);
-        }
+    install_sentinel_block(
+        &hook_path,
+        &sentinel,
+        &GUARD_SENTINEL,
+        "# k0maru guard pre-commit hook\n# Automatically generated by `k0maru guard install`",
+    )?;
+
+    if args.hook == "pre-commit" {
+        install_post_commit_hook(&hooks_dir, vault_for_hook.as_deref(), &repo_dir)?;
     }
 
+    Ok(hook_path)
+}
+
+/// Installs the best-effort `post-commit` capture hook next to the guard hook.
+fn install_post_commit_hook(
+    hooks_dir: &Path,
+    vault: Option<&Path>,
+    repo_dir: &Path,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let hook_path = hooks_dir.join("post-commit");
+    let sentinel = build_post_commit_sentinel(vault, repo_dir);
+    install_sentinel_block(
+        &hook_path,
+        &sentinel,
+        &POST_COMMIT_SENTINEL,
+        "# k0maru post-commit memory capture hook\n# Automatically generated by `k0maru guard install`",
+    )?;
     Ok(hook_path)
 }
 
@@ -1246,5 +1479,40 @@ pub fn format_guard_report(report: &GuardReport) -> String {
         ));
     }
 
+    if let Some(protocol) = self_heal_protocol(report) {
+        out.push('\n');
+        out.push_str(&protocol);
+    }
+
     out
+}
+
+/// Builds the copy-pasteable recovery protocol appended to a failing report.
+///
+/// Both the human CLI and the Claude Code `Stop` hook surface this block, so an
+/// agent can either fix the code or legitimately replace the ADR in a single
+/// commit instead of disabling the check (`--no-verify`).
+pub fn self_heal_protocol(report: &GuardReport) -> Option<String> {
+    if report.is_passed {
+        return None;
+    }
+
+    let source_note = report
+        .violations
+        .iter()
+        .find(|violation| violation.severity == RuleSeverity::Deny)
+        .or_else(|| report.violations.first())
+        .map(|violation| violation.source_note.clone())
+        .filter(|note| !note.trim().is_empty())
+        .unwrap_or_else(|| "<SOURCE_NOTE>".to_string());
+
+    Some(format!(
+        r#"[AGENT_SELF_HEAL_PROTOCOL]
+1. Fix the code: Refactor the violating line(s) to satisfy the Remedy above, then re-run `k0maru guard check --diff`.
+2. Legitimate Architecture Replacement (ONLY if the user asked to replace this ADR):
+   k0maru flush --category decision --title "ADR-New: <Title>" --supersedes "{source_note}" --content $'## Non-Negotiable Invariants\n- [<new-rule-id>] (deny) [src/**/*] forbidden: "<pattern>" | remediation: "<remedy>"'
+   Then stage the updated vault (`git add .k0maru/wiki`) in the same commit. Never use `--no-verify`.
+"#,
+        source_note = source_note
+    ))
 }

@@ -197,6 +197,24 @@ diff --git a/src/main.rs b/src/main.rs
     let report_clean = GuardEngine::check_diff(clean_diff, &rules);
     assert!(report_clean.is_passed, "Clean diff must pass guard");
 
+    // 4b. Setext markdown headings (=======) must NOT be flagged as conflict markers
+    let setext_heading_diff = r#"
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,4 @@
+ # Title
++Changelog
++=======
++- Initial release notes
+"#;
+    let report_setext = GuardEngine::check_diff(setext_heading_diff, &rules);
+    assert!(
+        report_setext.is_passed,
+        "Setext markdown headings ======= must pass ADR-001: {:?}",
+        report_setext.violations
+    );
+
     // 5. Context Loadout verification: instant retrieval from indexed SQLite
     let adapter = ObsidianAdapter::new(&report.vault_path);
     let cache_db = report.vault_path.join(".k0maru").join("cache.sqlite");
@@ -280,4 +298,65 @@ fn test_install_repo_hooks_with_git() {
     assert!(claude_hook.is_some(), "Claude hook should be installed");
     let ch = claude_hook.unwrap();
     assert!(ch.exists());
+}
+
+#[test]
+fn test_bootstrap_install_clients_creates_mcp_json() {
+    let repo_dir = tempdir().unwrap();
+    let repo_path = repo_dir.path();
+
+    fs::write(
+        repo_path.join("Cargo.toml"),
+        r#"[package]
+name = "mcp-test-repo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    fs::write(repo_path.join("README.md"), "# MCP Test Repo").unwrap();
+
+    let options = BootstrapOptions {
+        repo_path: repo_path.to_path_buf(),
+        vault_path: None,
+        project_name: None,
+        install_clients: true,
+        home_override: None,
+    };
+
+    let _report = run_bootstrap(options).expect("bootstrap should succeed");
+
+    let mcp_file = repo_path.join(".mcp.json");
+    assert!(
+        mcp_file.exists(),
+        ".mcp.json must be created when install_clients is true"
+    );
+
+    let content = fs::read_to_string(&mcp_file).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&content).expect("valid json in .mcp.json");
+
+    let server = parsed
+        .get("mcpServers")
+        .and_then(|s| s.get("k0maru-memory"))
+        .expect("mcpServers.k0maru-memory");
+
+    assert_eq!(
+        server.get("command").and_then(|c| c.as_str()),
+        Some("k0maru")
+    );
+    let args = server
+        .get("args")
+        .and_then(|a| a.as_array())
+        .expect("args array");
+    assert_eq!(args[0].as_str(), Some("mcp"));
+    assert_eq!(args[1].as_str(), Some("--vault"));
+    assert_eq!(args[2].as_str(), Some(".k0maru/wiki"));
+}
+
+#[test]
+fn test_extract_first_paragraph_skips_headings_and_blockquotes() {
+    let content =
+        "# Project Heading\n\n> # Quoted Heading\n\nActual first paragraph.\nSecond line.";
+    let extracted = k0maru::bootstrap::extract_first_paragraph(content);
+    assert_eq!(extracted, "Actual first paragraph. Second line.");
 }

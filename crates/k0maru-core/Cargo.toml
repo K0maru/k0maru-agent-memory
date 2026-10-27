@@ -4,6 +4,9 @@ version = "1.0.0"
 edition = "2021"
 description = "Cleanroom, single-static-binary core library for K0maru Agent Memory Hub"
 license = "MIT"
+rust-version = "1.88"
+repository = "https://github.com/K0maru/k0maru-agent-memory"
+homepage = "https://github.com/K0maru/k0maru-agent-memory"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

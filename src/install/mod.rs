@@ -513,9 +513,114 @@ fn strip_trailing_commas(input: &str) -> String {
     out
 }
 
+/// Renders the `--vault` value used inside `.claude/settings.local.json`.
+///
+/// A vault inside the project is referenced with a project-relative path
+/// (e.g. `.k0maru/wiki`) because Claude Code runs hooks from the project root;
+/// this keeps the committed settings portable across machines and directory
+/// moves. A vault outside the project keeps its absolute path.
+fn portable_claude_vault_arg(repo_path: &Path, vault_path: &Path) -> String {
+    let canonical_repo = crate::guard::canonicalize_best_effort(repo_path);
+    let canonical_vault = crate::guard::canonicalize_best_effort(vault_path);
+
+    let relative = canonical_vault
+        .strip_prefix(&canonical_repo)
+        .ok()
+        .or_else(|| vault_path.strip_prefix(repo_path).ok());
+
+    relative
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| vault_path.to_string_lossy().to_string())
+}
+
+/// Registers (or upgrades) a k0maru command inside a Claude Code hook event.
+///
+/// Accepts every schema shape Claude Code has shipped (bare string, object
+/// with `command`, object with a nested `hooks` array). An existing k0maru
+/// entry is rewritten in place to the current command, which makes repeated
+/// installs idempotent and upgrades stale flags/paths.
+fn upsert_claude_hook_command(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    command_marker: &str,
+    command: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if !hooks_obj.contains_key(event) || !hooks_obj[event].is_array() {
+        hooks_obj.insert(event.to_string(), serde_json::json!([]));
+    }
+
+    let entries = hooks_obj
+        .get_mut(event)
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| format!("Field 'hooks.{}' must be a JSON array", event))?;
+
+    let command_value = || serde_json::Value::String(command.to_string());
+    let mut configured = false;
+
+    for entry in entries.iter_mut() {
+        if let Some(nested) = entry
+            .get_mut("hooks")
+            .and_then(|value| value.as_array_mut())
+        {
+            for hook in nested.iter_mut() {
+                let matches = hook
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.contains(command_marker))
+                    .unwrap_or(false);
+                if matches {
+                    if let Some(obj) = hook.as_object_mut() {
+                        obj.insert("command".to_string(), command_value());
+                    }
+                    configured = true;
+                }
+            }
+        }
+
+        if entry
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(|value| value.contains(command_marker))
+            .unwrap_or(false)
+        {
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("command".to_string(), command_value());
+            }
+            configured = true;
+        }
+
+        let bare_match = entry
+            .as_str()
+            .map(|value| value.contains(command_marker))
+            .unwrap_or(false);
+        if bare_match {
+            *entry = command_value();
+            configured = true;
+        }
+    }
+
+    if !configured {
+        // Claude Code's official hook schema groups commands under a `hooks`
+        // array on a matcher entry.
+        entries.push(serde_json::json!({
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": command
+                }
+            ]
+        }));
+    }
+
+    Ok(())
+}
+
 /// Creates or safely merges `<repo_path>/.claude/settings.local.json`, registering a
 /// non-destructive `hooks.SessionStart` command entry that automatically briefs Claude Code
-/// with the sub-300-token project loadout at session initiation.
+/// with the sub-300-token project loadout at session initiation, plus a `hooks.Stop`
+/// guard check that blocks the turn on architectural invariant violations.
 pub fn install_claude_project_hooks(
     repo_path: &Path,
     vault_path: &Path,
@@ -555,58 +660,23 @@ pub fn install_claude_project_hooks(
         .and_then(|v| v.as_object_mut())
         .ok_or("Field 'hooks' must be a JSON object")?;
 
-    if !hooks_obj.contains_key("SessionStart") || !hooks_obj["SessionStart"].is_array() {
-        hooks_obj.insert("SessionStart".to_string(), serde_json::json!([]));
-    }
-
-    let session_start_arr = hooks_obj
-        .get_mut("SessionStart")
-        .and_then(|v| v.as_array_mut())
-        .ok_or("Field 'SessionStart' must be a JSON array")?;
-
-    let vault_str = vault_path.to_string_lossy();
+    let vault_arg = portable_claude_vault_arg(repo_path, vault_path);
     let loadout_cmd = format!(
-        "k0maru loadout \"{}\" --vault \"{}\"",
-        project_slug, vault_str
+        "k0maru loadout \"{}\" --diff --vault \"{}\"",
+        project_slug, vault_arg
+    );
+    let stop_cmd = format!(
+        "k0maru guard check --diff --claude-stop-hook --vault \"{}\"",
+        vault_arg
     );
 
-    let is_loadout_command = |command: &str| command.contains("k0maru loadout");
-
-    let already_configured = session_start_arr.iter().any(|entry| {
-        if let Some(cmd) = entry.get("command").and_then(|c| c.as_str()) {
-            if is_loadout_command(cmd) {
-                return true;
-            }
-        }
-        if let Some(single) = entry.as_str() {
-            if is_loadout_command(single) {
-                return true;
-            }
-        }
-        if let Some(hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
-            return hooks.iter().any(|hook| {
-                hook.get("command")
-                    .and_then(|c| c.as_str())
-                    .map(is_loadout_command)
-                    .unwrap_or(false)
-            });
-        }
-        false
-    });
-
-    if !already_configured {
-        // Claude Code's official hook schema groups commands under a `hooks`
-        // array on a matcher entry.
-        session_start_arr.push(serde_json::json!({
-            "matcher": "",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": loadout_cmd
-                }
-            ]
-        }));
-    }
+    upsert_claude_hook_command(hooks_obj, "SessionStart", "k0maru loadout", &loadout_cmd)?;
+    upsert_claude_hook_command(
+        hooks_obj,
+        "Stop",
+        "guard check --diff --claude-stop-hook",
+        &stop_cmd,
+    )?;
 
     let formatted = serde_json::to_string_pretty(&root)?;
     let content_with_newline = if formatted.ends_with('\n') {
