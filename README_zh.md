@@ -1,6 +1,10 @@
 [English](README.md) | [简体中文](README_zh.md)
 
-> 🤖 **来访智能体 / 评估本项目？** 请阅读 **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** 获取智能体全自主运行指南与工程落地操作手册，阅读 **[`llms.txt`](llms.txt)** 获取机器可读架构与基准信息。
+> 🤖 **一句话让 AI 自动接入（Claude Code / Cursor / Windsurf / Cline / `omp`）**：在任意代码仓库中打开你的 AI 编码工具，直接发送这一句话即可全自动完成安装与闭环挂载：
+> ```text
+> Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
+> ```
+> *（智能体全自主运行手册：**[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** · 机器可读规格：**[`llms.txt`](llms.txt)**）*
 
 # K0maru-Agent-Memory
 
@@ -88,10 +92,19 @@
 
 ## 🚀 安装与快速上手 (Quick Start & Installation)
 
-详细步骤与多智能体进阶指南见 [QUICKSTART.md](QUICKSTART.md)。
+详细步骤与多智能体进阶指南见 [QUICKSTART.md](QUICKSTART.md) 与 [AGENT_GUIDE.md](AGENT_GUIDE.md)。
 
-### ⚡ 30 秒零知识库极速冷启动（无需提前安装 Obsidian！）
+### 🤖 方案 A（零人工干预）：给你的 AI 编码工具发一句话
 
+无论你在 **Claude Code、Cursor、Windsurf、Cline 还是 `omp`** 中打开一个全新的代码仓库，只需要给 AI 发一句话：
+
+```text
+Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
+```
+
+AI Agent 会自动完成单二进制安装、生成 `.k0maru/wiki/`、挂载项目级 `.mcp.json` + `.claude/settings.local.json`（`SessionStart` 自动读档 + `Stop` 交卷前自检自愈钩子）以及 `.git/hooks/{pre-commit,post-commit}` 的全部配置，进入 **100% Zero-Human-in-the-Loop** 自治闭环。
+
+### ⚡ 方案 B（命令行）：30 秒零知识库极速冷启动（无需提前安装 Obsidian！）
 只有一个 Git 仓库？完全不需要提前准备 Obsidian 或手动整理笔记。在你的项目根目录下运行两条命令：
 
 ```bash
@@ -108,12 +121,12 @@ k0maru init --install
   - `10_Projects/<project_slug>.md`：自动提取项目核心架构、模块边界与工程指南；
   - `20_Cards/adr-001-repository-guardrails.md`：首张活体 ADR 守卫卡片，内置可执行正则与边界规则（自动阻断敏感密钥泄漏、调试 dump 与违规提交）；
   - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`：根据 Git 提交历史自动生成初始交接日志；
-- 🔗 **自动挂载 FastMCP 与钩子**：将 FastMCP 写入 Claude Code、Cursor、Codex、Windsurf、Gemini CLI、Cline 等已安装工具，并安装 `.git/hooks/pre-commit`（代码提交前架构审查）与 Claude Code `SessionStart` 自动读档钩子（`k0maru install --hooks`）；
+- 🔗 **自动挂载 FastMCP 与全生命周期钩子**：生成项目级 `.mcp.json` 与 `.claude/settings.local.json`（`SessionStart` `<300-token` Diff 自动读档 + `Stop` 交卷前 `exit 2` 自愈守卫），并安装 `.git/hooks/pre-commit`（`<10ms` 代码提交前架构审查）与 `.git/hooks/post-commit`（提交后自动同步索引并记录里程碑）；
 - ⚡ **秒级构建瞬态缓存**：编译生成 `cache.sqlite` 倒排与向量索引，开箱即用支持 `k0maru loadout` 与 `k0maru guard check --diff`！
 
 ---
 
-### 方案 B：挂载已有 Markdown / Obsidian 知识库 (Power Users)
+### 方案 C：挂载已有 Markdown / Obsidian 知识库 (Power Users)
 
 如果您已有长期维护的 Obsidian 库、PARA 笔记或工程 Wiki：
 

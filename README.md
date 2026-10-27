@@ -1,6 +1,10 @@
 [English](README.md) | [简体中文](README_zh.md)
 
-> 🤖 **Visiting AI Agent / Evaluating this Repo?** Read **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** for the Zero-Human-in-the-Loop Playbook and **[`llms.txt`](llms.txt)** for machine-readable context.
+> 🤖 **Zero-Human AI Setup (Claude Code / Cursor / Windsurf / Cline / `omp`)**: Open any repository in your coding agent and paste this single sentence:
+> ```text
+> Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
+> ```
+> *(Full autonomous playbook: **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** · Machine-readable spec: **[`llms.txt`](llms.txt)**)*
 
 # K0maru-Agent-Memory
 
@@ -88,10 +92,19 @@ Simulated an enterprise-grade payment gateway LLM-Wiki on Colab (containing P0 s
 
 ## 🚀 Quick Start & Installation
 
-For deep-dive walkthroughs and multi-agent setup, see [QUICKSTART.md](QUICKSTART.md).
+For deep-dive walkthroughs and multi-agent setup, see [QUICKSTART.md](QUICKSTART.md) and [AGENT_GUIDE.md](AGENT_GUIDE.md).
 
-### ⚡ 30-Second Zero-Vault Quick Start (No Obsidian Required!)
+### 🤖 Option A (Zero-Human): Paste One Sentence to Your Coding Agent
 
+Open any repository in **Claude Code, Cursor, Windsurf, Cline, or `omp`** and send:
+
+```text
+Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
+```
+
+Your agent will automatically install the binary, bootstrap `.k0maru/wiki/`, wire project-scoped `.mcp.json` + `.claude/settings.local.json` (`SessionStart` + `Stop` self-heal hooks), and install `.git/hooks/{pre-commit,post-commit}`.
+
+### ⚡ Option B (CLI): 30-Second Zero-Vault Quick Start (No Obsidian Required!)
 Only have a Git repository? You don't need Obsidian or an existing Markdown vault. Run two commands inside your repository root:
 
 ```bash
@@ -108,12 +121,12 @@ k0maru init --install
   - `10_Projects/<project_slug>.md`: Project architectural scope, module seams, and operational guidelines.
   - `20_Cards/adr-001-repository-guardrails.md`: Initial Living ADR card with executable regex/boundary invariants (blocks secret leaks, debug dumps, and rule violations).
   - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`: Initial handoff log summarizing recent commits and development momentum.
-- 🔗 **Wires FastMCP & Hooks**: Injects FastMCP configurations into Claude Code, Cursor, Codex, Windsurf, Gemini CLI, Cline, etc., and installs `.git/hooks/pre-commit` (blocks non-compliant commits) and Claude Code `SessionStart` hooks (`k0maru install --hooks`).
+- 🔗 **Wires FastMCP & Full Lifecycle Hooks**: Generates project-scoped `.mcp.json` and `.claude/settings.local.json` (`SessionStart` `<300-token` diff-aware loadout + `Stop` exit-2 self-heal guard), and installs `.git/hooks/pre-commit` (blocks non-compliant commits in `<10ms`) and `.git/hooks/post-commit` (auto-syncs and logs conventional commits).
 - ⚡ **Builds Disposable Cache**: Compiles `cache.sqlite` with FTS5 and vector indices so `k0maru loadout` and `k0maru guard check --diff` work immediately!
 
 ---
 
-### Option B: Bring Your Own Markdown / Obsidian Vault
+### Option C: Bring Your Own Markdown / Obsidian Vault
 
 If you already maintain an Obsidian vault, PARA folder, or engineering wiki:
 
