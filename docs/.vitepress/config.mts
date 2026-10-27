@@ -7,6 +7,7 @@ export default defineConfig({
   appearance: 'force-dark',
   cleanUrls: true,
   lastUpdated: true,
+  srcExclude: ['agents/**'],
 
   head: [
     ['meta', { name: 'theme-color', content: '#0F172A' }],

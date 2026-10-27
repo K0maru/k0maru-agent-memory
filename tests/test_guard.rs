@@ -772,3 +772,323 @@ fn test_guard_repo_root_project_isolation_no_cross_project_leak() {
     let alpha = k0maru::guard::resolve_guard_rules_with_repo(&vault, Some("alpha"), None).unwrap();
     assert!(alpha.iter().any(|rule| rule.id == "ALPHA-ISO-001"));
 }
+
+fn commit_all(path: &Path, message: &str, extra_path: Option<&std::ffi::OsStr>) {
+    let out = StdCommand::new("git")
+        .args(["add", "-A"])
+        .current_dir(path)
+        .output()
+        .expect("git add failed");
+    assert!(out.status.success(), "git add failed");
+
+    let mut cmd = StdCommand::new("git");
+    cmd.args(["commit", "--no-verify", "-m", message])
+        .current_dir(path);
+    if let Some(extra) = extra_path {
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        let mut joined = std::ffi::OsString::from(extra);
+        joined.push(":");
+        joined.push(current);
+        cmd.env("PATH", joined);
+    }
+    let out = cmd.output().expect("git commit failed");
+    assert!(
+        out.status.success(),
+        "git commit failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Writes a Living ADR card that forbids `execute_raw` in Rust files.
+fn write_stop_hook_vault(vault: &Path) {
+    let cards = vault.join("20_Cards");
+    fs::create_dir_all(&cards).unwrap();
+    fs::write(
+        cards.join("adr-900-no-raw-sql.md"),
+        "---\ntitle: ADR 900 No Raw SQL\ninvariants:\n  - id: STOP-001\n    title: No raw SQL execution\n    file_pattern: \"*.rs\"\n    forbidden: \"execute_raw\"\n    remediation: \"Use the typed query builder.\"\n---\n# ADR 900\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_guard_claude_stop_hook_exits_2_with_stderr_report() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    write_stop_hook_vault(&vault);
+
+    fs::write(root.join("db.rs"), "fn ok() {}\n").unwrap();
+    commit_all(root, "chore: baseline", None);
+
+    fs::write(root.join("db.rs"), "fn leak() { db.execute_raw(\"x\"); }\n").unwrap();
+
+    let assert = Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--diff",
+            "--claude-stop-hook",
+            "--vault",
+            vault.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2);
+
+    let output = assert.get_output();
+    assert!(
+        output.stdout.is_empty(),
+        "a Stop hook must not write to stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("STOP-001"),
+        "stderr must carry the violation so Claude Code can relay it, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("[AGENT_SELF_HEAL_PROTOCOL]"),
+        "stderr must carry the self-heal protocol, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_guard_claude_stop_hook_is_silent_when_clean() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    write_stop_hook_vault(&vault);
+
+    fs::write(root.join("db.rs"), "fn ok() {}\n").unwrap();
+
+    let assert = Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--diff",
+            "--claude-stop-hook",
+            "--vault",
+            vault.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let output = assert.get_output();
+    assert!(output.stdout.is_empty(), "clean Stop hook must stay silent");
+    assert!(output.stderr.is_empty(), "clean Stop hook must stay silent");
+}
+
+#[test]
+fn test_guard_claude_stop_hook_honors_stop_hook_active() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    write_stop_hook_vault(&vault);
+
+    fs::write(root.join("db.rs"), "fn ok() {}\n").unwrap();
+    commit_all(root, "chore: baseline", None);
+    fs::write(root.join("db.rs"), "fn leak() { db.execute_raw(\"x\"); }\n").unwrap();
+
+    // A continuation already triggered by this hook must never loop again.
+    let assert = Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--diff",
+            "--claude-stop-hook",
+            "--vault",
+            vault.to_str().unwrap(),
+        ])
+        .write_stdin("{\"stop_hook_active\": true}")
+        .assert()
+        .success();
+
+    let output = assert.get_output();
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn test_guard_claude_stop_hook_ignores_uninitialized_vault() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let missing_vault = root.join(".k0maru").join("wiki");
+
+    let assert = Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--diff",
+            "--claude-stop-hook",
+            "--vault",
+            missing_vault.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let output = assert.get_output();
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn test_guard_check_prints_self_heal_protocol_on_both_streams() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    write_stop_hook_vault(&vault);
+
+    fs::write(root.join("db.rs"), "fn ok() {}\n").unwrap();
+    commit_all(root, "chore: baseline", None);
+    fs::write(root.join("db.rs"), "fn leak() { db.execute_raw(\"x\"); }\n").unwrap();
+
+    let assert = Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "guard",
+            "check",
+            "--diff",
+            "--vault",
+            vault.to_str().unwrap(),
+        ])
+        .assert()
+        .code(1);
+
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains("[AGENT_SELF_HEAL_PROTOCOL]"),
+        "stdout must carry the protocol, got: {stdout}"
+    );
+    assert!(
+        stderr.contains("[AGENT_SELF_HEAL_PROTOCOL]"),
+        "stderr must carry the protocol, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("adr-900-no-raw-sql"),
+        "the protocol must name the superseded source note, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_guard_install_writes_portable_pre_commit_and_post_commit_hooks() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    fs::create_dir_all(&vault).unwrap();
+
+    Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args(["guard", "install", "--path", root.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let pre = fs::read_to_string(root.join(".git").join("hooks").join("pre-commit")).unwrap();
+    let post = fs::read_to_string(root.join(".git").join("hooks").join("post-commit")).unwrap();
+
+    let canonical_root = root.canonicalize().unwrap();
+    assert!(
+        pre.contains("--vault \"$REPO_ROOT/.k0maru/wiki\""),
+        "pre-commit must bind the vault relative to the repo root, got:\n{pre}"
+    );
+    assert!(
+        !pre.contains(&format!("--vault \"{}", canonical_root.display())),
+        "pre-commit must not bake in a machine-specific vault path, got:\n{pre}"
+    );
+
+    assert!(
+        post.contains("# --- k0maru post-commit sentinel ---"),
+        "post-commit hook must carry its sentinel marker, got:\n{post}"
+    );
+    assert!(
+        post.contains("VAULT_PATH=\"$REPO_ROOT/.k0maru/wiki\""),
+        "post-commit must resolve a portable vault path, got:\n{post}"
+    );
+    assert!(
+        post.contains("rebase-merge") && post.contains("rebase-apply"),
+        "post-commit must skip rebase/merge replay commits, got:\n{post}"
+    );
+    assert!(
+        post.contains("git show --stat --oneline HEAD"),
+        "post-commit must flush the commit stat as a log note, got:\n{post}"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::metadata(root.join(".git").join("hooks").join("post-commit"))
+            .unwrap()
+            .permissions();
+        assert_eq!(
+            perms.mode() & 0o111,
+            0o111,
+            "post-commit must be executable"
+        );
+    }
+}
+
+#[test]
+fn test_guard_post_commit_hook_flushes_conventional_commit_log() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    init_git_repo(root);
+
+    let vault = root.join(".k0maru").join("wiki");
+    fs::create_dir_all(&vault).unwrap();
+    fs::write(root.join("ledger.rs"), "fn ok() {}\n").unwrap();
+    commit_all(root, "chore: baseline", None);
+
+    Command::cargo_bin("k0maru")
+        .unwrap()
+        .current_dir(root)
+        .args(["guard", "install", "--path", root.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let bin = Path::new(env!("CARGO_BIN_EXE_k0maru"));
+    let bin_dir = bin.parent().unwrap().as_os_str();
+
+    fs::write(root.join("ledger.rs"), "fn ok() { /* ledger */ }\n").unwrap();
+    commit_all(root, "feat(ledger): add idempotent transfer", Some(bin_dir));
+
+    let mut logs: Vec<std::path::PathBuf> = Vec::new();
+    for entry in fs::read_dir(&vault).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            logs.push(path);
+        }
+    }
+    assert!(
+        !logs.is_empty(),
+        "a conventional commit must be captured as a log note"
+    );
+    let captured: String = logs
+        .iter()
+        .map(|path| fs::read_to_string(path).unwrap_or_default())
+        .collect();
+    assert!(
+        captured.contains("add idempotent transfer"),
+        "the log note must record the commit subject, got: {captured}"
+    );
+}

@@ -1,5 +1,7 @@
 [English](README.md) | [简体中文](README_zh.md)
 
+> 🤖 **来访智能体 / 评估本项目？** 请阅读 **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** 获取智能体全自主运行指南与工程落地操作手册，阅读 **[`llms.txt`](llms.txt)** 获取机器可读架构与基准信息。
+
 # K0maru-Agent-Memory
 
 > **把你的 Markdown 知识库 / Obsidian 第二大脑变成 AI 编码智能体的“可执行记忆”与 `<10ms` 架构防退化护栏。**  
@@ -8,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![Tests: 200+ passed](https://img.shields.io/badge/Tests-200%2B_passed-brightgreen.svg)]()
-[![Binary Size: 3.6MB (core) / 33MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_33MB_(bundled_ONNX)-success.svg)]()
+[![Binary Size: 3.6MB (core) / 34MB (bundled ONNX)](https://img.shields.io/badge/Binary_Size-3.6MB_(core)_%2F_34MB_(bundled_ONNX)-success.svg)]()
 [![Cold Start: 3.4ms](https://img.shields.io/badge/Cold_Start-3.4ms-purple.svg)]()
 [![Zero-Daemon](https://img.shields.io/badge/Daemon-Zero_Daemon-informational.svg)]()
 
@@ -25,7 +27,7 @@
 **K0maru 专为单机开发机打造，以极简机械复杂度交付工业级性能**：
 
 1. **⚡ 零守护进程与极致冷启动（Zero-Daemon & 3.4ms Cold Start）**：
-   - 纯 Rust 静态编译，单二进制体积仅 **3.6MB (core) / 33MB (bundled ONNX)**（使用 `--no-default-features` 编译的纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认捆绑 `fastembed` 与 ONNX Runtime 的发行版二进制约为 `~33MB`）；
+   - 纯 Rust 静态编译，单二进制体积仅 **3.6MB (core) / 34MB (bundled ONNX)**（使用 `--no-default-features` 编译的纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认捆绑 `fastembed` 与 ONNX Runtime 的发行版二进制约为 `~34MB`）；
    - 冷启动仅需 **3.38 ms**，常驻内存仅 ~11 MB，**不占用任何常驻后台网络端口**；
    - 通过 Unix 管道与标准 stdio 协议即调即走，命令执行完毕瞬间将内存归还系统。
 2. **📝 自备纯文本 Markdown（拓扑无关的 LLM-Wiki 适配）**：
@@ -137,7 +139,8 @@ k0maru install --vault ~/Documents/MyVault --dry-run
 
 或通过 Claude Code 官方插件市场一键安装：
 ```text
-/plugin add K0maru/k0maru-agent-memory
+/plugin marketplace add K0maru/k0maru-agent-memory
+/plugin install k0maru-memory
 ```
 
 ---
@@ -154,13 +157,13 @@ k0maru install --vault ~/Documents/MyVault --dry-run
   ```
 - **源码编译安装 (Cargo)**：
   ```bash
-  # 包含本地 fastembed + ONNX 向量模型的完整发行版二进制 (~33MB)
+  # 包含本地 fastembed + ONNX 向量模型的完整发行版二进制 (~34MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
   # 纯 Rust FTS5 BM25 + Living ADR Guard 轻量核心二进制 (~3.6MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
   ```
-  *（同时构建生成 `k0maru` 与 `k0maru-memory` 二进制别名。`--no-default-features` 纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认开启 `fastembed` + ONNX Runtime 的完整二进制约为 `~33MB`）*。
+  *（同时构建生成 `k0maru` 与 `k0maru-memory` 二进制别名。`--no-default-features` 纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认开启 `fastembed` + ONNX Runtime 的完整二进制约为 `~34MB`）*。
 ---
 
 ### 3. 一键环境健康诊断（`k0maru doctor`）
@@ -257,7 +260,7 @@ k0maru flush \
   --category decision \
   --supersedes "ADR-010 Legacy Bus" \
   --summary "以零守护进程 stdio 外挂全面取代旧版内部消息总线" \
-  --content "## 核心工程铁律\n- [no-legacy-bus] forbidden: \"legacy_bus_send\" | remediation: \"请改用 v2 sidecar RPC\"" \
+  --content $'## 核心工程铁律\n- [no-legacy-bus] (deny) [src/**/*] forbidden: "legacy_bus_send" | remediation: "请改用 v2 sidecar RPC"' \
   --tags "tokio,rust,architecture" \
   --vault ~/wiki
 # 将错误排障轨迹直接提炼为可复用的故障排查技能卡片
@@ -372,6 +375,15 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 > 在项目根目录的 `AGENTS.md`（或全局 System Prompt）中添加一行：  
 > `> 在设计系统架构、排查疑难 Bug 或编写核心业务逻辑前，优先调用 k0maru-memory 翻阅本地知识库，严格对齐已沉淀的技术规范与历史决策。完成代码后必须调用 guard_check 自检。`  
 > 哪怕您只说一句 *“写个支付回调”*，AI 也会在后台先行查阅防重放规约并在交付前跑检，杜绝凭空臆造（No Vibe Coding）。
+
+### 🔄 智能体全闭环无人工干预生命周期 (No-Human-in-the-Loop Lifecycle)
+
+K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的开发生命周期：
+
+1. **开局起步自动读档（`SessionStart`）**：Claude Code 或 IDE 钩子自动触发 `k0maru loadout "<project>" --diff`，装配小于 300 Token 的受控认知背包（项目使命、核心 ADR 守卫规则、近期提交日志）；
+2. **交付前自主审查（Claude Code `hooks.Stop`）**：在智能体输出给人类前，自动调用 `k0maru guard check --diff --claude-stop-hook`。若检测到架构违规，返回 POSIX 退出码 2 阻断输出并由智能体进行 1-turn 自主自愈（代码重构或通过 `k0maru flush --supersedes` 取代旧架构）；
+3. **代码提交前置拦截门禁（`.git/hooks/pre-commit`）**：`<10ms` 纯静态 Rust 正则与词法审计，强制拦截违规代码合入 Git 历史；
+4. **提交后自动同步与里程碑结晶（`.git/hooks/post-commit`）**：提交后自动触发 `k0maru sync` 增量刷新索引（~11ms），并在包含 `feat:`、`fix:`、`refactor:`、`perf:`、`adr:` 的提交发生时自动向 `01_AI_Logs/` 结晶结构化里程碑卡片。
 
 ### 🎛️ 进阶：多路复用器与 Sidecar 生态 (Tern, omp 与 K-DSL 线协议)
 

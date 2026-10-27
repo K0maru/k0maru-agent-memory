@@ -681,14 +681,60 @@ impl CacheStorage for SqliteStorage {
         LIMIT ?2
         "#;
 
-        let raw_docs = match self.query_raw_docs(search_sql, trimmed, limit) {
-            Ok(docs) => docs,
-            Err(_) => {
-                let sanitized = sanitize_fts5_query(trimmed);
-                if sanitized.is_empty() {
-                    return Ok(Vec::new());
+        let has_special = trimmed.contains('-')
+            || trimmed.contains(':')
+            || trimmed.contains('/')
+            || trimmed.contains('"')
+            || trimmed.contains('*')
+            || trimmed.contains('^');
+
+        let raw_docs = if !has_special {
+            match self.query_raw_docs(search_sql, trimmed, limit) {
+                Ok(docs) if !docs.is_empty() => docs,
+                Ok(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized != trimmed && !sanitized.is_empty() {
+                        self.query_raw_docs(search_sql, &sanitized, limit)
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
                 }
-                self.query_raw_docs(search_sql, &sanitized, limit)?
+                Err(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized.is_empty() {
+                        Vec::new()
+                    } else {
+                        self.query_raw_docs(search_sql, &sanitized, limit)?
+                    }
+                }
+            }
+        } else {
+            let sanitized = sanitize_fts5_query(trimmed);
+            if sanitized.is_empty() {
+                Vec::new()
+            } else {
+                match self.query_raw_docs(search_sql, &sanitized, limit) {
+                    Ok(docs) if !docs.is_empty() => docs,
+                    Ok(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() && or_query != sanitized {
+                            self.query_raw_docs(search_sql, &or_query, limit)
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Err(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() {
+                            self.query_raw_docs(search_sql, &or_query, limit)
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                }
             }
         };
 
@@ -1108,6 +1154,30 @@ mod tests {
         assert_eq!(
             scoped_hyphen[0].path,
             PathBuf::from("10_Projects/Arbitrage.md")
+        );
+    }
+
+    #[test]
+    fn test_search_fts_hyphenated_query() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory sqlite");
+        storage.initialize().expect("init");
+
+        let doc = make_test_doc(
+            "20_Cards/pre-commit-hooks.md",
+            "Git Pre-commit Guardrails",
+            HierarchyLevel::L3Evergreen,
+            "Installing pre-commit hooks prevents bad commits.",
+            vec!["git", "pre-commit"],
+        );
+        storage.upsert_document(&doc).expect("upsert doc");
+
+        let results = storage
+            .search_fts("pre-commit", 5)
+            .expect("search_fts hyphen");
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].path,
+            PathBuf::from("20_Cards/pre-commit-hooks.md")
         );
     }
 }

@@ -30,6 +30,14 @@ fn test_mcp_initialize_and_tools_list() {
     assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
     assert_eq!(resp["result"]["serverInfo"]["name"], "k0maru");
 
+    let instructions = resp["result"]["instructions"]
+        .as_str()
+        .expect("initialize must advertise the autonomous agent protocol");
+    assert!(instructions.contains("get_project_loadout(diff=true)"));
+    assert!(instructions.contains("recall_memory"));
+    assert!(instructions.contains("guard_check"));
+    assert!(instructions.contains("## Non-Negotiable Invariants"));
+
     // 2. tools/list
     let tools_req = json!({
         "jsonrpc": "2.0",
@@ -423,4 +431,43 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
     assert!(!sidecar_names.contains(&"offload_context"));
     assert!(!sidecar_names.contains(&"inspect_log_node"));
     assert!(!sidecar_names.contains(&"gc_session_context"));
+}
+
+#[test]
+fn test_mcp_guard_check_enforces_repo_local_k0maru_wiki_rules() {
+    let vault = mock_obsidian_vault();
+    let repo = tempfile::tempdir().unwrap();
+
+    let repo_wiki = repo.path().join(".k0maru").join("wiki");
+    std::fs::create_dir_all(repo_wiki.join("20_Cards")).unwrap();
+    std::fs::write(
+        repo_wiki.join("20_Cards").join("adr-repo-local.md"),
+        "---\ntitle: Repo Local ADR\ninvariants:\n  - id: REPO-LOCAL-001\n    title: Repo local lock\n    file_pattern: \"*.rs\"\n    forbidden: \"local_forbidden_call\"\n    remediation: \"Use the repo-local API.\"\n---\n# Repo Local ADR\n",
+    )
+    .unwrap();
+
+    // The MCP server is mounted on the global vault, so the repository's own
+    // `.k0maru/wiki` rules must be merged in explicitly.
+    let mut server = McpServer::new(vault.path());
+
+    let res = server.handle_tool_call(
+        json!(17),
+        &json!({
+            "name": "guard_check",
+            "arguments": {
+                "repo_path": repo.path().to_str().unwrap(),
+                "diff": "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n+fn x() { local_forbidden_call(); }\n"
+            }
+        }),
+    );
+
+    assert_eq!(
+        res["result"]["isError"], true,
+        "repo-local .k0maru/wiki rules must be enforced from a global MCP vault: {res}"
+    );
+    let text = res["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("REPO-LOCAL-001"),
+        "the repo-local rule must appear in the report, got: {text}"
+    );
 }

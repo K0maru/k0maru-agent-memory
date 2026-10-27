@@ -48,6 +48,9 @@ jobs:
       - name: Run clippy checks
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Check pure-Rust core build (--no-default-features)
+        run: cargo check --workspace --no-default-features
+
   test:
     name: Automated Tests (${{ matrix.os }})
     needs: [format, clippy]

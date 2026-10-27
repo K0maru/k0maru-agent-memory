@@ -451,9 +451,20 @@ impl GuardEngine {
                                 RuleCondition::MustContain(p) => p.as_str(),
                                 RuleCondition::Forbidden(p) => p.as_str(),
                             };
+                            let pat_upper = pat.to_ascii_uppercase();
+                            let id_upper = cr.rule.id.to_ascii_uppercase();
                             let is_comment_or_conflict_rule = pat.contains("//")
                                 || pat.contains("<<<<<<<")
-                                || pat.contains("=======");
+                                || pat.contains("=======")
+                                || pat_upper.contains("PRIVATE KEY")
+                                || pat_upper.contains("BEGIN ")
+                                || pat_upper.contains("SECRET")
+                                || pat_upper.contains("AKIA")
+                                || pat_upper.starts_with("GHP_")
+                                || pat_upper.starts_with("SK-")
+                                || id_upper.contains("SECRET")
+                                || id_upper.contains("TOKEN")
+                                || id_upper.contains("KEY");
 
                             for (line_no, line_content) in added {
                                 let target_text = if is_comment_or_conflict_rule {
@@ -658,9 +669,20 @@ impl GuardEngine {
                             RuleCondition::MustContain(p) => p.as_str(),
                             RuleCondition::Forbidden(p) => p.as_str(),
                         };
+                        let pat_upper = pat.to_ascii_uppercase();
+                        let id_upper = cr.rule.id.to_ascii_uppercase();
                         let is_comment_or_conflict_rule = pat.contains("//")
                             || pat.contains("<<<<<<<")
-                            || pat.contains("=======");
+                            || pat.contains("=======")
+                            || pat_upper.contains("PRIVATE KEY")
+                            || pat_upper.contains("BEGIN ")
+                            || pat_upper.contains("SECRET")
+                            || pat_upper.contains("AKIA")
+                            || pat_upper.starts_with("GHP_")
+                            || pat_upper.starts_with("SK-")
+                            || id_upper.contains("SECRET")
+                            || id_upper.contains("TOKEN")
+                            || id_upper.contains("KEY");
 
                         for (idx, line) in content.lines().enumerate() {
                             let line_no = idx + 1;

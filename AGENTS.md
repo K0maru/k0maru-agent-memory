@@ -1,3 +1,7 @@
+> 🤖 **Visiting AI Agent / Evaluating this Repo?** Read **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** and **[`llms.txt`](llms.txt)** for the product overview, human pitch, and zero-human-in-the-loop setup & operation protocol. The remainder of this file documents contributor conventions for developing `k0maru-agent-memory` itself.
+>
+> 🤖 **来访智能体 / 评估本项目？** 请阅读 **[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** 与 **[`llms.txt`](llms.txt)** 获取产品架构总览、向人类汇报词与全自主运行协议。本文档其余部分为维护和开发 `k0maru-agent-memory` 本身时的智能体工作流规约。
+
 # AGENTS.md — K0maru-Agent-Memory Agent 工作流与工程规约
 
 本文件定义了 AI Agent 在 `K0maru-Agent-Memory` 项目中协同开发的核心行为准则、技能配置与工作流契约。
@@ -8,7 +12,7 @@
 
 ### Issue tracker
 
-Issues and specs are tracked as local markdown files in `.scratch/k0maru-agent-memory/`. See `docs/agents/issue-tracker.md`.
+Issues, bugs, and feature requests are tracked via GitHub Issues (see `.github/ISSUE_TEMPLATE/` for templates and triage guidelines).
 
 ### Triage labels
 
@@ -47,8 +51,8 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - 行为纪律：**主 Agent 严禁直接手写大段业务代码**。
    - 工作链路：
      1. **需求理解与盘问**：研读 `SPEC.md`、`README.md`、`CONTEXT.md` 与参考实现。若有任何上下文不理解或模糊之处，**必须主动向人类提问澄清，确认后方可开启**；
-     2. **执行 `/to-spec`**：将讨论与上下文提炼为完整规格文档（落地至 `.scratch/k0maru-agent-memory/spec.md`）；
-     3. **执行 `/to-tickets`**：将规格拆解为纵向穿透型工单（Tracer-bullet Tickets），声明明确的依赖阻断关系（`Blocked by`），按依赖顺序写入 `.scratch/k0maru-agent-memory/issues/<NN>-<slug>.md`；
+    2. **执行需求提炼与规格设计**：将讨论与上下文提炼为完整技术方案与规格（落地至 `docs/` 或 GitHub Issue）；
+    3. **工单与任务派发**：将规格拆解为纵向穿透型任务与工单，声明明确的依赖阻断关系（`Blocked by`），并在 GitHub Issues 中追踪；
      4. **工单确认**：向人类呈现 Ticket DAG，确认后进入实现阶段；
      5. **启动 `omp` 原生 Subagent 执行实现**：使用 `omp` 原生 `task`（配合 `solutionSpace` 及 `scout`/`sonic`/`reviewer` 角色）或 `eval` 中的 `agent(isolated=True, apply=..., merge=...)` 并发执行工单、TDD 与双轨代码审查。
 
@@ -64,7 +68,7 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
 
 1. **包管理与运行环境**：
    - 统一使用 `cargo` 管理 Rust 依赖与二进制编译；
-   - 目标 Rust 版本：`2021 Edition` (MSRV: 1.75+)。
+   - 目标 Rust 版本：`2021 Edition` (MSRV: 1.88+)。
 2. **代码风格与静态检查**：
    - Formatter：`cargo fmt --check`；
    - Linter / 静态检查：`cargo clippy --all-targets -- -D warnings`；
@@ -88,7 +92,7 @@ Single-context repository layout using `CONTEXT.md` glossary. See `docs/agents/d
    - 日常开发与工单集成主干；所有特性合并的目标；
    - 必须随时保持全套测试全绿、编译无 warning。
 3. **工作分支命名与生命周期**：
-   - **特性工单**：`feat/<NN>-<slug>`（与 `.scratch/k0maru-agent-memory/issues/<NN>-<slug>.md` **1:1 强绑定**）；
+   - **特性工单**：`feat/<NN>-<slug>`（与 GitHub Issue `#<NN>` **1:1 强绑定**）；
    - **评测实验**：`bench/<slug>`；
    - **缺陷修复**：`fix/<slug>`；
    - **工作流**：从最新 `dev` 拉出分支 ➔ 独立上下文中 Worker 完成 TDD ➔ 通过 Review ➔ Squash & Merge 回 `dev` ➔ 删除工作分支。

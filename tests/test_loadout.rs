@@ -545,3 +545,66 @@ supersedes:
         loadout.l3_cards
     );
 }
+
+#[test]
+fn test_loadout_surfaces_unlinked_active_adrs_in_single_project_vault() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+
+    let projects_dir = root.join("10_Projects");
+    let cards_dir = root.join("20_Cards");
+    fs::create_dir_all(&projects_dir).unwrap();
+    fs::create_dir_all(&cards_dir).unwrap();
+
+    // 10_Projects/inventory-service.md with NO forward links to 20_Cards/
+    let project = r#"---
+title: Inventory Service
+status: active
+---
+# Inventory Service
+
+> High reliability inventory stock management.
+"#;
+    fs::write(projects_dir.join("inventory-service.md"), project).unwrap();
+
+    // 20_Cards/adr-042-idempotent-stock.md with active status and guard invariants
+    let card = r#"---
+id: adr-042
+title: "ADR-042: Idempotent Stock Reservation"
+date: "2026-10-27"
+status: active
+category: decision
+invariants:
+  - id: require-stock-idempotency
+    title: "Require Stock Idempotency"
+    forbidden: "fn direct_deduct"
+    file_pattern: "**/*.rs"
+    severity: "deny"
+---
+# ADR-042: Idempotent Stock Reservation
+
+## 核心概念
+> Every stock reservation mutation must provide an idempotency token.
+"#;
+    fs::write(cards_dir.join("adr-042-idempotent-stock.md"), card).unwrap();
+
+    let adapter = ObsidianAdapter::new(root);
+    let mut storage = SqliteStorage::in_memory().unwrap();
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false).unwrap();
+
+    let builder = LoadoutBuilder::new(&adapter, &storage);
+    let loadout = builder
+        .build("inventory-service")
+        .unwrap()
+        .expect("loadout should resolve");
+
+    assert!(
+        loadout
+            .l3_cards
+            .iter()
+            .any(|card| card.name.contains("adr-042") || card.path.contains("adr-042")),
+        "Unlinked active ADR in 20_Cards must be auto-surfaced in loadout: {:?}",
+        loadout.l3_cards
+    );
+}

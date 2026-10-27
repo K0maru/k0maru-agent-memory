@@ -91,7 +91,11 @@ pub fn extract_project_scope(body: &str) -> String {
             while let Some(&q_line) = lines.peek() {
                 let q_trimmed = q_line.trim();
                 if q_trimmed.starts_with('>') {
-                    let text = q_trimmed.trim_start_matches('>').trim();
+                    let text = q_trimmed
+                        .trim_start_matches('>')
+                        .trim()
+                        .trim_start_matches('#')
+                        .trim();
                     if !text.starts_with("[!") && !text.is_empty() {
                         quote_lines.push(text);
                     }
@@ -126,7 +130,10 @@ pub fn extract_project_scope(body: &str) -> String {
             continue;
         }
         started = true;
-        para_lines.push(trimmed);
+        let text = trimmed.trim_start_matches('#').trim();
+        if !text.is_empty() {
+            para_lines.push(text);
+        }
     }
 
     if !para_lines.is_empty() {
@@ -934,9 +941,12 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
 
             // Check if log
             let is_log_link = target_str.contains("01_AI_Logs/")
-                || target_str.starts_with("2026-")
-                || target_str.contains("eval")
-                || target_str.contains("run");
+                || (target_str.len() >= 10
+                    && target_str.as_bytes()[..4]
+                        .iter()
+                        .all(|b| b.is_ascii_digit())
+                    && target_str.as_bytes()[4] == b'-'
+                    && target_str.as_bytes()[7] == b'-');
 
             if is_log_link && l2_logs.len() < 3 {
                 if let Some((name, path)) = self.resolve_l2_log(&target_str) {
@@ -976,6 +986,185 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                                     name,
                                     path: path.to_string_lossy().to_string(),
                                 });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Auto-discover active L3 cards (20_Cards/) and recent L2 logs (01_AI_Logs/)
+        let default_vault_root = PathBuf::from(".");
+        let vault_root = self.adapter.root_path().unwrap_or(&default_vault_root);
+        let projects_dir = vault_root.join("10_Projects");
+        let project_md_count = if projects_dir.is_dir() {
+            std::fs::read_dir(&projects_dir)
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                        .count()
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let is_single_project_vault = project_md_count <= 1;
+
+        if l3_cards.len() < 5 {
+            let cards_dir = vault_root.join("20_Cards");
+            if cards_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&cards_dir) {
+                    let mut card_entries: Vec<_> = entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                        .collect();
+
+                    card_entries.sort_by(|a, b| {
+                        let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
+                        let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
+                        match (mtime_a, mtime_b) {
+                            (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
+                            _ => b.file_name().cmp(&a.file_name()),
+                        }
+                    });
+
+                    for entry in card_entries {
+                        if l3_cards.len() >= 5 {
+                            break;
+                        }
+                        let rel_path = match entry.path().strip_prefix(vault_root) {
+                            Ok(p) => p.to_path_buf(),
+                            Err(_) => entry.path(),
+                        };
+                        let rel_path_str = rel_path.to_string_lossy().to_string();
+
+                        if let Ok(doc) = self.adapter.read_document(&rel_path) {
+                            if !doc.is_active() {
+                                continue;
+                            }
+
+                            let links_to_project = doc.links.iter().any(|l| {
+                                let clean = l.target.trim_end_matches(".md");
+                                clean == project_stem
+                                    || clean.ends_with(&format!("/{}", project_stem))
+                            });
+
+                            let frontmatter_matches = doc
+                                .frontmatter
+                                .get("project")
+                                .or_else(|| doc.frontmatter.get("projects"))
+                                .is_some_and(|val| {
+                                    if let Some(s) = val.as_str() {
+                                        let s_clean =
+                                            s.trim_start_matches("[[").trim_end_matches("]]");
+                                        let s_clean = s_clean.trim_end_matches(".md");
+                                        s_clean == project_stem
+                                            || s_clean.ends_with(&format!("/{}", project_stem))
+                                    } else if let Some(arr) = val.as_array() {
+                                        arr.iter().any(|item| {
+                                            if let Some(s) = item.as_str() {
+                                                let s_clean = s
+                                                    .trim_start_matches("[[")
+                                                    .trim_end_matches("]]");
+                                                let s_clean = s_clean.trim_end_matches(".md");
+                                                s_clean == project_stem
+                                                    || s_clean
+                                                        .ends_with(&format!("/{}", project_stem))
+                                            } else {
+                                                false
+                                            }
+                                        })
+                                    } else {
+                                        false
+                                    }
+                                });
+
+                            let is_adr_or_guard =
+                                !k0maru_core::guard::extractor::extract_rules_from_document(&doc)
+                                    .is_empty()
+                                    || rel_path_str.to_lowercase().contains("adr")
+                                    || rel_path_str.to_lowercase().contains("decision")
+                                    || doc
+                                        .frontmatter
+                                        .get("category")
+                                        .and_then(|c| c.as_str())
+                                        .is_some_and(|c| c == "decision" || c == "adr");
+
+                            let should_include = links_to_project
+                                || frontmatter_matches
+                                || (is_single_project_vault && is_adr_or_guard);
+
+                            if should_include {
+                                if let Some((name, resolved_path, concept)) =
+                                    self.resolve_l3_card(&rel_path_str)
+                                {
+                                    if !seen_cards.contains(&name) {
+                                        seen_cards.insert(name.clone());
+                                        l3_cards.push(L3CardSummary {
+                                            name,
+                                            path: resolved_path.to_string_lossy().to_string(),
+                                            concept,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if l2_logs.len() < 3 {
+            let logs_dir = vault_root.join("01_AI_Logs");
+            if logs_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&logs_dir) {
+                    let mut log_entries: Vec<_> = entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                        .collect();
+
+                    log_entries.sort_by(|a, b| {
+                        let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
+                        let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
+                        match (mtime_a, mtime_b) {
+                            (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
+                            _ => b.file_name().cmp(&a.file_name()),
+                        }
+                    });
+
+                    for entry in log_entries {
+                        if l2_logs.len() >= 3 {
+                            break;
+                        }
+                        let rel_path = match entry.path().strip_prefix(vault_root) {
+                            Ok(p) => p.to_path_buf(),
+                            Err(_) => entry.path(),
+                        };
+                        let rel_path_str = rel_path.to_string_lossy().to_string();
+
+                        let should_include = if is_single_project_vault {
+                            true
+                        } else if let Ok(doc) = self.adapter.read_document(&rel_path) {
+                            doc.links.iter().any(|l| {
+                                let clean = l.target.trim_end_matches(".md");
+                                clean == project_stem
+                                    || clean.ends_with(&format!("/{}", project_stem))
+                            }) || doc.body.contains(&project_stem)
+                        } else {
+                            false
+                        };
+
+                        if should_include {
+                            if let Some((name, resolved_path)) = self.resolve_l2_log(&rel_path_str)
+                            {
+                                if !seen_logs.contains(&name) {
+                                    seen_logs.insert(name.clone());
+                                    l2_logs.push(L2LogSummary {
+                                        name,
+                                        path: resolved_path.to_string_lossy().to_string(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -1044,7 +1233,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 "3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string(),
             );
         } else {
-            lines.push("## 🛡️ Governance Protocol".to_string());
+            lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
             lines.push(
                 "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
                     .to_string(),
@@ -1091,13 +1280,21 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
 
         let is_secondbrain = self.has_secondbrain_daily();
 
-        // 1. Extract keywords and changed modules from modified files
+        // 1. Extract keywords and changed modules from modified files (excluding internal .k0maru/ artifacts)
+        let code_modified_files: Vec<&ModifiedFile> = modified_files
+            .iter()
+            .filter(|f| {
+                let norm = f.path.to_string_lossy().replace('\\', "/");
+                !norm.starts_with(".k0maru/") && !norm.contains("/.k0maru/")
+            })
+            .collect();
+
         let mut all_keywords = Vec::new();
         let mut seen_kw = HashSet::new();
         let mut changed_modules = Vec::new();
         let mut seen_mod = HashSet::new();
 
-        for file in modified_files {
+        for file in &code_modified_files {
             for kw in file.extract_keywords() {
                 if seen_kw.insert(kw.clone()) {
                     all_keywords.push(kw.clone());
@@ -1109,7 +1306,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         }
 
         // Active changes line
-        let active_changes_line = if modified_files.is_empty() {
+        let active_changes_line = if code_modified_files.is_empty() {
             "> **Active Changes**: Clean working tree (no uncommitted changes)".to_string()
         } else {
             let mods_summary = if changed_modules.is_empty() {
@@ -1132,7 +1329,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 "> **Active Changes**: {} modified modules: {} ({} files)",
                 changed_modules.len().max(1),
                 mods_summary,
-                modified_files.len()
+                code_modified_files.len()
             );
             if line.chars().count() > 100 {
                 let truncated: String = line.chars().take(97).collect();
@@ -1288,6 +1485,13 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         });
 
         // 4. Greedy Packing under Safety Budget <= 280 tokens (Hard Bound < 300)
+        let mut l2_logs: Vec<L2LogSummary> = self
+            .build(query)
+            .ok()
+            .flatten()
+            .map(|r| r.l2_logs.into_iter().take(2).collect())
+            .unwrap_or_default();
+
         let max_token_budget = 280;
         let mut selected_cards = Vec::new();
 
@@ -1296,28 +1500,27 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 break;
             }
 
-            // Truncate concept to <= 130 characters so an injected
-            // `[Guard: ...]` invariant survives packing.
+            // Truncate concept to <= 220 characters so multiple `[Guard: ...]`
+            // invariants (e.g. ADR-001 private keys + conflict markers) survive packing.
             let truncated_concept = scored.concept.as_ref().map(|c| {
                 let trimmed = c.trim();
-                if trimmed.chars().count() <= 130 {
+                // Never cut off an appended `[Guard: ...]` invariant: trim only the
+                // prose prefix before the first `[Guard:` if needed.
+                if let Some(guard_idx) = trimmed.find(" [Guard:") {
+                    let guard = &trimmed[guard_idx..];
+                    let prefix_chars: Vec<char> = trimmed[..guard_idx].chars().collect();
+                    if prefix_chars.len() > 60 {
+                        let prefix: String = prefix_chars.into_iter().take(60).collect();
+                        return format!("{}...{}", prefix.trim_end(), guard);
+                    }
                     return trimmed.to_string();
                 }
 
-                // Never cut off an appended `[Guard: ...]` invariant: trim the
-                // prose prefix instead so the rule stays actionable.
-                if let Some(guard_idx) = trimmed.rfind(" [Guard:") {
-                    let guard = &trimmed[guard_idx..];
-                    let guard_len = guard.chars().count();
-                    if guard_len + 3 < 130 {
-                        let prefix_budget = 130 - guard_len - 3;
-                        let prefix: String =
-                            trimmed[..guard_idx].chars().take(prefix_budget).collect();
-                        return format!("{}...{}", prefix.trim_end(), guard);
-                    }
+                if trimmed.chars().count() <= 220 {
+                    return trimmed.to_string();
                 }
 
-                let truncated: String = trimmed.chars().take(127).collect();
+                let truncated: String = trimmed.chars().take(217).collect();
                 format!("{}...", truncated)
             });
 
@@ -1335,6 +1538,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &test_cards,
+                &l2_logs,
                 is_secondbrain,
             );
 
@@ -1348,6 +1552,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     &active_changes_line,
                     &shortened_scope,
                     &test_cards,
+                    &l2_logs,
                     is_secondbrain,
                 );
                 if estimate_tokens(&test_shortened_md) <= max_token_budget {
@@ -1367,9 +1572,23 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             &active_changes_line,
             &scope,
             &selected_cards,
+            &l2_logs,
             is_secondbrain,
         );
         let mut final_tokens = estimate_tokens(&final_markdown);
+
+        while final_tokens >= 300 && !l2_logs.is_empty() {
+            l2_logs.pop();
+            final_markdown = assemble_diff_loadout_markdown(
+                &project_stem,
+                &active_changes_line,
+                &scope,
+                &selected_cards,
+                &l2_logs,
+                is_secondbrain,
+            );
+            final_tokens = estimate_tokens(&final_markdown);
+        }
 
         while final_tokens >= 300 && !selected_cards.is_empty() {
             selected_cards.pop();
@@ -1378,6 +1597,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                &l2_logs,
                 is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
@@ -1390,6 +1610,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                &l2_logs,
                 is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
@@ -1402,6 +1623,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                &l2_logs,
                 is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
@@ -1414,6 +1636,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &active_changes_line,
                 &scope,
                 &selected_cards,
+                &l2_logs,
                 is_secondbrain,
             );
             final_tokens = estimate_tokens(&final_markdown);
@@ -1439,7 +1662,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             project_path: project_path.to_string_lossy().to_string(),
             scope,
             l3_cards: selected_cards,
-            l2_logs: Vec::new(),
+            l2_logs,
             estimated_tokens: final_tokens,
             markdown: final_markdown,
         }))
@@ -1503,6 +1726,7 @@ fn assemble_diff_loadout_markdown(
     active_changes: &str,
     scope: &str,
     cards: &[L3CardSummary],
+    l2_logs: &[L2LogSummary],
     is_secondbrain: bool,
 ) -> String {
     let mut lines = Vec::new();
@@ -1513,7 +1737,7 @@ fn assemble_diff_loadout_markdown(
     lines.push(active_changes.to_string());
     lines.push(format!("> **Project Scope**: {}", scope));
     lines.push(String::new());
-    lines.push("## 🧠 Activated Invariants & ADRs (Module-Specific)".to_string());
+    lines.push("## 🧠 Active Knowledge & Constraints (L3)".to_string());
 
     if cards.is_empty() {
         lines.push(if is_secondbrain {
@@ -1538,6 +1762,25 @@ fn assemble_diff_loadout_markdown(
     }
 
     lines.push(String::new());
+    lines.push("## 📝 Recent Context & Decisions (L2)".to_string());
+    if l2_logs.is_empty() {
+        lines.push(if is_secondbrain {
+            "- *(无历史前置研发日志)*".to_string()
+        } else {
+            "- *(No recent L2 engineering logs)*".to_string()
+        });
+    } else {
+        for log in l2_logs {
+            let link_target = if log.path.contains("01_AI_Logs") {
+                format!("01_AI_Logs/{}", log.name)
+            } else {
+                log.name.clone()
+            };
+            lines.push(format!("- [[{}]]", link_target));
+        }
+    }
+
+    lines.push(String::new());
     if is_secondbrain {
         lines.push("## 🛡️ Operating Rules (SecondBrain Protocol)".to_string());
         lines.push(
@@ -1550,7 +1793,7 @@ fn assemble_diff_loadout_markdown(
             "3. **先讨论后落盘**: 重大改动先确认；严禁污染 00_Daily 或 20_Cards。".to_string(),
         );
     } else {
-        lines.push("## 🛡️ Governance Protocol".to_string());
+        lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
         lines.push(
             "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
                 .to_string(),

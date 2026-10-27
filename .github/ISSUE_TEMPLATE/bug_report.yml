@@ -1,0 +1,32 @@
+name: Bug Report
+description: Report a reproducible defect in K0maru-Agent-Memory CLI, FastMCP server, or Living ADR Guard
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug Summary
+      description: Concise description of the defect and observed behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: K0maru Version & OS
+      description: Output of `k0maru --version` and `uname -srm`
+      placeholder: "k0maru 1.0.0 (darwin arm64)"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal Reproduction Steps
+      description: Exact CLI commands or MCP JSON-RPC payloads to reproduce the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`k0maru doctor` Output"
+      render: shell

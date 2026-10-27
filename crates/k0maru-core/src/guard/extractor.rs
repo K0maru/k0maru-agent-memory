@@ -172,16 +172,24 @@ pub fn extract_rules_from_document(doc: &Document) -> Vec<GuardRule> {
     // 2. Extract rules from markdown body sections (## Non-Negotiable Invariants or ## 核心工程铁律)
     let body_rules = extract_rules_from_body(&doc.body, &source_note);
     rules.extend(body_rules);
+    for rule in &mut rules {
+        if rule.remediation.is_empty() {
+            rule.remediation = match &rule.condition {
+                RuleCondition::MustContain(m) => {
+                    format!("Ensure changes include required pattern `{}`.", m)
+                }
+                RuleCondition::Forbidden(f) => {
+                    format!("Remove or replace forbidden pattern `{}`.", f)
+                }
+            };
+        }
+    }
     let supersedes = doc.supersedes();
     if !supersedes.is_empty() {
         let provenance = format!(" (Supersedes {})", supersedes.join(", "));
         for rule in &mut rules {
             if !rule.remediation.contains("Supersedes ") {
-                if rule.remediation.is_empty() {
-                    rule.remediation = format!("(Supersedes {})", supersedes.join(", "));
-                } else {
-                    rule.remediation.push_str(&provenance);
-                }
+                rule.remediation.push_str(&provenance);
             }
         }
     }
@@ -385,7 +393,16 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
         }
     } else {
         // Fallback: check if line contains forbidden: or must_contain:
-        if trimmed.contains("forbidden:") || trimmed.contains("must_contain:") {
+        let trimmed_lower = trimmed.to_ascii_lowercase();
+        if trimmed_lower.contains("forbidden:")
+            || trimmed_lower.contains("forbid:")
+            || trimmed_lower.contains("deny:")
+            || trimmed_lower.contains("must_contain:")
+            || trimmed_lower.contains("mustcontain:")
+            || trimmed_lower.contains("must-contain:")
+            || trimmed_lower.contains("must:")
+            || trimmed_lower.contains("require:")
+        {
             let stem = Path::new(source_note)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -447,7 +464,7 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
 fn starts_with_rule_key(s: &str) -> bool {
     let trimmed = s.trim_start();
     let ident_end = trimmed
-        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
         .unwrap_or(0);
     if ident_end == 0 {
         return false;
@@ -468,6 +485,8 @@ fn starts_with_rule_key(s: &str) -> bool {
             | "severity"
             | "level"
             | "must_contain"
+            | "mustcontain"
+            | "must-contain"
             | "must"
             | "require"
             | "forbidden"
@@ -544,7 +563,7 @@ fn parse_key_value_tokens(
                         *severity = RuleSeverity::Deny;
                     }
                 }
-                "must_contain" | "must" | "require" => {
+                "must_contain" | "mustcontain" | "must-contain" | "must" | "require" => {
                     *must_contain = Some(val);
                 }
                 "forbidden" | "forbid" | "deny" => {

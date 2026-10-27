@@ -100,7 +100,7 @@ fi
 # 3. Resolve Download URL
 ASSET_NAME="k0maru-${TARGET}.tar.gz"
 DOWNLOAD_URL="${GITHUB_URL}/releases/download/${VERSION}/${ASSET_NAME}"
-CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
+CHECKSUM_URL="${GITHUB_URL}/releases/download/${VERSION}/k0maru-${TARGET}.sha256"
 
 # 4. Download and Extract to Temporary Directory
 TMP_DIR="$(mktemp -d -t k0maru-install-XXXXXX)"
@@ -116,25 +116,36 @@ if ! curl -fL --progress-bar -o "${TMP_DIR}/${ASSET_NAME}" "$DOWNLOAD_URL"; then
     exit 1
 fi
 
-# Attempt checksum verification if sha256 file is present
-if curl -sLf -o "${TMP_DIR}/${ASSET_NAME}.sha256" "$CHECKSUM_URL" 2>/dev/null; then
+# Verify checksum (fail-closed unless K0MARU_SKIP_VERIFY=1)
+if [ "${K0MARU_SKIP_VERIFY:-0}" = "1" ]; then
+    log_warn "K0MARU_SKIP_VERIFY=1 set: skipping SHA-256 checksum verification."
+else
+    log_info "Downloading SHA-256 checksum from ${CHECKSUM_URL}..."
+    if ! curl -sLf -o "${TMP_DIR}/k0maru-${TARGET}.sha256" "$CHECKSUM_URL"; then
+        log_error "Failed to download SHA-256 checksum from ${CHECKSUM_URL}."
+        log_error "Checksum verification is fail-closed. To bypass verification intentionally, set K0MARU_SKIP_VERIFY=1."
+        exit 1
+    fi
+
     log_info "Verifying SHA-256 checksum..."
-    EXPECTED_SHA=$(cut -d' ' -f1 "${TMP_DIR}/${ASSET_NAME}.sha256" | tr -d '\r\n')
+    EXPECTED_SHA=$(cut -d' ' -f1 "${TMP_DIR}/k0maru-${TARGET}.sha256" | tr -d '\r\n')
     if command -v shasum >/dev/null 2>&1; then
         ACTUAL_SHA=$(shasum -a 256 "${TMP_DIR}/${ASSET_NAME}" | cut -d' ' -f1)
     elif command -v sha256sum >/dev/null 2>&1; then
         ACTUAL_SHA=$(sha256sum "${TMP_DIR}/${ASSET_NAME}" | cut -d' ' -f1)
     else
-        ACTUAL_SHA=""
+        log_error "Neither shasum nor sha256sum found in PATH. Cannot verify checksum."
+        log_error "To bypass verification intentionally, set K0MARU_SKIP_VERIFY=1."
+        exit 1
     fi
 
-    if [ -n "$ACTUAL_SHA" ]; then
-        if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-            log_error "Checksum verification failed! Expected: $EXPECTED_SHA, Got: $ACTUAL_SHA"
-            exit 1
-        fi
-        log_success "Checksum verified: ${ACTUAL_SHA:0:16}..."
+    if [ -z "$ACTUAL_SHA" ] || [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+        log_error "Checksum verification failed!"
+        log_error "  Expected: ${EXPECTED_SHA}"
+        log_error "  Actual:   ${ACTUAL_SHA}"
+        exit 1
     fi
+    log_success "Checksum verified: ${ACTUAL_SHA:0:16}..."
 fi
 
 log_info "Extracting archive..."
@@ -205,5 +216,5 @@ esac
 printf "\n%b\n" "${BOLD}🎉 K0maru-Agent-Memory is ready!${RESET}"
 printf "To get started:\n"
 printf "  ${GREEN}k0maru doctor${RESET}             # Run health diagnostics\n"
-printf "  ${GREEN}k0maru install --target all${RESET} # One-click configure Claude / Cursor / Gemini\n"
+printf "  ${GREEN}k0maru init --install${RESET}     # One-click bootstrap in any Git repository\n"
 printf "  ${GREEN}k0maru --help${RESET}               # View all CLI commands\n\n"

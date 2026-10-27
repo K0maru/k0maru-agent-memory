@@ -1,5 +1,12 @@
 # Typed: false
 # frozen_string_literal: true
+#
+# To install directly via Homebrew formula:
+#   brew install --formula packaging/homebrew/k0maru.rb
+#
+# Or install via the official one-liner script:
+#   curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+#
 
 class K0maru < Formula
   desc "Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents"

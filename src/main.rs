@@ -326,7 +326,7 @@ pub struct FlushArgs {
     #[arg(short, long)]
     pub content: Option<String>,
 
-    /// Category: decision, log, concept, etc.
+    /// Category: decision, log, concept (alias: card), skill, generic
     #[arg(long, default_value = "log")]
     pub category: String,
 
@@ -598,8 +598,22 @@ pub struct PackListArgs {
     pub json: bool,
 }
 
+/// Resolves the markdown vault `k0maru` should operate on.
+///
+/// Detection is deliberately conservative: `~/.k0maru` is the global model
+/// cache directory, **not** a markdown vault, and an uninitialized directory
+/// must never receive a `cache.sqlite` directly. When nothing is detected the
+/// returned path is always a repo-local `.k0maru/wiki`.
 fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
     if let Some(p) = explicit {
+        if p.is_relative() && !p.exists() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let repo_root = k0maru::guard::resolve_repo_root(&cwd);
+            let candidate = repo_root.join(&p);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
         return p;
     }
     if let Ok(v) = std::env::var("K0MARU_VAULT") {
@@ -607,27 +621,46 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
             return PathBuf::from(v);
         }
     }
-    if let Ok(mut current) = std::env::current_dir() {
-        if current.join(".k0maru").join("wiki").is_dir() {
-            return current.join(".k0maru").join("wiki");
-        }
-        loop {
-            if current.join(".k0maru").join("wiki").is_dir() {
-                return current.join(".k0maru").join("wiki");
-            }
-            if current.join(".k0maru").exists()
-                || current.join(".obsidian").exists()
-                || current.join("10_Projects").is_dir()
-                || current.join("20_Cards").is_dir()
-            {
-                return current;
-            }
-            if !current.pop() {
-                break;
+    if let Ok(dir) = std::env::var("CLAUDE_PROJECT_DIR") {
+        if !dir.trim().is_empty() {
+            let candidate = PathBuf::from(&dir).join(".k0maru").join("wiki");
+            if candidate.is_dir() {
+                return candidate;
             }
         }
     }
-    PathBuf::from(".")
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
+
+    // Walk up the tree looking for an already-initialized repo vault or a real
+    // markdown vault (Obsidian / SecondBrain layout).
+    for curr in cwd.ancestors() {
+        let repo_wiki = curr.join(".k0maru").join("wiki");
+        if repo_wiki.is_dir() {
+            return repo_wiki;
+        }
+
+        // `$HOME` itself is never a vault marker: `~/.k0maru` may merely be the
+        // global model cache, and returning `$HOME` would hijack the user's
+        // home directory as a knowledge base.
+        if home_dir.as_deref() != Some(curr)
+            && (curr.join(".obsidian").is_dir()
+                || (curr.join("10_Projects").is_dir() && curr.join("20_Cards").is_dir()))
+        {
+            return curr.to_path_buf();
+        }
+    }
+
+    // Never fall back to `.` or `$HOME`: bind to the repository-local vault so
+    // cache/model artifacts stay inside `<repo>/.k0maru`.
+    let repo_root = k0maru::guard::resolve_repo_root(&cwd);
+    let repo_wiki = repo_root.join(".k0maru").join("wiki");
+    if repo_wiki.is_dir() || repo_root.join(".git").exists() {
+        return repo_wiki;
+    }
+
+    cwd.join(".k0maru").join("wiki")
 }
 
 fn detect_refs_dir(explicit: Option<PathBuf>) -> PathBuf {
@@ -898,58 +931,80 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
         return Ok(());
     }
 
-    if args.query.is_none() {
+    let effective_query = if let Some(q) = args.query {
+        Some(q)
+    } else {
         let projects = builder.list_projects()?;
-        if args.json_stream {
-            emit_json_stream_event(
-                "loadout_start",
-                serde_json::json!({
-                    "mode": "list",
-                }),
-            );
-            for p in &projects {
+        if projects.len() == 1 && !args.json && !args.json_stream {
+            Some(projects[0].name.clone())
+        } else {
+            if args.json_stream {
                 emit_json_stream_event(
-                    "project_listed",
+                    "loadout_start",
                     serde_json::json!({
-                        "name": p.name,
-                        "status": p.status,
-                        "path": p.path,
+                        "mode": "list",
                     }),
                 );
+                for p in &projects {
+                    emit_json_stream_event(
+                        "project_listed",
+                        serde_json::json!({
+                            "name": p.name,
+                            "status": p.status,
+                            "path": p.path,
+                        }),
+                    );
+                }
+                emit_json_stream_event(
+                    "loadout_ready",
+                    serde_json::json!({
+                        "total_projects": projects.len(),
+                    }),
+                );
+            } else if args.json {
+                let json_str = serde_json::to_string_pretty(&projects)?;
+                safe_println(&json_str);
+                if args.copy {
+                    copy_and_notify(&json_str);
+                }
+            } else if vault_path.join("00_Daily").is_dir() {
+                safe_println("📂 当前项目列表：");
+                safe_println("--------------------------------------------------");
+                for p in &projects {
+                    safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
+                }
+                safe_println("--------------------------------------------------");
+                safe_println("💡 用法: k0maru loadout <项目关键词>");
+                if args.copy {
+                    let text = projects
+                        .iter()
+                        .map(|p| format!("  • {}  [{}] ({})", p.name, p.status, p.path))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    copy_and_notify(&text);
+                }
+            } else {
+                safe_println("📂 Available Projects:");
+                safe_println("--------------------------------------------------");
+                for p in &projects {
+                    safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
+                }
+                safe_println("--------------------------------------------------");
+                safe_println("💡 Usage: k0maru loadout <project>");
+                if args.copy {
+                    let text = projects
+                        .iter()
+                        .map(|p| format!("  • {}  [{}] ({})", p.name, p.status, p.path))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    copy_and_notify(&text);
+                }
             }
-            emit_json_stream_event(
-                "loadout_ready",
-                serde_json::json!({
-                    "total_projects": projects.len(),
-                }),
-            );
-        } else if args.json {
-            let json_str = serde_json::to_string_pretty(&projects)?;
-            safe_println(&json_str);
-            if args.copy {
-                copy_and_notify(&json_str);
-            }
-        } else {
-            safe_println("📂 当前项目列表：");
-            safe_println("--------------------------------------------------");
-            for p in &projects {
-                safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
-            }
-            safe_println("--------------------------------------------------");
-            safe_println("💡 用法: k0maru loadout <项目关键词>");
-            if args.copy {
-                let text = projects
-                    .iter()
-                    .map(|p| format!("  • {}  [{}] ({})", p.name, p.status, p.path))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                copy_and_notify(&text);
-            }
+            return Ok(());
         }
-        return Ok(());
-    }
+    };
 
-    if let Some(query) = args.query {
+    if let Some(query) = effective_query {
         match builder.build(&query)? {
             Some(loadout) => {
                 if args.json_stream {
@@ -1236,12 +1291,17 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
         return Err("Vector index is empty. Run 'k0maru sync --vector' first.".into());
     }
-    let model_cache = if vault_path.join(".k0maru").join("models").exists() {
-        Some(vault_path.join(".k0maru").join("models"))
+    let has_vectors = storage.has_vectors().unwrap_or(false);
+    let embedder = if mode != SearchMode::Bm25 && has_vectors {
+        let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+            Some(vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        resolve_embedding_engine(args.embed_model.as_deref(), model_cache).ok()
     } else {
         None
     };
-    let embedder = resolve_embedding_engine(args.embed_model.as_deref(), model_cache).ok();
     let engine = HybridSearchEngine::new(&storage, embedder);
 
     let results = engine.search(&query, mode, args.limit)?;
@@ -1893,82 +1953,89 @@ fn main() {
     match cli.command {
         Some(Commands::Loadout(args)) => {
             if let Err(e) = run_loadout(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Offload(args)) => {
             if let Err(e) = run_offload(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Inspect(args)) => {
             if let Err(e) = run_inspect(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Mcp(args)) => {
             if let Err(e) = run_mcp(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Sync(args)) => {
             if let Err(e) = run_sync(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Search(args)) => {
             if let Err(e) = run_search(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Doctor(args)) => {
             if let Err(e) = run_doctor(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Init(args)) => {
             if let Err(e) = run_init_cmd(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Install(args)) => {
             if let Err(e) = run_install_cmd(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Flush(args)) => {
             if let Err(e) = run_flush(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Distill(args)) => {
             if let Err(e) = run_distill(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Gc(args)) => {
             if let Err(e) = run_gc(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Guard(args)) => match args.command {
             GuardSubcommand::Check(check_args) => {
                 let is_json = check_args.json;
+                let is_stop_hook = check_args.claude_stop_hook;
                 let vault_path = detect_vault_path(check_args.vault.clone());
                 match run_guard_check(check_args, &vault_path) {
                     Ok(report) => {
+                        if is_stop_hook {
+                            // Claude Code `Stop` hook: failures already wrote
+                            // the report to stderr and exited 2 inside
+                            // `run_guard_check`; success stays silent.
+                            std::process::exit(0);
+                        }
                         if is_json {
                             if let Ok(json_str) = serde_json::to_string_pretty(&report) {
                                 println!("{}", json_str);
@@ -1983,7 +2050,7 @@ fn main() {
                         }
                     }
                     Err(e) => {
-                        eprintln!("❌ 错误: {}", e);
+                        eprintln!("❌ Error: {}", e);
                         std::process::exit(2);
                     }
                 }
@@ -1997,7 +2064,7 @@ fn main() {
                     std::process::exit(0);
                 }
                 Err(e) => {
-                    eprintln!("❌ 错误: {}", e);
+                    eprintln!("❌ Error: {}", e);
                     std::process::exit(2);
                 }
             },
@@ -2015,18 +2082,18 @@ fn main() {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    eprintln!("❌ 错误: {}", e);
+                    eprintln!("❌ Error: {}", e);
                     std::process::exit(1);
                 }
             };
             if let Err(e) = rt.block_on(k0maru::ui::run_server(vault_path, port, open)) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Pack(args)) => {
             if let Err(e) = run_pack(args) {
-                eprintln!("❌ 错误: {}", e);
+                eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }
         }

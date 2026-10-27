@@ -1,0 +1,19 @@
+name: Feature Request
+description: Propose an enhancement to K0maru-Agent-Memory, Living ADR Guard, or Agent Lifecycle Hooks
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What workflow friction or architectural governance gap does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed CLI / MCP / Invariant Design
+      description: Describe the expected command flags, MCP schema, or behavior.
+    validations:
+      required: true
