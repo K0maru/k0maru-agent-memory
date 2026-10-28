@@ -80,13 +80,11 @@ const BAYER_4X4 = [
   [15, 7, 13, 5],
 ]
 
-// --- State ---
+// --- State & Calibrated Constants ---
 const activeFilter = ref<FilterType>('scanline')
 const activePalette = ref<PaletteName>('meadow')
-const maskVeil = ref<number>(90)
-const density = ref<number>(88)
-const cellScale = ref<number>(28)
-
+const MASK_VEIL = 0.90
+const DENSITY = 0.88
 const isMounted = ref(false)
 const heroContainer = ref<HTMLElement | null>(null)
 const bgCanvasRef = ref<HTMLCanvasElement | null>(null)
@@ -508,7 +506,8 @@ let bgAnimId = 0
 let showcaseAnimId = 0
 let bgTime = 0
 let showcaseTime = 0
-
+let isHeroInViewport = true
+let heroObserver: IntersectionObserver | null = null
 // Mouse state for showcase
 const showcaseMouse = {
   x: -999,
@@ -615,6 +614,10 @@ function initBgCanvas() {
   window.addEventListener('resize', handleResize)
 
   const renderBg = () => {
+    if (!isHeroInViewport) {
+      bgAnimId = requestAnimationFrame(renderBg)
+      return
+    }
     bgTime += 0.016
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const w = canvas.width / dpr
@@ -625,9 +628,8 @@ function initBgCanvas() {
     ctx.clearRect(0, 0, w, h)
 
     const pal = PALETTES[activePalette.value]
-    const s = density.value / 100
-    const currentMask = maskVeil.value / 100
-
+    const s = DENSITY
+    const currentMask = MASK_VEIL
     // Compute cell dimensions
     const baseCell = 14
     const cellW = baseCell
@@ -768,13 +770,17 @@ function initShowcaseCanvas() {
   canvas.addEventListener('mouseleave', onMouseLeave)
 
   const renderShowcase = () => {
+    if (!isHeroInViewport) {
+      showcaseAnimId = requestAnimationFrame(renderShowcase)
+      return
+    }
     showcaseTime += 0.018
     ctx.save()
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, cssW, cssH)
 
     const pal = PALETTES[activePalette.value]
-    const s = density.value / 100
+    const s = DENSITY
     const filter = activeFilter.value
     const lMap = heroLuminanceMap
 
@@ -1197,6 +1203,20 @@ let cleanupShowcase: (() => void) | undefined
 function locateHeroContainer() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return
   heroContainer.value = document.querySelector<HTMLElement>('.VPHero .container')
+  heroObserver?.disconnect()
+  isHeroInViewport = true
+  const vpHero = document.querySelector<HTMLElement>('.VPHero')
+  if (vpHero && 'IntersectionObserver' in window) {
+    heroObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          isHeroInViewport = entry.isIntersecting
+        }
+      },
+      { threshold: 0.01 }
+    )
+    heroObserver.observe(vpHero)
+  }
 }
 
 async function initAll() {
@@ -1231,6 +1251,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  heroObserver?.disconnect()
+  heroObserver = null
   cleanupBg?.()
   cleanupShowcase?.()
   featureCleanups.forEach((c) => c())
