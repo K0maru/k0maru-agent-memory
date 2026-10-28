@@ -1,0 +1,119 @@
+{
+  "name": "K0maru Agent Memory",
+  "description": "FastMCP Stdio and CLI Services for AI Coding Agents",
+  "version": "1.0.0",
+  "license": "MIT",
+  "url": "https://k0maru.github.io/k0maru-agent-memory/en/",
+  "repository": "https://github.com/K0maru/k0maru-agent-memory",
+  "capabilities": [
+    "executable_architectural_memory",
+    "living_adr_guard",
+    "zero_llm_supersession",
+    "diff_aware_loadout",
+    "fastmcp_stdio_server",
+    "fts5_bm25_search",
+    "onnx_semantic_search",
+    "disposable_sqlite_cache"
+  ],
+  "cli_commands": [
+    {
+      "command": "k0maru init",
+      "args": ["--vault <path>", "--install"],
+      "description": "Initialize a local .k0maru/wiki workspace or bind an existing Obsidian vault; --install configures client configs and Git pre-commit hooks."
+    },
+    {
+      "command": "k0maru sync",
+      "args": ["--full", "--vector"],
+      "description": "Incrementally index Markdown vault files into SQLite FTS5; optionally compute vector embeddings."
+    },
+    {
+      "command": "k0maru loadout",
+      "args": ["<project>", "--diff"],
+      "description": "Assemble a bounded <300 token context loadout of project mission, core invariants, and recent decisions."
+    },
+    {
+      "command": "k0maru search",
+      "args": ["<query>", "--vector", "--limit <n>"],
+      "description": "Search knowledge base using BM25 full-text search or semantic vector embeddings."
+    },
+    {
+      "command": "k0maru guard check",
+      "args": ["--diff", "--claude-stop-hook", "--path <file>"],
+      "description": "Evaluate code against active ADR invariants in <10ms; exit code 2 triggers autonomous agent self-healing."
+    },
+    {
+      "command": "k0maru guard list",
+      "args": [],
+      "description": "List all active, parsed Living ADR invariant rules across the repository."
+    },
+    {
+      "command": "k0maru flush",
+      "args": ["--category <cat>", "--title <title>", "--supersedes <title>", "--summary <summary>", "--content <content>"],
+      "description": "Crystallize decision notes or ADRs; --supersedes atomically deprecates old rules and hot-swaps active guards."
+    },
+    {
+      "command": "k0maru doctor",
+      "args": [],
+      "description": "Diagnose repository bindings, hooks integrity, cache status, and MCP client configurations."
+    },
+    {
+      "command": "k0maru mcp run",
+      "args": [],
+      "description": "Start the FastMCP stdio server for Claude Code, Cursor, Windsurf, Cline, and Gemini CLI."
+    },
+    {
+      "command": "k0maru prune",
+      "args": ["--dry-run"],
+      "description": "Clean orphaned entries in SQLite cache and compact vector storage."
+    }
+  ],
+  "mcp_tools": [
+    {
+      "name": "get_project_loadout",
+      "description": "Fetch high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) dynamically adjusted to git diff.",
+      "parameters": {
+        "project": "string (project identifier or root directory)",
+        "diff": "boolean (whether to inspect uncommitted git diff)"
+      }
+    },
+    {
+      "name": "guard_check",
+      "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Halts non-compliant commits.",
+      "parameters": {
+        "diff": "boolean (audit unstaged and staged git diff)",
+        "staged": "boolean (audit only git staged diff)",
+        "claude_stop_hook": "boolean (Claude Code Stop-hook formatting with exit code 2 remediation)",
+        "path": "string (path to single file to audit)"
+      }
+    },
+    {
+      "name": "recall_memory",
+      "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, and notes.",
+      "parameters": {
+        "query": "string (search query string)",
+        "mode": "string (hybrid | keyword | vector)",
+        "limit": "number (maximum number of notes to return)"
+      }
+    },
+    {
+      "name": "flush_session",
+      "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into Markdown notes with optional deterministic supersession.",
+      "parameters": {
+        "category": "string (decision | bugfix | playbook | milestone)",
+        "title": "string (canonical note title)",
+        "summary": "string (concise summary under 200 words)",
+        "content": "string (full Markdown body)",
+        "supersedes": "string (optional title of deprecated note to supersede)"
+      }
+    },
+    {
+      "name": "distill_session_skill",
+      "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note.",
+      "parameters": {
+        "trace": "string (raw console or compiler trace)",
+        "title": "string (title for the distilled playbook)",
+        "category": "string (playbook | troubleshooting)"
+      }
+    }
+  ]
+}

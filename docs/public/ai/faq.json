@@ -1,0 +1,33 @@
+{
+  "name": "K0maru Agent Memory",
+  "version": "1.0.0",
+  "license": "MIT",
+  "url": "https://k0maru.github.io/k0maru-agent-memory/en/",
+  "repository": "https://github.com/K0maru/k0maru-agent-memory",
+  "faqs": [
+    {
+      "question": "What is K0maru Agent Memory?",
+      "answer": "K0maru Agent Memory is a single-static-binary (3.6 MB pure-Rust core), zero-daemon long-term memory hub and sub-10ms Living ADR Guard for AI coding agents such as Claude Code, Cursor, Windsurf, Cline, and Gemini CLI. It converts human-authored Markdown Architecture Decision Records into deterministic Git pre-commit and Claude Code Stop-hook guardrails while maintaining bounded <300 token loadouts."
+    },
+    {
+      "question": "How does K0maru Agent Memory compare to Mem0, Zep, and ai-memory?",
+      "answer": "Unlike passive session loggers (Mem0, Zep, ai-memory) that store raw chat histories and cause context poisoning and belief entrenchment, K0maru provides active, deterministic architectural enforcement (<10ms Living ADR Guard), zero-LLM supersession (k0maru flush --supersedes), a strict <300 token loadout budget, zero daemon background processes, and a 3.4ms cold start."
+    },
+    {
+      "question": "How does the sub-10ms Living ADR Guard prevent coding agents from violating architectural rules?",
+      "answer": "The Living ADR Guard extracts declarative K-DSL invariant rules directly from Markdown ADRs. It executes AST-aware and diff-aware pattern checks in <10ms in-memory during git pre-commit hooks and Claude Code Stop-hooks (hooks.Stop), halting non-compliant code before it is committed or handed back to humans with actionable remediation feedback."
+    },
+    {
+      "question": "How does deterministic ADR supersession (k0maru flush --supersedes) prevent belief entrenchment?",
+      "answer": "When architectural decisions evolve, 'k0maru flush --supersedes' atomically sets frontmatter status: superseded on the deprecated ADR, strips inbound WikiLink graph boosts, hot-swaps active guard rules, and activates the new invariant. This eliminates stale belief entrenchment deterministically without LLM re-indexing or manual wiki cleanup."
+    },
+    {
+      "question": "Do I need an existing Obsidian vault to use K0maru Agent Memory?",
+      "answer": "No. Running 'k0maru init' automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with standard 00_Meta, 01_AI_Logs, and 02_Architecture directories. If you already use an Obsidian vault, you can seamlessly bind it via 'k0maru init --vault <path>'."
+    },
+    {
+      "question": "How do I install K0maru Agent Memory in Claude Code, Cursor, and Windsurf?",
+      "answer": "Run 'curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash' or 'brew install K0maru/tap/k0maru'. Then run 'k0maru init --install' in your project root, which automatically generates .mcp.json for Claude Code and .cursor/mcp.json for Cursor, configures pre-commit hooks, and registers FastMCP tools."
+    }
+  ]
+}

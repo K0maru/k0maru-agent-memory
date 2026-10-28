@@ -1,0 +1,7 @@
+User-Agent: *
+Allow: /
+
+LLMs-Txt: https://k0maru.github.io/k0maru-agent-memory/llms.txt
+Summary: https://k0maru.github.io/k0maru-agent-memory/ai/summary.json
+FAQ: https://k0maru.github.io/k0maru-agent-memory/ai/faq.json
+Service: https://k0maru.github.io/k0maru-agent-memory/ai/service.json

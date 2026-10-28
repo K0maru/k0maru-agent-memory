@@ -1,0 +1,35 @@
+{
+  "name": "K0maru Agent Memory",
+  "tagline": "Executable Architectural Memory & Sub-10ms Living ADR Guard for AI Coding Agents",
+  "description": "A Standalone, Single-Static-Binary (3.6 MB pure-Rust core), Zero-Daemon Long-Term Memory Hub and sub-10ms Living ADR Guard for AI coding agents such as Claude Code, Cursor, Windsurf, Cline, and Gemini CLI.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "url": "https://k0maru.github.io/k0maru-agent-memory/en/",
+  "repository": "https://github.com/K0maru/k0maru-agent-memory",
+  "documentation": "https://k0maru.github.io/k0maru-agent-memory/",
+  "features": [
+    "Sub-10ms in-memory Living ADR Guard evaluating K-DSL architectural invariants on git pre-commit and Claude Code Stop-hook (hooks.Stop)",
+    "Deterministic zero-LLM supersession (k0maru flush --supersedes) that auto-updates frontmatter lifecycle metadata and strips inbound WikiLink boosts to prevent belief entrenchment",
+    "Diff-aware bounded loadouts (<300 tokens) injecting minimal high-relevance architectural context without context-window pollution",
+    "Zero background daemon, zero open network ports, 3.4ms cold start, disposable cache (rebuilds in 74ms)",
+    "Dual search engine combining FTS5 BM25 keyword matching with local ONNX/FastEmbed semantic vector search"
+  ],
+  "benchmarks": {
+    "loadout_token_footprint": "<300 tokens (168 tokens standard; 245 tokens under multi-rule diffs)",
+    "supersession_self_healing": "100% Pass@1 autonomous remediation in 1 turn across DeepSeek V4.1, Qwen2.5-Coder-7B, and Llama-3.1-8B",
+    "session_trajectory_gc_trr": "86.58% Token Reduction Ratio (16,830 tokens compacted to 2,259 tokens)",
+    "symbolic_offloading_trr": "99.44% token reduction on compiler and test runner stack traces",
+    "binary_footprint": "3.6 MB pure-Rust core binary; 19 MB macOS arm64 / 34 MB Linux x86_64 bundling fastembed + ONNX Runtime",
+    "cold_start_latency": "3.4 ms native startup, ~11.7 MB RAM footprint during execution"
+  },
+  "capabilities": [
+    "living_adr_guard",
+    "zero_llm_supersession",
+    "diff_aware_loadout",
+    "fts5_bm25_search",
+    "onnx_vector_embedding",
+    "claude_code_stop_hook",
+    "git_pre_commit_hook",
+    "fastmcp_stdio_protocol"
+  ]
+}

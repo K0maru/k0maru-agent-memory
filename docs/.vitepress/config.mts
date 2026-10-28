@@ -1,26 +1,164 @@
 import { defineConfig } from 'vitepress'
 
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': 'https://k0maru.github.io/k0maru-agent-memory/#organization',
+      name: 'K0maru Agent Memory',
+      url: 'https://k0maru.github.io/k0maru-agent-memory/en/',
+      logo: 'https://k0maru.github.io/k0maru-agent-memory/images/architecture_overview.png',
+      sameAs: [
+        'https://github.com/K0maru/k0maru-agent-memory',
+        'https://github.com/K0maru/homebrew-tap',
+        'https://en.wikipedia.org/wiki/Model_Context_Protocol',
+        'https://www.wikidata.org/wiki/Q116967633',
+        'https://www.linkedin.com/company/github',
+        'https://www.crunchbase.com/organization/github',
+      ],
+      contactPoint: {
+        '@type': 'ContactPoint',
+        contactType: 'technical support',
+        url: 'https://github.com/K0maru/k0maru-agent-memory/issues',
+        email: 'noreply@github.com',
+      },
+    },
+    {
+      '@type': 'WebSite',
+      '@id': 'https://k0maru.github.io/k0maru-agent-memory/#website',
+      name: 'K0maru Agent Memory',
+      url: 'https://k0maru.github.io/k0maru-agent-memory/en/',
+      datePublished: '2026-10-01',
+      dateModified: '2026-10-28',
+      author: {
+        '@id': 'https://k0maru.github.io/k0maru-agent-memory/#organization',
+      },
+      publisher: {
+        '@id': 'https://k0maru.github.io/k0maru-agent-memory/#organization',
+      },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: 'https://k0maru.github.io/k0maru-agent-memory/en/?q={search_term_string}',
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@type': 'SoftwareApplication',
+      name: 'K0maru Agent Memory',
+      applicationCategory: 'DeveloperApplication',
+      operatingSystem: 'macOS, Linux, Windows',
+      softwareVersion: '1.0.0',
+      datePublished: '2026-10-01',
+      dateModified: '2026-10-28',
+      license: 'https://opensource.org/licenses/MIT',
+      url: 'https://github.com/K0maru/k0maru-agent-memory',
+      downloadUrl: 'https://github.com/K0maru/k0maru-agent-memory/releases/latest',
+      author: {
+        '@id': 'https://k0maru.github.io/k0maru-agent-memory/#organization',
+      },
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'What is K0maru Agent Memory?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'K0maru Agent Memory is a single-static-binary (3.6 MB pure-Rust core), zero-daemon long-term memory hub and sub-10ms Living ADR Guard for AI coding agents such as Claude Code, Cursor, Windsurf, Cline, and Gemini CLI. It converts human-authored Markdown Architecture Decision Records into deterministic Git pre-commit and Claude Code Stop-hook guardrails while maintaining bounded <300 token loadouts.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How does K0maru Agent Memory compare to Mem0, Zep, and ai-memory?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Unlike passive session loggers (Mem0, Zep, ai-memory) that store raw chat histories and cause context poisoning and belief entrenchment, K0maru provides active, deterministic architectural enforcement (<10ms Living ADR Guard), zero-LLM supersession (k0maru flush --supersedes), a strict <300 token loadout budget, zero daemon background processes, and a 3.4ms cold start.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How does the sub-10ms Living ADR Guard prevent coding agents from violating architectural rules?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'The Living ADR Guard extracts declarative K-DSL invariant rules directly from Markdown ADRs. It executes AST-aware and diff-aware pattern checks in <10ms in-memory during git pre-commit hooks and Claude Code Stop-hooks (hooks.Stop), halting non-compliant code before it is committed or handed back to humans with actionable remediation feedback.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How does deterministic ADR supersession (k0maru flush --supersedes) prevent belief entrenchment?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'When architectural decisions evolve, k0maru flush --supersedes atomically sets frontmatter status: superseded on the deprecated ADR, strips inbound WikiLink graph boosts, hot-swaps active guard rules, and activates the new invariant. This eliminates stale belief entrenchment deterministically without LLM re-indexing or manual wiki cleanup.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'Do I need an existing Obsidian vault to use K0maru Agent Memory?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'No. Running k0maru init automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with standard 00_Meta, 01_AI_Logs, and 02_Architecture directories. If you already use an Obsidian vault, you can seamlessly bind it via k0maru init --vault <path>.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I install K0maru Agent Memory in Claude Code, Cursor, and Windsurf?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Run curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash or brew install K0maru/tap/k0maru. Then run k0maru init --install in your project root, which automatically generates .mcp.json for Claude Code and .cursor/mcp.json for Cursor, configures pre-commit hooks, and registers FastMCP tools.',
+          },
+        },
+      ],
+    },
+  ],
+}
+
 export default defineConfig({
   title: 'K0maru Agent Memory',
   description: 'A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents',
   base: process.env.VITEPRESS_BASE || '/',
+  sitemap: {
+    hostname: 'https://k0maru.github.io/k0maru-agent-memory/',
+  },
   appearance: 'force-dark',
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['agents/**'],
+  transformHtml(code) {
+    return code
+      .replace(/[\u200B\uFE0F]/g, '')
+      .replace(/&#8203;/g, '')
+  },
 
   head: [
     ['meta', { name: 'theme-color', content: '#0F172A' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:site_name', content: 'K0maru Agent Memory Documentation' }],
+    ['meta', { name: 'author', content: 'K0maru Contributors' }],
+    ['meta', { name: 'date', content: '2026-10-28' }],
+    ['meta', { property: 'article:published_time', content: '2026-10-01T00:00:00Z' }],
+    ['meta', { property: 'article:modified_time', content: '2026-10-28T00:00:00Z' }],
+    ['meta', { property: 'og:title', content: 'K0maru Agent Memory — Executable Architectural Memory & Living ADR Guard for AI Coding Agents' }],
+    ['meta', { property: 'og:description', content: 'Single-static-binary (3.6 MB Rust), zero-daemon long-term memory hub and <10ms Living ADR Guard for Claude Code, Cursor, Windsurf, and Gemini CLI.' }],
+    ['meta', { property: 'og:url', content: 'https://k0maru.github.io/k0maru-agent-memory/en/' }],
+    ['meta', { property: 'og:image', content: 'https://k0maru.github.io/k0maru-agent-memory/images/architecture_overview.png' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+    ['link', { rel: 'canonical', href: 'https://k0maru.github.io/k0maru-agent-memory/en/' }],
+    ['link', { rel: 'alternate', type: 'application/rss+xml', title: 'K0maru Agent Memory Releases Atom Feed', href: 'https://github.com/K0maru/k0maru-agent-memory/releases.atom' }],
+    ['script', { type: 'application/ld+json' }, JSON.stringify(jsonLd)],
   ],
-
   locales: {
     zh: {
       label: '简体中文',
       lang: 'zh-CN',
       link: '/zh/',
-      title: 'K0maru 架构与技术文档',
+      title: 'K0maru Agent Memory',
       description: 'AI 编码智能体单二进制、零常驻轻量级长期记忆核心',
       themeConfig: {
         nav: [
@@ -41,7 +179,7 @@ export default defineConfig({
             ],
           },
           {
-            text: '🏗️ 架构与内核',
+            text: '🏗 架构与内核',
             items: [
               { text: '四层架构与核心数据流', link: '/zh/architecture/overview' },
               { text: '核心算法与关键模块深度实现', link: '/zh/architecture/key-implementations' },
@@ -86,7 +224,7 @@ export default defineConfig({
       label: 'English',
       lang: 'en-US',
       link: '/en/',
-      title: 'K0maru Architecture & Technical Manual',
+      title: 'K0maru Agent Memory',
       description: 'A Standalone, Single-Static-Binary, Zero-Daemon Long-Term Memory Hub for AI Coding Agents',
       themeConfig: {
         nav: [
@@ -107,7 +245,7 @@ export default defineConfig({
             ],
           },
           {
-            text: '🏗️ Architecture & Core',
+            text: '🏗 Architecture & Core',
             items: [
               { text: 'Architectural Overview & Data Flow', link: '/en/architecture/overview' },
               { text: 'Key Implementations Deep Dive', link: '/en/architecture/key-implementations' },
