@@ -43,10 +43,19 @@ pub fn parse_rule_object(
         .or_else(|| obj.get("paths"))
         .and_then(extract_pattern);
 
-    let has_condition = obj.get("condition").and_then(|v| v.as_str()).is_some();
+    let nested_condition = obj.get("condition").and_then(|v| v.as_object());
+    let has_condition =
+        nested_condition.is_some() || obj.get("condition").and_then(|v| v.as_str()).is_some();
     let has_forbid_or_must = obj.get("forbidden").is_some()
         || obj.get("forbid").is_some()
-        || obj.get("must_contain").is_some();
+        || obj.get("must_contain").is_some()
+        || nested_condition
+            .map(|map| {
+                map.contains_key("forbidden")
+                    || map.contains_key("forbid")
+                    || map.contains_key("must_contain")
+            })
+            .unwrap_or(false);
 
     if file_pattern.is_none() && !has_condition && has_forbid_or_must {
         if let Some(pat) = obj.get("pattern").and_then(|v| v.as_str()) {
@@ -74,34 +83,45 @@ pub fn parse_rule_object(
         .unwrap_or("")
         .to_string();
 
+    // Collects one rule per declared value, suffixing the id when a single
+    // declaration lists multiple patterns (arrays or nested condition maps).
+    let push_values = |rules: &mut Vec<GuardRule>, values: Vec<String>, is_forbidden: bool| {
+        let multiple = values.len() > 1;
+        for (idx, value) in values.into_iter().enumerate() {
+            let rule_id = if multiple {
+                format!("{}-{}", id, idx + 1)
+            } else {
+                id.clone()
+            };
+            let condition = if is_forbidden {
+                RuleCondition::Forbidden(value)
+            } else {
+                RuleCondition::MustContain(value)
+            };
+            rules.push(GuardRule {
+                id: rule_id,
+                title: title.clone(),
+                source_note: source_note.to_string(),
+                file_pattern: file_pattern.clone(),
+                condition,
+                severity,
+                remediation: remediation.clone(),
+            });
+        }
+    };
+
     let mut rules = Vec::new();
 
-    if let Some(must) = obj.get("must_contain").and_then(|v| v.as_str()) {
-        rules.push(GuardRule {
-            id: id.clone(),
-            title: title.clone(),
-            source_note: source_note.to_string(),
-            file_pattern: file_pattern.clone(),
-            condition: RuleCondition::MustContain(must.to_string()),
-            severity,
-            remediation: remediation.clone(),
-        });
+    if let Some(values) = obj.get("must_contain").map(value_to_patterns) {
+        push_values(&mut rules, values, false);
     }
 
-    if let Some(forbid) = obj
+    if let Some(values) = obj
         .get("forbidden")
         .or_else(|| obj.get("forbid"))
-        .and_then(|v| v.as_str())
+        .map(value_to_patterns)
     {
-        rules.push(GuardRule {
-            id: id.clone(),
-            title: title.clone(),
-            source_note: source_note.to_string(),
-            file_pattern: file_pattern.clone(),
-            condition: RuleCondition::Forbidden(forbid.to_string()),
-            severity,
-            remediation: remediation.clone(),
-        });
+        push_values(&mut rules, values, true);
     }
 
     if let (Some(cond), Some(pat)) = (
@@ -111,32 +131,46 @@ pub fn parse_rule_object(
         let cond_lower = cond.to_lowercase();
         match cond_lower.as_str() {
             "forbidden" | "forbid" | "deny" => {
-                rules.push(GuardRule {
-                    id: id.clone(),
-                    title: title.clone(),
-                    source_note: source_note.to_string(),
-                    file_pattern: file_pattern.clone(),
-                    condition: RuleCondition::Forbidden(pat.to_string()),
-                    severity,
-                    remediation: remediation.clone(),
-                });
+                push_values(&mut rules, vec![pat.to_string()], true);
             }
             "must_contain" | "must" | "require" => {
-                rules.push(GuardRule {
-                    id: id.clone(),
-                    title: title.clone(),
-                    source_note: source_note.to_string(),
-                    file_pattern: file_pattern.clone(),
-                    condition: RuleCondition::MustContain(pat.to_string()),
-                    severity,
-                    remediation: remediation.clone(),
-                });
+                push_values(&mut rules, vec![pat.to_string()], false);
             }
             _ => {}
         }
     }
 
+    // Nested condition map, e.g.
+    //   condition:
+    //     forbidden: [redis_setnx]
+    //     must_contain: [acquire_fenced_lease]
+    if let Some(cond_map) = nested_condition {
+        if let Some(values) = cond_map.get("must_contain").map(value_to_patterns) {
+            push_values(&mut rules, values, false);
+        }
+        if let Some(values) = cond_map
+            .get("forbidden")
+            .or_else(|| cond_map.get("forbid"))
+            .map(value_to_patterns)
+        {
+            push_values(&mut rules, values, true);
+        }
+    }
+
     rules
+}
+
+/// Normalizes a rule value into a list of patterns, accepting either a single
+/// string or an array of strings.
+fn value_to_patterns(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(s) => vec![s.to_string()],
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Extracts guard invariant rules declared in a document's frontmatter and markdown body.

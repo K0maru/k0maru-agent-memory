@@ -110,7 +110,7 @@ cleanup() {
 trap cleanup EXIT
 
 log_info "Downloading ${ASSET_NAME} from ${DOWNLOAD_URL}..."
-if ! curl -fL --progress-bar -o "${TMP_DIR}/${ASSET_NAME}" "$DOWNLOAD_URL"; then
+if ! curl -fL -sS -o "${TMP_DIR}/${ASSET_NAME}" "$DOWNLOAD_URL"; then
     log_error "Failed to download release binary for ${TARGET} (${VERSION})."
     log_error "Please check available assets at: ${GITHUB_URL}/releases/tag/${VERSION}"
     exit 1
@@ -208,8 +208,22 @@ case ":${PATH}:" in
         ;;
     *)
         log_warn "${DEST_DIR} is not currently in your \$PATH."
-        log_warn "Add the following to your ~/.zshrc or ~/.bashrc:"
-        printf "    export PATH=\"%s:\$PATH\"\n\n" "$DEST_DIR"
+        ADDED_PROFILE=0
+        for rc in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+            if [ -f "$rc" ] && [ -w "$rc" ]; then
+                if ! grep -qF "$DEST_DIR" "$rc" 2>/dev/null; then
+                    printf '\nexport PATH="%s:$PATH"\n' "$DEST_DIR" >> "$rc"
+                    log_info "Added ${DEST_DIR} to ${rc}."
+                    ADDED_PROFILE=1
+                fi
+            fi
+        done
+        if [ "$ADDED_PROFILE" -eq 1 ]; then
+            log_info "Added ${DEST_DIR} to your shell profile. Run 'source ~/.zshrc' (or ~/.bashrc) or restart terminal to update \$PATH."
+        else
+            log_warn "Add the following to your ~/.zshrc or ~/.bashrc:"
+            printf "    export PATH=\"%s:\$PATH\"\n\n" "$DEST_DIR"
+        fi
         ;;
 esac
 

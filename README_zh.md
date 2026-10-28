@@ -31,8 +31,8 @@
 **K0maru 专为单机开发机打造，以极简机械复杂度交付工业级性能**：
 
 1. **⚡ 零守护进程与极致冷启动（Zero-Daemon & 3.4ms Cold Start）**：
-   - 纯 Rust 静态编译，单二进制体积仅 **3.6MB (core) / 34MB (bundled ONNX)**（使用 `--no-default-features` 编译的纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认捆绑 `fastembed` 与 ONNX Runtime 的发行版二进制约为 `~34MB`）；
-   - 冷启动仅需 **3.38 ms**，常驻内存仅 ~11 MB，**不占用任何常驻后台网络端口**；
+   - 纯 Rust 静态编译，单二进制体积仅 **3.6MB (core) / 19MB (macOS arm64) / 34MB (Linux x86_64)**（使用 `--no-default-features` 编译的纯 Rust FTS5+Guard 核心二进制仅 `3.6 MB`，默认捆绑 `fastembed` 与 ONNX Runtime 的发行版二进制在 macOS arm64 为 `19 MB` / Linux x86_64 为 `34 MB`，压缩下载包 15.5 MB；ONNX 模型权重在首次 `k0maru sync --vector` 时自动缓存于 `~/.k0maru/models/`）；
+   - 冷启动仅需 **3.4 ms**，常驻内存仅 ~11 MB，**不占用任何常驻后台网络端口**；
    - 通过 Unix 管道与标准 stdio 协议即调即走，命令执行完毕瞬间将内存归还系统。
 2. **📝 自备纯文本 Markdown（拓扑无关的 LLM-Wiki 适配）**：
    - 用户已有的本地 Markdown 笔记即为唯一真理源泉。架构完全与拓扑解耦，原生兼容**任意 LLM-Wiki 组织形态**：Karpathy 式扁平单目录 LLM-Wiki、工程级 `docs/adr/` 或 `decisions/` 维基、PARA 体系（`projects/`、`cards/`、`logs/`）以及 Johnny.Decimal（`10_Projects/`、`20_Cards/`）；
@@ -53,10 +53,10 @@
 | **存储媒介** | 散落文本或无持久化 | 外部数据库 (PostgreSQL, pgvector, Redis) | 专有格式或隐藏目录数据库 | **本地既有 Markdown 笔记 (纯文本)** |
 | **部署与运行模型** | 无依赖 | Docker Compose 多容器集群 | 需常驻后台守护进程 (`iii-engine` 等) | **单静态二进制，按需运行 (零守护进程)** |
 | **网络端口占用** | 0 | 1 ~ 4 个网络端口 | 1 ~ 4 个网络端口 | **0 端口** (纯 Unix 管道与 stdio 通信) |
-| **冷启动延迟** | 即时 | 2,500 ms ~ 3,500 ms (容器及环境启动) | 1,000 ms ~ 2,000 ms | **3.38 ms** (Rust 原生执行) |
+| **冷启动延迟** | 即时 | 2,500 ms ~ 3,500 ms (容器及环境启动) | 1,000 ms ~ 2,000 ms | **3.4 ms** (Rust 原生执行) |
 | **常驻内存开销** | 0 | ~850 MB - 2,000 MB | ~150 MB - 300 MB | **~11.7 MB** (任务完成后完全归还操作系统) |
 | **长日志治理** | 截断由人肉或大模型被动截取 | 需经由网络 API 传输处理 | 依赖内部处理逻辑 | **标准 Unix 管道过滤器 (`\| k0maru offload`)** |
-| **架构不变量守卫** | 人工 Code Review 易遗漏 | 外部 SonarQube / 重型 CI 流程 | 无 | **Living ADR Guard (<10ms 极速审计 Git Diff)** |
+| **架构不变量守卫** | 人工 Code Review 易遗漏 | 外部 SonarQube / 重型 CI 流程 | 无 | **Living ADR Guard (<10ms 内存规则引擎，~15–55ms CLI 含 git diff)** |
 | **记忆衰减与新旧取代** | 过期文档持续投毒上下文 | 依赖高成本 LLM 抽图谱 | 仅做被动搜索降权 | **零 LLM `--supersedes` + 破除旧双链霸榜 + 护栏规则热替换** |
 | **索引自愈机制** | 无 | 强依赖外部数据库快照与备份 | 依赖本地私有数据库完整性 | **单文件 `cache.sqlite` 随时可删，74ms 快速全量重建** |
 
@@ -77,7 +77,7 @@
 
 #### 智能体生态真实闭环适配验证 (Hermes Agent & OpenClaw on Real LLM-Wiki)
 
-在 Colab 节点上搭建真实企业级支付网关 LLM-Wiki（含 P0 服务架构、L3 幂等规则卡片与历史资损复盘），驱动 **Qwen2.5-Coder-32B** 自主运行 Hermes / OpenClaw 多轮函数调用循环，四大核心不变量全部达成：
+在 Colab 硬件上搭建真实企业级支付网关 LLM-Wiki（含 P0 服务架构、L3 幂等规则卡片与历史资损复盘），驱动 **Llama-3.1-8B-Instruct (A100)** 与 **Qwen2.5-Coder-7B (Colab L4)** 自主运行 Hermes / OpenClaw 多轮函数调用循环，四大核心不变量全部达成（`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`，`Qwen2.5-Coder-7B (Colab L4): 100% Pass@1`）：
 
 | 核心不变量检验项 | 期望标准与流程 | 实际执行验证结果 | 状态 |
 | :--- | :--- | :--- | :---: |
@@ -108,7 +108,7 @@ AI Agent 会自动完成单二进制安装、生成 `.k0maru/wiki/`、挂载项�
 只有一个 Git 仓库？完全不需要提前准备 Obsidian 或手动整理笔记。在你的项目根目录下运行两条命令：
 
 ```bash
-# 1. 一键安装单二进制（<4MB，零常驻后台进程）
+# 1. 一键安装单二进制（零常驻后台进程）
 curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
 
 # 2. 秒级初始化本地知识库并自动挂载所有智能体与 Git 钩子
@@ -170,13 +170,13 @@ k0maru install --vault ~/Documents/MyVault --dry-run
   ```
 - **源码编译安装 (Cargo)**：
   ```bash
-  # 包含本地 fastembed + ONNX 向量模型的完整发行版二进制 (~34MB)
+  # 包含本地 fastembed + ONNX 向量模型的完整发行版二进制 (19 MB macOS arm64 / 34 MB Linux x86_64)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
-  # 纯 Rust FTS5 BM25 + Living ADR Guard 轻量核心二进制 (~3.6MB)
+  # 纯 Rust FTS5 BM25 + Living ADR Guard 轻量核心二进制 (3.6 MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
   ```
-  *（同时构建生成 `k0maru` 与 `k0maru-memory` 二进制别名。`--no-default-features` 纯 Rust FTS5+Guard 核心二进制仅 `~3.6MB`，默认开启 `fastembed` + ONNX Runtime 的完整二进制约为 `~34MB`）*。
+  *（同时构建生成 `k0maru` 与 `k0maru-memory` 二进制别名。`--no-default-features` 纯 Rust FTS5+Guard 核心二进制仅 `3.6 MB`，默认开启 `fastembed` + ONNX Runtime 的完整二进制为 `19 MB` (macOS arm64) / `34 MB` (Linux x86_64)，压缩下载 15.5 MB；模型权重在首次 `k0maru sync --vector` 时缓存于 `~/.k0maru/models/`）*。
 ---
 
 ### 3. 一键环境健康诊断（`k0maru doctor`）
@@ -187,7 +187,7 @@ k0maru install --vault ~/Documents/MyVault --dry-run
 k0maru doctor
 ```
 
-控制台将以彩色清晰呈现诊断项（`✓ Binary In Path`, `✓ FTS5 Index Ready`, `✓ Vectors Indexed`, `✓ Claude Code Configured`, `✓ Cursor Configured`），发现任何缺失都会提供精准的修复命令。
+控制台将以彩色清晰呈现 4 大核心子系统（`[Binary & System]`, `[Vault & Hierarchy]`, `[Storage & Search Engine]`, `[Agent MCP Ecosystem]`）的诊断项，发现任何缺失都会提供精准的修复命令。
 
 ---
 

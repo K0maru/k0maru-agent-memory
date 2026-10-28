@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 
 use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
 use k0maru::convention::{FlushEngine, FlushRequest};
-use k0maru::core::traits::VaultAdapter;
+use k0maru::core::traits::{CacheStorage, VaultAdapter};
 use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget};
 use k0maru::doctor::{format_report, run_diagnostics};
 use k0maru::git::{parse_diff_stream, GitInspector};
@@ -828,6 +828,21 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
         return Ok(());
     }
 
+    // An uninitialized directory has no projects. A diff-mode loadout is the
+    // Claude SessionStart hook, so it must remain a no-op instead of blocking
+    // the session with an error.
+    if args.diff {
+        let has_projects = !builder.list_projects()?.is_empty();
+        if !has_projects {
+            if !args.json && !args.json_stream {
+                safe_println(
+                    "[k0maru] No project initialized in vault. Run 'k0maru init --install' to bootstrap.",
+                );
+            }
+            return Ok(());
+        }
+    }
+
     let mut piped_files = Vec::new();
     if !std::io::stdin().is_terminal() {
         let stdin = std::io::stdin();
@@ -861,7 +876,7 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
                         first.name.clone()
                     } else {
                         eprintln!(
-                            "❌ Vault 中未找到任何可用工程项目。请使用 --list 查看所有项目。"
+                            "❌ No projects found in vault. Use '--list' to see all initialized projects."
                         );
                         std::process::exit(2);
                     }
@@ -921,7 +936,7 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
             }
             None => {
                 eprintln!(
-                    "❌ 未找到匹配 '{}' 的工程项目。可使用 --list 查看所有项目。",
+                    "❌ No project matched '{}'. Use '--list' to see all available projects.",
                     query
                 );
                 std::process::exit(2);
@@ -1047,7 +1062,7 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
             }
             None => {
                 eprintln!(
-                    "❌ 未找到匹配 '{}' 的工程项目。可使用 --list 查看所有项目。",
+                    "❌ No project matched '{}'. Use '--list' to see all available projects.",
                     query
                 );
                 std::process::exit(2);
@@ -1076,8 +1091,8 @@ fn run_offload(args: OffloadArgs) -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(false);
 
     if is_terminal {
-        eprintln!("❌ 错误: 未提供日志输入且 stdin 为交互式终端 (TTY)。");
-        eprintln!("💡 用法: cat log.txt | k0maru offload 或指定管道流。");
+        eprintln!("❌ Error: no log input provided and stdin is an interactive terminal (TTY).");
+        eprintln!("💡 Usage: cat log.txt | k0maru offload");
         std::process::exit(2);
     }
 
@@ -1258,7 +1273,7 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
         std::io::stdin().read_to_string(&mut buf)?;
         let trimmed = buf.trim().to_string();
         if trimmed.is_empty() {
-            eprintln!("❌ 错误: 管道输入的搜索关键词为空");
+            eprintln!("❌ Error: piped search query is empty.");
             std::process::exit(2);
         }
         trimmed
@@ -1287,7 +1302,22 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     let cache_dir = vault_path.join(".k0maru");
     let cache_path = cache_dir.join("cache.sqlite");
 
-    let storage = SqliteStorage::open(&cache_path)?;
+    std::fs::create_dir_all(&cache_dir)?;
+    let mut storage = SqliteStorage::open(&cache_path)?;
+    let _ = storage.initialize();
+
+    // Keep the index fresh (and self-heal a deleted `cache.sqlite`) before
+    // answering, so `k0maru search` always sees newly written markdown notes.
+    if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
+        let adapter = ObsidianAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        let _ = scanner.sync(false);
+    } else {
+        let adapter = GenericWikiAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        let _ = scanner.sync(false);
+    }
+
     if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
         return Err("Vector index is empty. Run 'k0maru sync --vector' first.".into());
     }
@@ -1661,7 +1691,7 @@ fn run_gc(args: GcArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let input_str = if let Some(ref path) = args.file {
         if !path.exists() {
-            eprintln!("❌ 错误: 找不到指定的轨迹文件: {}", path.display());
+            eprintln!("❌ Error: trajectory file not found: {}", path.display());
             std::process::exit(2);
         }
         std::fs::read_to_string(path)?
@@ -1671,13 +1701,13 @@ fn run_gc(args: GcArgs) -> Result<(), Box<dyn std::error::Error>> {
         buffer
     } else {
         eprintln!(
-            "❌ 错误: 未提供轨迹文件且 stdin 不是管道。用法: k0maru gc <FILE> 或管道输入: cat session.json | k0maru gc"
+            "❌ Error: no trajectory file provided and stdin is not piped. Usage: k0maru gc <FILE> or pipe input: cat session.json | k0maru gc"
         );
         std::process::exit(2);
     };
 
     if input_str.trim().is_empty() {
-        eprintln!("❌ 错误: 会话轨迹输入为空");
+        eprintln!("❌ Error: session trajectory input is empty");
         std::process::exit(1);
     }
 

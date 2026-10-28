@@ -661,12 +661,14 @@ pub fn install_claude_project_hooks(
         .ok_or("Field 'hooks' must be a JSON object")?;
 
     let vault_arg = portable_claude_vault_arg(repo_path, vault_path);
+    // Claude Code hooks run with the GUI shell PATH on macOS, which often omits
+    // `~/.local/bin` / `~/.cargo/bin`; export both so `k0maru` always resolves.
     let loadout_cmd = format!(
-        "k0maru loadout \"{}\" --diff --vault \"{}\"",
+        "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; k0maru loadout \"{}\" --diff --vault \"{}\"",
         project_slug, vault_arg
     );
     let stop_cmd = format!(
-        "k0maru guard check --diff --claude-stop-hook --vault \"{}\"",
+        "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; k0maru guard check --diff --claude-stop-hook --vault \"{}\"",
         vault_arg
     );
 

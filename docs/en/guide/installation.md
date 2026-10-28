@@ -25,14 +25,8 @@ The installer detects your active shell (`zsh`, `bash`, or `fish`) and appends `
 If you manage CLI tools with Homebrew, install and update K0maru through the official tap:
 
 ```bash
-# Add the official tap and install the formula
-brew tap K0maru/k0maru-agent-memory
-brew install k0maru
-
-# Alternatively, install via the shorthand invocation
 brew install K0maru/tap/k0maru
 ```
-
 Upgrade to the latest release at any time:
 ```bash
 brew update && brew upgrade k0maru
@@ -112,7 +106,7 @@ cd k0maru-agent-memory
 # Build the optimized release binary (includes FTS5, sqlite-vec, and ONNX FastEmbed)
 cargo build --release
 
-# Inspect the compiled binary (typically ~3.66 MB)
+# Inspect the compiled binary (19 MB macOS arm64 / 34 MB Linux x86_64)
 ls -lh target/release/k0maru
 
 # Copy to your system PATH
@@ -120,8 +114,7 @@ cp target/release/k0maru ~/.local/bin/
 ```
 
 ### 3. Ultra-Lightweight Build (Disabling ONNX Embedding Engine)
-If you deploy K0maru to resource-constrained environments (such as a 512 MB RAM VPS, an embedded IoT device, or a temporary CI runner), disable default dense vector embedding features. This strips the ONNX runtime and shrinks the binary to **~2.8 MB**, relying exclusively on BM25 lexical inverted search and 1-hop graph boost:
-
+If you deploy K0maru to resource-constrained environments (such as a 512 MB RAM VPS, an embedded IoT device, or a temporary CI runner), disable default dense vector embedding features. This strips the ONNX runtime and shrinks the binary to **3.6 MB** (`--no-default-features`), relying exclusively on BM25 lexical inverted search and 1-hop graph boost:
 ```bash
 cargo build --release --no-default-features
 ```
