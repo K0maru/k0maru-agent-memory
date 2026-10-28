@@ -31,8 +31,8 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 **K0maru is engineered specifically for local developer workstations, delivering industrial-grade performance with minimal mechanical complexity**:
 
 1. **⚡ Zero-Daemon & Sub-Millisecond Cold Start**:
-   - Pure Rust, statically compiled into a single **3.6MB (core) / 34MB (bundled ONNX)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~34MB`).
-   - Cold-starts in just **3.38 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
+   - Pure Rust, statically compiled into a single **3.6MB (core) / 19MB (macOS arm64) / 34MB (Linux x86_64)** standalone binary (the `--no-default-features` pure Rust FTS5+Guard binary is `3.6 MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `19 MB` macOS arm64 / `34 MB` Linux x86_64, with 15.5 MB compressed download. Note that ONNX model weights are cached on first vector sync `k0maru sync --vector` in `~/.k0maru/models/`).
+   - Cold-starts in just **3.4 ms** with a lean ~11 MB RAM footprint; **occupies 0 persistent network ports**.
    - Runs on demand via standard Unix pipes and `stdio` streams, releasing all memory immediately upon process exit.
 2. **📝 Bring Your Own Markdown (Topology-Agnostic LLM-Wiki)**:
    - Your existing local Markdown notes serve as the **Single Source of Truth**. Fully topology-agnostic: adapts seamlessly to **any LLM-Wiki shape** — flat Karpathy-style LLM-Wikis, engineering `docs/adr/` or `decisions/` wikis, PARA (`projects/`, `cards/`, `logs/`), and Johnny.Decimal (`10_Projects/`, `20_Cards/`).
@@ -53,10 +53,10 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 | **Storage Medium** | Ephemeral chat history | External DBs (PostgreSQL, pgvector, Redis) | Proprietary DB in hidden directories | **Local Markdown Vaults (Plain Text)** |
 | **Deployment Model** | Manual copy | Multi-container Docker Compose clusters | Background daemon process (`iii-engine`, etc.) | **Single static binary, on-demand (Zero-Daemon)** |
 | **Network Port Footprint** | None | 1–4 open ports | 1–4 open ports | **0 ports** (Unix pipes & stdio streams) |
-| **Cold Start Latency** | Instant | 2,500 ms – 3,500 ms (container boot) | 1,000 ms – 2,000 ms | **3.38 ms** (native Rust binary) |
+| **Cold Start Latency** | Instant | 2,500 ms – 3,500 ms (container boot) | 1,000 ms – 2,000 ms | **3.4 ms** (native Rust binary) |
 | **Resident Memory (RAM)** | 0 MB | ~850 MB – 2,000 MB | ~150 MB – 300 MB | **~11.7 MB** (released instantly on command exit) |
 | **Terminal Log Governance**| Manual or LLM truncation | Network API transfer required | Internal bespoke truncation | **Standard Unix pipe filter (`\| k0maru offload`)** |
-| **Living ADR Sentinel** | Manual code review | External SonarQube / heavy CI | None | **Living ADR Guard (<10ms git diff audit against vault rules)** |
+| **Living ADR Sentinel** | Manual code review | External SonarQube / heavy CI | None | **Living ADR Guard (<10ms in-memory rule engine, ~15–55ms CLI with git diff)** |
 | **Memory Decay & Supersession** | Stale docs poison prompt | Heavy LLM graph extraction | Passive search demotion only | **Zero-LLM `--supersedes` + Anti-Entrenchment + Guard rule hot-swap** |
 | **Index Self-Healing** | None | Snapshot & backup dependent | Local database integrity dependent | **`cache.sqlite` disposable anytime, rebuilt in 74ms** |
 
@@ -77,7 +77,7 @@ Tested across **Local Multi-Agent (`omp` + `DeepSeek V4.1 Flash` on Apple Silico
 
 #### Autonomous Agent Ecosystem Adaptation (Hermes Agent & OpenClaw on Real LLM-Wiki)
 
-Simulated an enterprise-grade payment gateway LLM-Wiki on Colab (containing P0 service architecture, L3 idempotency rules, and incident postmortems), driving **Qwen2.5-Coder-32B** through an autonomous Hermes / OpenClaw function calling loop. All 4 core invariants achieved 100% compliance:
+Simulated an enterprise-grade payment gateway LLM-Wiki on Colab (containing P0 service architecture, L3 idempotency rules, and incident postmortems), driving **Llama-3.1-8B-Instruct (A100)** and **Qwen2.5-Coder-7B (Colab L4)** through an autonomous Hermes / OpenClaw function calling loop. Both verified models achieved 100% compliance (`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`, `Qwen2.5-Coder-7B (Colab L4): 100% Pass@1`):
 
 | Invariant Verification Item | Expected Standard & Behavior | Empirical Outcome | Status |
 | :--- | :--- | :--- | :---: |
@@ -108,7 +108,7 @@ Your agent will automatically install the binary, bootstrap `.k0maru/wiki/`, wir
 Only have a Git repository? You don't need Obsidian or an existing Markdown vault. Run two commands inside your repository root:
 
 ```bash
-# 1. Install standalone binary (<4MB, zero daemon)
+# 1. Install standalone binary (zero daemon)
 curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
 
 # 2. Bootstrap repository wiki and wire all installed agents + hooks
@@ -170,13 +170,13 @@ Or install via the Claude Code Plugin Marketplace:
   ```
 - **Build from Source (Cargo)**:
   ```bash
-  # Standard release bundling fastembed + ONNX Runtime (~34MB)
+  # Standard release bundling fastembed + ONNX Runtime (19 MB macOS arm64 / 34 MB Linux x86_64)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory
 
-  # Lightweight pure Rust FTS5 + Living ADR Guard core binary (~3.6MB)
+  # Lightweight pure Rust FTS5 + Living ADR Guard core binary (3.6 MB)
   cargo install --git https://github.com/K0maru/k0maru-agent-memory --no-default-features
   ```
-  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `~3.6MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `~34MB`).*
+  *(Builds both `k0maru` and `k0maru-memory` binary aliases. The `--no-default-features` pure Rust FTS5+Guard binary is `3.6 MB`, while the default release binary bundling `fastembed` + ONNX Runtime is `19 MB` macOS arm64 / `34 MB` Linux x86_64, with 15.5 MB compressed download. Note that ONNX model weights are cached on first vector sync `k0maru sync --vector` in `~/.k0maru/models/`).*
 ---
 
 ### 3. Verify Health & Environment (`k0maru doctor`)
@@ -187,7 +187,7 @@ Run the automated doctor check to inspect your binary, vault conventions, SQLite
 k0maru doctor
 ```
 
-Outputs a clear, color-coded health report (`✓ Binary In Path`, `✓ FTS5 Index Ready`, `✓ Vectors Indexed`, `✓ Claude Code Configured`, `✓ Cursor Configured`) with actionable remediation steps for any warnings.
+Outputs a clear, color-coded health report across 4 core subsystems (`[Binary & System]`, `[Vault & Hierarchy]`, `[Storage & Search Engine]`, `[Agent MCP Ecosystem]`) with actionable remediation steps for any warnings.
 
 ---
 

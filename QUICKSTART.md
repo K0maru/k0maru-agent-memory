@@ -7,6 +7,30 @@
 > *（智能体全自主运行手册：**[`AGENT_GUIDE.md`](AGENT_GUIDE.md)** · 机器可读规格：**[`llms.txt`](llms.txt)**）*
 
 # ⚡ K0maru-Agent-Memory 极速上手指南 (Quick Start)
+## ⚡ English Quick Start Summary
+
+```bash
+# 1. Install single binary (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+
+# Or via Homebrew
+brew install K0maru/tap/k0maru
+
+# 2. One-click autonomous bootstrap in any Git repository
+# (Creates project-scoped .mcp.json, .cursor/mcp.json, .claude/settings.local.json, and .git/hooks/{pre-commit,post-commit})
+k0maru init --install
+
+# 3. Verify installation health & ecosystem integrations
+k0maru doctor
+
+# 4. Inject diff-aware cognitive backpack (<300 tokens)
+k0maru loadout "<project-name>" --diff
+
+# 5. Living ADR Guard (<10ms in-memory rule engine, ~15–55ms CLI with git diff)
+k0maru guard check --diff
+```
+
+---
 
 本文档带你在 **1 分钟** 内掌握 `k0maru` 的日常核心实操！
 
@@ -14,7 +38,7 @@
 
 ## 🛠️ 第一步：极速安装
 
-`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB (core) / 34 MB (bundled ONNX)，冷启动 <4ms，无须配置 Python 虚拟环境或安装外部数据库。
+`k0maru` 是一个**单静态二进制文件（Single Static Binary）**，体积仅 3.6 MB（纯 Rust 核心 `--no-default-features`）/ 19 MB (macOS arm64) / 34 MB (Linux x86_64)（集成 fastembed + ONNX Runtime，压缩下载 15.5 MB，模型权重在首次 `k0maru sync --vector` 时缓存于 `~/.k0maru/models/`），冷启动仅 3.4 ms，无须配置 Python 虚拟环境或安装外部数据库。
 
 ### 推荐方式：官方一键安装脚本（macOS & Linux）
 ```bash
@@ -46,7 +70,7 @@ k0maru --version
 **你完全不需要提前安装 Obsidian 或手动创建知识库目录！** 只要你有一个 Git 仓库，即可在项目根目录下秒级初始化：
 
 ```bash
-# 1. 一键安装单二进制（<4MB，零常驻后台进程）
+# 1. 一键安装单二进制（零常驻后台进程）
 curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
 
 # 2. 在项目根目录执行初始化并自动挂载已安装智能体与 Git 钩子
@@ -69,7 +93,7 @@ k0maru init --install
 完成 `init --install` 后，智能体将在全生命周期中自主执行闭环治理，无需人类干预：
 1. **开局自动读档（`SessionStart`）**：自动执行 `k0maru loadout --diff` 注入 `<300 tokens` 项目核心规则与近期提交记录；
 2. **交付前自主审计（Claude Code `hooks.Stop`）**：在输出给用户前自动调用 `k0maru guard check --diff --claude-stop-hook`。若违规退出码为 2，驱动智能体自主修复违规或执行 `k0maru flush --supersedes` 升级 ADR；
-3. **代码提交前置拦截门禁（`.git/hooks/pre-commit`）**：`<10ms` 阻断非合规代码提交；
+3. **代码提交前置拦截门禁（`.git/hooks/pre-commit`）**：`<10ms` 内存规则引擎（端到端含 git diff 约 15–55ms）阻断非合规代码提交；
 4. **提交后增量同步与结晶（`.git/hooks/post-commit`）**：自动增量同步索引并在特性提交时在 `01_AI_Logs/` 结晶里程碑笔记。
 
 ---

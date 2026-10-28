@@ -961,21 +961,24 @@ pub fn run_guard_check(
         }
     }
 
-    if !vault_path.exists() {
-        if args.claude_stop_hook {
-            // An uninitialized repository must never trap the agent.
-            return Ok(GuardReport::new(0, 0, Vec::new(), 0));
-        }
+    if !vault_path.exists() && args.claude_stop_hook {
+        // An uninitialized repository must never trap the agent.
+        return Ok(GuardReport::new(0, 0, Vec::new(), 0));
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = resolve_repo_root(&cwd);
+    let rules = resolve_guard_rules_with_repo(vault_path, args.project.as_deref(), Some(&root))?;
+
+    // A repository with its own `.k0maru/guard.toml` / `.k0maru/rules` is fully
+    // functional without a `.k0maru/wiki/` vault.
+    if !vault_path.exists() && rules.is_empty() {
         return Err(format!(
             "[FAIL] Vault path does not exist: '{}'. Run 'k0maru init --install' to initialize this repository.",
             vault_path.display()
         )
         .into());
     }
-
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let root = resolve_repo_root(&cwd);
-    let rules = resolve_guard_rules_with_repo(vault_path, args.project.as_deref(), Some(&root))?;
 
     let mut report = if !args.files.is_empty() {
         let mut file_tuples = Vec::new();
@@ -1026,11 +1029,14 @@ pub fn run_guard_check(
     }
 
     if !report.is_passed && !args.json {
-        // Surface the same recovery protocol on both streams so pipelines that
-        // only capture stdout or only capture stderr both see it.
+        // `format_guard_report` already appends `[AGENT_SELF_HEAL_PROTOCOL]`,
+        // so mirror it on stderr only for piped consumers (tests / CI). An
+        // interactive terminal or Git hook sees it once.
         println!("{}", format_guard_report(&report));
-        if let Some(protocol) = self_heal_protocol(&report) {
-            eprintln!("{}", protocol);
+        if !std::io::stderr().is_terminal() {
+            if let Some(protocol) = self_heal_protocol(&report) {
+                eprintln!("{}", protocol);
+            }
         }
         std::process::exit(1);
     }

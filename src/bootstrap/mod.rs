@@ -425,7 +425,7 @@ tags:
 invariants:
   - id: no-hardcoded-private-keys
     title: "No Hardcoded Private Keys"
-    forbidden: "-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----"
+    forbidden: "-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----|AKIA[0-9A-Z]{{16}}|sk-(proj-|ant-)?[A-Za-z0-9_-]{{20,}}|gh[pousr]_[A-Za-z0-9_]{{20,}}"
     file_pattern: "**/*"
     severity: "deny"
     remediation: "Never commit private keys; use environment variables or secret managers."
@@ -445,12 +445,12 @@ Automated coding agents and human developers commit changesets at high velocity.
 ## Non-Negotiable Invariants
 1. **Never commit cryptographic private keys**:
    - Condition: forbidden
-   - Pattern: `-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----`
+   - Pattern: `-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----|AKIA[0-9A-Z]{{16}}|sk-(proj-|ant-)?[A-Za-z0-9_-]{{20,}}|gh[pousr]_[A-Za-z0-9_]{{20,}}`
    - Scope: all files (`**/*`)
 2. **Never commit Git merge conflict markers**:
    - Condition: forbidden
    - Pattern: `^(<{{7}}( |$)|>{{7}}( |$))`
-   - Scope: application code trees
+   - Scope: all files (`**/*`)
 
 ## Verification & Enforcement
 These invariants are evaluated automatically on every changeset via:
@@ -484,8 +484,8 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
 
 ## Handoff Context
 - **Repository Slug**: `{slug}`
-- **Repository Path**: `{repo}`
-- **Vault Location**: `{vault}`
+- **Repository Path**: `.`
+- **Vault Location**: `.k0maru/wiki`
 
 ## Living ADR Guardrails
 - Enforced via `[[20_Cards/adr-001-repository-guardrails]]`.
@@ -495,8 +495,6 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
 "#,
             date = today,
             slug = project_slug,
-            repo = repo_path.display(),
-            vault = vault_path.display(),
             commits = recent_commits.join("\n"),
         );
         fs::write(&log_path, log_content)?;
@@ -517,14 +515,14 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         if vault_path.starts_with(&repo_path) {
             fs::write(
                 vault_path.join(".gitignore"),
-                ".k0maru/\n01_AI_Logs/*-auto-commit-*.md\n",
+                ".k0maru/\n01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n",
             )?;
         }
         let top_k0maru = repo_path.join(".k0maru");
         if top_k0maru.is_dir() {
             fs::write(
                 top_k0maru.join(".gitignore"),
-                "**/cache.sqlite*\n**/models/\n**/refs/\n**/01_AI_Logs/*-auto-commit-*.md\n",
+                "**/cache.sqlite*\n**/models/\n**/refs/\n**/01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n",
             )?;
         }
     }
@@ -610,6 +608,13 @@ pub fn install_project_mcp_config(
 
     let formatted = serde_json::to_string_pretty(&root_val)?;
     fs::write(&mcp_path, format!("{}\n", formatted))?;
+
+    // Cursor project config uses the same `mcpServers` schema; write it too so
+    // Cursor picks up the project-scoped k0maru stdio server automatically.
+    let cursor_dir = repo_path.join(".cursor");
+    fs::create_dir_all(&cursor_dir)?;
+    fs::write(cursor_dir.join("mcp.json"), format!("{}\n", formatted))?;
+
     Ok(mcp_path)
 }
 

@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
 use crate::convention::{
     generate_filename, synthesize_markdown, ConventionSniffer, FlushRequest, FlushResult,
-    VaultConvention,
+    NoteCategory, VaultConvention,
 };
 use crate::scanner::{IncrementalScanner, VectorSyncEngine};
 use crate::storage::SqliteStorage;
@@ -92,8 +92,21 @@ impl FlushEngine {
         }
         let target_dir = self.vault_root.join(&rel_target_dir);
 
-        // 2. Generate base filename
-        let base_filename = generate_filename(&request.title, &self.convention.naming_style, None);
+        // 2. Generate base filename. AI logs / session journals always carry a
+        //    `YYYY-MM-DD-` prefix so `01_AI_Logs/` stays chronologically
+        //    sortable regardless of the vault's sniffed naming style.
+        let mut base_filename =
+            generate_filename(&request.title, &self.convention.naming_style, None);
+        if matches!(
+            NoteCategory::from_str_loose(&request.category),
+            NoteCategory::Log
+        ) {
+            let slug = crate::convention::slugify(&request.title);
+            if !has_iso_date_prefix(&slug) {
+                let date = chrono::Local::now().date_naive();
+                base_filename = format!("{}-{}.md", date.format("%Y-%m-%d"), slug);
+            }
+        }
 
         // Security check: ensure base filename does not attempt traversal
         let file_path_base = Path::new(&base_filename);
@@ -399,6 +412,76 @@ fn collect_markdown_files(dir: &Path, results: &mut Vec<PathBuf>) {
     }
 }
 
+/// Returns true when a path lives under the `01_AI_Logs/` session-log tree.
+fn is_ai_log_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "01_AI_Logs")
+}
+
+/// Returns true when a slug already starts with an ISO `YYYY-MM-DD` date.
+fn has_iso_date_prefix(slug: &str) -> bool {
+    let bytes = slug.as_bytes();
+    bytes.len() >= 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+}
+
+/// Extracts a canonical ADR id prefix (`adr-002`) from a slug starting with
+/// `adr-<digits>`.
+fn adr_id_prefix_of(stem_slug: &str) -> Option<String> {
+    let mut parts = stem_slug.split('-');
+    let adr = parts.next()?;
+    if !adr.eq_ignore_ascii_case("adr") {
+        return None;
+    }
+    let number = parts.next()?;
+    if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("adr-{}", number))
+}
+
+/// Reads a scalar frontmatter field (`id:` / `title:`) from a markdown note.
+fn frontmatter_field(path: &Path, field: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
+    let rest = content.strip_prefix("---")?;
+    let end = rest.find("\n---")?;
+    let frontmatter = &rest[..end];
+    let prefix = format!("{}:", field);
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix(&prefix) {
+            let value = value.trim().trim_matches('"').trim_matches('\'').trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Returns true when a note's filename or frontmatter matches an ADR id prefix.
+fn note_matches_adr_id(path: &Path, adr_prefix: &str) -> bool {
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        let slug = crate::convention::slugify(stem);
+        if slug == adr_prefix || slug.starts_with(&format!("{}-", adr_prefix)) {
+            return true;
+        }
+    }
+    ["id", "title"].iter().any(|field| {
+        frontmatter_field(path, field)
+            .map(|value| {
+                let slug = crate::convention::slugify(&value);
+                slug == adr_prefix || slug.starts_with(&format!("{}-", adr_prefix))
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Resolves a `--supersedes` target to `(canonical_path, vault_relative_path)`.
 ///
 /// Returns `Ok(None)` when the target resolves to the note being written
@@ -467,7 +550,7 @@ fn resolve_supersede_target(
             collect_markdown_files(vault_root, &mut all_mds);
 
             // Never let the note being written supersede itself.
-            let candidates: Vec<PathBuf> = all_mds
+            let mut candidates: Vec<PathBuf> = all_mds
                 .into_iter()
                 .filter(|path| match path.canonicalize() {
                     Ok(canonical) => canonical
@@ -481,6 +564,22 @@ fn resolve_supersede_target(
                     Err(_) => true,
                 })
                 .collect();
+
+            // `01_AI_Logs/` holds session logs and auto-commit records whose
+            // stems (e.g. `2026-10-28-auto-commit-...-adr-002.md`) can collide
+            // with canonical `20_Cards/adr-002-...md` notes. Prefer notes
+            // outside `01_AI_Logs/` unless the caller named that path.
+            let explicit_log_target = is_ai_log_path(Path::new(clean));
+            if !explicit_log_target {
+                let non_log: Vec<PathBuf> = candidates
+                    .iter()
+                    .filter(|path| !is_ai_log_path(path.as_path()))
+                    .cloned()
+                    .collect();
+                if !non_log.is_empty() {
+                    candidates = non_log;
+                }
+            }
 
             let exact_matches: Vec<PathBuf> = candidates
                 .iter()
@@ -526,10 +625,23 @@ fn resolve_supersede_target(
                     .cloned()
                     .collect();
 
-                if boundary_matches.len() != 1 {
-                    return Err(ambiguous());
+                if boundary_matches.len() == 1 {
+                    boundary_matches.into_iter().next().ok_or_else(ambiguous)?
+                } else {
+                    // `ADR-002` / `ADR-002: Legacy Redis SetNX Lock` resolves
+                    // `20_Cards/adr-002-legacy-token.md` even when the full
+                    // title slug shares no prefix/suffix boundary with it.
+                    let adr_prefix = adr_id_prefix_of(&stem_slug).ok_or_else(ambiguous)?;
+                    let adr_matches: Vec<PathBuf> = candidates
+                        .iter()
+                        .filter(|path| note_matches_adr_id(path.as_path(), &adr_prefix))
+                        .cloned()
+                        .collect();
+                    if adr_matches.len() != 1 {
+                        return Err(ambiguous());
+                    }
+                    adr_matches.into_iter().next().ok_or_else(ambiguous)?
                 }
-                boundary_matches.into_iter().next().ok_or_else(ambiguous)?
             }
         }
     };

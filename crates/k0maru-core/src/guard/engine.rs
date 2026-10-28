@@ -140,6 +140,68 @@ fn matches_single_pattern(pattern: &str, path_str: &str, path: &Path) -> bool {
     false
 }
 
+/// Splits a pattern on top-level commas, ignoring commas nested inside `{...}`.
+fn split_top_level_commas(pattern: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+
+    for ch in pattern.chars() {
+        match ch {
+            '{' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                let trimmed = current.trim();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed.to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        parts.push(trimmed.to_string());
+    }
+
+    parts
+}
+
+/// Recursively expands `{a,b}` alternatives inside a single glob pattern.
+fn expand_brace_expression(pattern: &str, out: &mut Vec<String>) {
+    if let Some(open) = pattern.find('{') {
+        if let Some(close_rel) = pattern[open..].find('}') {
+            let close = open + close_rel;
+            let prefix = &pattern[..open];
+            let suffix = &pattern[close + 1..];
+            for alternative in pattern[open + 1..close].split(',') {
+                let expanded = format!("{}{}{}", prefix, alternative.trim(), suffix);
+                expand_brace_expression(&expanded, out);
+            }
+            return;
+        }
+    }
+    out.push(pattern.to_string());
+}
+
+/// Expands brace expressions (e.g. `src/**/*.{rs,ts,py}`) and splits on
+/// top-level commas into individual glob patterns.
+fn expand_brace_patterns(pattern: &str) -> Vec<String> {
+    let mut expanded = Vec::new();
+    for part in split_top_level_commas(pattern) {
+        expand_brace_expression(&part, &mut expanded);
+    }
+    expanded
+}
+
 /// Matches a file path against an optional glob pattern.
 fn matches_file_pattern(pattern_opt: Option<&str>, path: &Path) -> bool {
     let path_str = path.to_string_lossy().replace('\\', "/");
@@ -194,7 +256,7 @@ fn matches_file_pattern(pattern_opt: Option<&str>, path: &Path) -> bool {
         return true;
     }
 
-    for sub_pat in pattern.split(',') {
+    for sub_pat in expand_brace_patterns(pattern) {
         let sub = sub_pat.trim();
         if sub.is_empty() {
             continue;

@@ -17,20 +17,20 @@ class K0maru < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/K0maru/k0maru-agent-memory/releases/download/v#{version}/k0maru-aarch64-apple-darwin.tar.gz"
-      sha256 "4a5272aceadad14d3e848ba5076bec7e933b0538265128ba9685220526b2ccf3"
+      sha256 "ac8c60575bcd379066565ea0ba2cd94e732ff758bf17ed0ff87b813dac2c4c1d"
     else
       url "https://github.com/K0maru/k0maru-agent-memory/releases/download/v#{version}/k0maru-x86_64-apple-darwin.tar.gz"
-      sha256 "dd825bb17823bca1804663db1825de003d1a18815fb356773b4cd54b5ca34ec6"
+      sha256 "4a5962cdb76adb449bcdd8c2c55cc774d9b5afbff0b60ec1df4b7f42027a96ea"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/K0maru/k0maru-agent-memory/releases/download/v#{version}/k0maru-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "a3a87d8b7d2a1e959e67d35a733c88d96c8b346563c9c5a795f015cbd55e6b90"
+      sha256 "f48b28d668c0efd7ea9d10df2dc4f2f0f25b5a10aa5146cf2bce8c8157e2e510"
     else
       url "https://github.com/K0maru/k0maru-agent-memory/releases/download/v#{version}/k0maru-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "646d79d789e494baccf7084010f5ae081648f4145e708082e3f87368942192d1"
+      sha256 "35cfdb171695f5e1b6569698375c17101a6be1d508142180d3a40f843ddc3f7b"
     end
   end
 

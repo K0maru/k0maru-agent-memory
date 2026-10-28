@@ -22,12 +22,13 @@ Thank you for your interest in contributing to `k0maru-agent-memory`!
 
 ### Build & Test
 ```bash
-# Build pure-Rust core binary without ONNX Runtime (~3.6MB)
-cargo build --no-default-features
+# Build pure-Rust core binary without ONNX Runtime (3.6 MB)
+cargo build --release --no-default-features
 
-# Build default release binary with fastembed + bundled ONNX Runtime (~34MB)
+# Build default release binary bundling fastembed + ONNX Runtime (19 MB macOS arm64 / 34 MB Linux x86_64)
 cargo build --release
 
+# Note: ONNX model weights are cached on first vector sync (`k0maru sync --vector`) in ~/.k0maru/models/
 # Run code formatting check
 cargo fmt --all -- --check
 

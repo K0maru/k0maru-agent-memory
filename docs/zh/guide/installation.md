@@ -25,14 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/ins
 如果你习惯使用 Homebrew 进行包管理，可以通过官方 Tap 快速安装与更新：
 
 ```bash
-# 添加官方 Tap 并安装
-brew tap K0maru/k0maru-agent-memory
-brew install k0maru
-
-# 或者一条命令直接安装
 brew install K0maru/tap/k0maru
 ```
-
 升级至最新版本：
 ```bash
 brew update && brew upgrade k0maru
@@ -112,7 +106,7 @@ cd k0maru-agent-memory
 # 运行标准 Release 优化编译（默认包含 FTS5、sqlite-vec 与 ONNX fastembed）
 cargo build --release
 
-# 查看编译产物（产物体积通常约 3.66 MB）
+# 查看编译产物（产物体积 19 MB macOS arm64 / 34 MB Linux x86_64）
 ls -lh target/release/k0maru
 
 # 安装至本地 PATH
@@ -120,8 +114,7 @@ cp target/release/k0maru ~/.local/bin/
 ```
 
 #### 3. 极简轻量模式编译（关闭 ONNX 向量引擎）
-如果你的运行目标环境极其受限（例如 512 MB 内存的小型 VPS、嵌入式板卡或 CI 临时容器），可以关闭默认的稠密向量模型特性。此时二进制体积将从 3.66 MB 进一步压低至 **~2.8 MB**，完全依赖 BM25 词法倒排与图谱拓扑：
-
+如果你的运行目标环境极其受限（例如 512 MB 内存的小型 VPS、嵌入式板卡或 CI 临时容器），可以关闭默认的稠密向量模型特性。此时二进制体积将压低至 **3.6 MB**（`--no-default-features`），完全依赖 BM25 词法倒排与图谱拓扑：
 ```bash
 cargo build --release --no-default-features
 ```

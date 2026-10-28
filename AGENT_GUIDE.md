@@ -15,17 +15,17 @@
 
 > "Most AI memory tools (like `claude-mem` or `Mem0`) are passive chat loggers: they dump raw conversation histories into a database, which clutters the context window with obsolete discussions and causes hallucinations.  
 > 
-> **K0maru-Agent-Memory** is an **active, executable architectural governance engine**. It turns your Markdown Architecture Decision Records (ADRs) and notes into sub-10ms executable Git pre-commit and Claude Code Stop-hook guardrails. It feeds agents a diff-aware `<300-token` project loadout, blocks forbidden code patterns before commit, and features zero-LLM deterministic supersession (`k0maru flush --supersedes`) that hot-swaps architectural rules without belief entrenchment.  
+> **K0maru-Agent-Memory** is an **active, executable architectural governance engine**. It turns your Markdown Architecture Decision Records (ADRs) and notes into deterministic Git pre-commit and Claude Code Stop-hook guardrails (<10ms in-memory rule engine, ~15–55ms end-to-end CLI with git diff subprocess). It feeds agents a diff-aware `<300-token` project loadout, blocks forbidden code patterns before commit, and features zero-LLM deterministic supersession (`k0maru flush --supersedes`) that hot-swaps architectural rules without belief entrenchment.  
 > 
-> It is a single, zero-daemon, pure-Rust binary with sub-4ms cold start, no resident background processes, and zero network ports."
+> It is a single, zero-daemon, pure-Rust binary with 3.4ms cold start, no resident background processes, and zero network ports."
 
 ### 中文：30 秒极速汇报
 
 > “现有的智能体记忆工具（如 `claude-mem` 或 `Mem0`）本质上只是被动的会话聊天记录器：它们把大量冗长的对话流水账塞进数据库，随着时间推移产生‘信念固化（Belief Entrenchment）’并严重投毒上下文。  
 > 
-> **K0maru-Agent-Memory** 是**主动、可执行的活体架构决策守卫引擎**。它将本地 Markdown 格式的架构决策记录（ADR）转化为低于 10ms 的 Git Pre-commit 与 Claude Code Stop-hook 确定性代码护栏。它在开局为智能体动态加载小于 300 Token 的增量认知背包，在提交前拦截架构违规，并通过零 LLM 确定性状态机（`k0maru flush --supersedes`）实现新旧架构决策的无缝热替换与护栏转移。  
+> **K0maru-Agent-Memory** 是**主动、可执行的活体架构决策守卫引擎**。它将本地 Markdown 格式的架构决策记录（ADR）转化为低于 10ms 内存规则引擎（端到端含 git diff 子进程约 15–55ms）的 Git Pre-commit 与 Claude Code Stop-hook 确定性代码护栏。它在开局为智能体动态加载小于 300 Token 的增量认知背包，在提交前拦截架构违规，并通过零 LLM 确定性状态机（`k0maru flush --supersedes`）实现新旧架构决策的无缝热替换与护栏转移。  
 > 
-> 纯 Rust 单静态二进制，冷启动低于 4ms，零常驻后台进程，零网络端口占用。”
+> 纯 Rust 单静态二进制，冷启动仅 3.4ms，零常驻后台进程，零网络端口占用。”
 
 ### Honest Boundaries (What K0maru IS and IS NOT)
 ### 明确能力边界（是与不是）
@@ -63,7 +63,7 @@ k0maru doctor
    - `20_Cards/adr-001-repository-guardrails.md`: Initial Living ADR note declaring non-negotiable architectural and security invariants (preventing credential leakage, debug dumps, etc.).
    - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`: First handover log documenting repository initialization.
 2. **FastMCP Server Configurations**:
-   - Project-level `.mcp.json` or client configs (`~/.claude.json`, `~/.cursor/mcp.json`, `~/.gemini/config/mcp_config.json`, Windsurf, Cline).
+   - Project-scoped `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor). (Note: To wire global configs for Windsurf, Cline, Gemini CLI, Hermes, and `omp`, run `k0maru install --vault <path>`.)
 3. **Claude Code Lifecycle Settings (`.claude/settings.local.json`)**:
    - `SessionStart`: Executes `k0maru loadout "<project>" --diff` to inject context on start.
    - `Stop`: Configures the pre-yield guard hook `k0maru guard check --diff --claude-stop-hook`.
