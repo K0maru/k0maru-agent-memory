@@ -1,0 +1,75 @@
+# K0maru-Agent-Memory (k0maru)
+
+> Executable Architectural Memory & Sub-10ms Living ADR Guard for AI Coding Agents. Turns Markdown/Obsidian ADRs into deterministic Git pre-commit & Claude Code Stop-hook guardrails with zero-LLM memory supersession.
+
+## Why Humans & Agents Use K0maru (Value Proposition)
+
+K0maru differs fundamentally from passive session transcript loggers (such as `akitaonrails/ai-memory`, `claude-mem`, or `Mem0`). Passive memory systems store raw chat histories, leading to context poisoning, belief entrenchment, and silent regressions when architectural patterns evolve.
+
+K0maru operates as an active, executable architectural governance engine:
+- **Executable Guardrails, Not Just Logs**: Invariants declared in Markdown Architecture Decision Records (ADRs) are evaluated deterministically with a `<10ms` in-memory rule engine (~15–55ms end-to-end CLI with git diff subprocess) and `<35ms` (Claude Code Stop-hook), halting non-compliant code before it is committed or handed back to humans.
+- **Deterministic Zero-LLM Supersession (`k0maru flush --supersedes`)**: When architecture changes (e.g. migrating from `redis_setnx` to `acquire_fenced_lease`), a single command updates lifecycle metadata (`status: superseded`), strips inbound WikiLink graph boosts (eliminating stale belief entrenchment), and hot-swaps active guard rules without requiring manual wiki cleanup or LLM re-indexing.
+- **Strict Context Budget (<300 Tokens)**: Diff-aware project loadouts dynamically inspect git changes and assemble bounded (<300 token) backpacks of mission, core invariants, and recent logs, keeping agent attention within the high-accuracy cognitive Smart-Zone.
+- **Zero Daemon, Single Static Binary**: Zero persistent background processes, zero open network ports, sub-4ms cold start, and disposable SQLite cache (`cache.sqlite` rebuilds in 74ms).
+
+## Measured Benchmarks (v1.0.0)
+
+- **Diff-Aware Loadout Token Footprint**: Bounded `< 300 tokens` (measured: `168 tokens` for standard projects; `245 tokens` under complex multi-rule diffs).
+- **Supersession Self-Healing**: `100% Pass@1` autonomous remediation in 1 turn across verified models (`DeepSeek V4.1 Flash (omp)`, `Qwen2.5-Coder-7B (Google Colab L4)`, and `Llama-3.1-8B-Instruct (A100)`).
+- **Session Trajectory Context GC**: `86.58% TRR` (Token Reduction Ratio) on 50-turn conversational logs (`16,830 tokens` compacted to `2,259 tokens` while preserving hot-turn cognitive context).
+- **Symbolic Offloading TRR**: `99.44%` token reduction on massive terminal dumps and compiler stack traces (`cargo test`, `pytest`).
+- **Binary Footprint**:
+  - `3.6 MB` pure-Rust core binary (`cargo build --release --no-default-features`) with FTS5 BM25 search, Living ADR Guard, and MCP stdio server.
+  - `19 MB` (macOS arm64) / `34 MB` (Linux x86_64) default release binary bundling `fastembed` + ONNX Runtime (15.5 MB compressed download). Note that ONNX model weights are cached on first vector sync (`k0maru sync --vector`) in `~/.k0maru/models/`.
+- **Cold-Start Latency**: `3.4 ms` native cold-start, `~11.7 MB` RAM footprint during execution, released immediately on process exit.
+
+## Zero-Human-in-the-Loop Quickstart for Agents
+
+External coding agents (Claude Code, Cursor, Windsurf, omp, Cline, Hermes, OpenClaw) can bootstrap and govern any repository with zero human intervention:
+
+```bash
+# 1. Download and install single binary
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+
+# 2. One-click autonomous bootstrap inside any Git repository
+# (Creates project-scoped .mcp.json for Claude Code and .cursor/mcp.json for Cursor,
+# plus .claude/settings.local.json and .git/hooks/{pre-commit,post-commit};
+# note: `k0maru install --vault <path>` wires global configs for Windsurf, Cline, Gemini CLI, Hermes, and omp)
+k0maru init --install
+# 3. Verify installation health and client bindings
+k0maru doctor
+```
+
+## The Autonomous Agent Loop (No-Human-in-the-Loop)
+
+1. **SessionStart**: Automatically triggers `k0maru loadout "<project>" --diff` to inject <300 tokens of project context and active ADR invariants.
+2. **Mid-Session**: Query architectural history and troubleshooting playbooks via `k0maru search "<query>"` or FastMCP `recall_memory`.
+3. **Pre-Yield / Claude Stop-hook (`hooks.Stop`)**: Runs `k0maru guard check --diff --claude-stop-hook`. If violations exist, exits with code 2 to trigger autonomous self-healing before human sees the output.
+4. **Pre-Commit (`.git/hooks/pre-commit`)**: Evaluates staged changes against ADR invariants in `<10ms`, rejecting non-compliant commits.
+5. **Post-Commit (`.git/hooks/post-commit`)**: Incremental `k0maru sync` and automated milestone crystallization in `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
+
+## Self-Healing Protocol on `[DENY]` Violation
+
+When `k0maru guard check --diff` halts with `[DENY]`:
+- **Accidental Violation**: Read the `remediation:` message, modify code to conform, and re-run `k0maru guard check --diff`.
+- **Intentional Architectural Upgrade / Migration**:
+  Execute supersession to retire the old rule and activate the new invariant:
+  ```bash
+  k0maru flush \
+    --category decision \
+    --title "ADR-New: Distributed Token Leases" \
+    --supersedes "ADR-Old: Legacy Redis SetNX" \
+    --summary "Replaced legacy unscoped locks with fenced distributed token leases" \
+    --content $'## Non-Negotiable Invariants\n- [fenced-lease-required] (deny) [src/settlement/**/*] must_contain: "acquire_fenced_lease" | remediation: "All settlement flows must acquire fenced leases."'
+  git add .k0maru/wiki
+  ```
+  Never use `--no-verify`.
+
+## Key Documentation & Specification Links
+
+- [AGENT_GUIDE.md](AGENT_GUIDE.md): Complete Zero-Human-in-the-Loop Playbook for external AI agents.
+- [README.md](README.md): Full product documentation, architectural comparison matrix, and benchmark results.
+- [README_zh.md](README_zh.md): Complete Chinese documentation and guides.
+- [QUICKSTART.md](QUICKSTART.md): 1-minute quickstart for developers and agents.
+- [docs/en/guide/installation.md](docs/en/guide/installation.md): Binary distribution, Homebrew, and source installation guide.
+- [docs/en/reference/cli-and-mcp.md](docs/en/reference/cli-and-mcp.md): Complete CLI reference, MCP tools schema, and K-DSL protocol.

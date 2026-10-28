@@ -1,0 +1,1638 @@
+//! Zero-daemon FastMCP stdio server implementing JSON-RPC 2.0.
+//!
+//! Exposes five lean agent memory tools:
+//! 1. `get_project_loadout`: Generates sub-300-token context pack
+//! 2. `recall_memory`: Fast FTS5 BM25 search over notes and memories
+//! 3. `offload_context`: Truncates long command logs into Mermaid state diagram and disk reference
+//! 4. `inspect_log_node`: Retrieves full raw log by node ID
+//! 5. `flush_session`: Crystallizes memory notes into the target vault according to conventions
+
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use serde_json::{json, Value};
+
+use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::core::models::HierarchyLevel;
+use crate::core::traits::CacheStorage;
+use crate::loadout::LoadoutBuilder;
+use crate::offload::{inspect_node, OffloadEngine};
+use crate::scanner::IncrementalScanner;
+use crate::storage::hybrid::{HybridSearchEngine, SearchMode};
+use crate::storage::SqliteStorage;
+use crate::vector::{resolve_embedding_engine, EmbeddingEngine};
+use k0maru_core::gc::{ContextGcEngine, GcOptions, SessionTrajectory};
+
+/// FastMCP stdio server running on top of JSON-RPC 2.0.
+pub struct McpServer {
+    vault_path: PathBuf,
+    refs_dir: PathBuf,
+    storage: Option<SqliteStorage>,
+    embedder: Option<Arc<dyn EmbeddingEngine>>,
+    embed_model_name: Option<String>,
+    sidecar: bool,
+}
+
+impl McpServer {
+    /// Creates a new `McpServer` targeting the given vault path.
+    pub fn new(vault_path: impl Into<PathBuf>) -> Self {
+        Self::new_with_model(vault_path, None)
+    }
+
+    /// Creates a new `McpServer` with an explicit embedding model.
+    ///
+    /// `Some("mock")` resolves straight to the deterministic mock engine, so
+    /// tests and offline runs never touch (or attempt to download) the default
+    /// `all-minilm-l6-v2` weights. Other models are resolved lazily when a
+    /// vector-enabled vault is queried.
+    pub fn new_with_model(vault_path: impl Into<PathBuf>, embed_model: Option<&str>) -> Self {
+        let vault_path = vault_path.into();
+        let refs_dir = if vault_path.join(".k0maru").join("refs").exists() {
+            vault_path.join(".k0maru").join("refs")
+        } else {
+            vault_path.join(".scratch").join("refs")
+        };
+
+        let embedder = if embed_model == Some("mock") {
+            resolve_embedding_engine(Some("mock"), None).ok()
+        } else {
+            None
+        };
+
+        Self {
+            vault_path,
+            refs_dir,
+            storage: None,
+            embedder,
+            embed_model_name: embed_model.map(|s| s.to_string()),
+            sidecar: false,
+        }
+    }
+
+    /// Enables or disables orthogonal sidecar mode (exposes only 5 core tools in tools/list).
+    pub fn with_sidecar(mut self, sidecar: bool) -> Self {
+        self.sidecar = sidecar;
+        self
+    }
+
+    /// Returns whether sidecar mode is enabled.
+    pub fn is_sidecar(&self) -> bool {
+        self.sidecar
+    }
+
+    /// Sets custom refs directory for offloaded logs.
+    pub fn with_refs_dir(mut self, refs_dir: impl Into<PathBuf>) -> Self {
+        self.refs_dir = refs_dir.into();
+        self
+    }
+
+    /// Pre-injects a configured [`SqliteStorage`].
+    pub fn with_storage(mut self, storage: SqliteStorage) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// Sets custom embedding engine for hybrid recall.
+    pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingEngine>) -> Self {
+        self.embedder = Some(embedder);
+        self
+    }
+
+    /// Sets custom embedding engine for hybrid recall by model name or canonical identifier.
+    pub fn with_embed_model(mut self, model_name: Option<&str>) -> Self {
+        self.embed_model_name = model_name.map(|s| s.to_string());
+        let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
+            Some(self.vault_path.join(".k0maru").join("models"))
+        } else {
+            None
+        };
+        if let Ok(embedder) = resolve_embedding_engine(model_name, model_cache) {
+            self.embedder = Some(embedder);
+        }
+        self
+    }
+
+    fn ensure_embedder(&mut self) -> Option<Arc<dyn EmbeddingEngine>> {
+        if self.embedder.is_none() {
+            let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
+                Some(self.vault_path.join(".k0maru").join("models"))
+            } else {
+                None
+            };
+            self.embedder =
+                resolve_embedding_engine(self.embed_model_name.as_deref(), model_cache).ok();
+        }
+        self.embedder.clone()
+    }
+
+    /// Returns the target vault root directory.
+    pub fn vault_path(&self) -> &Path {
+        &self.vault_path
+    }
+
+    /// Returns the active refs directory.
+    pub fn refs_dir(&self) -> &Path {
+        &self.refs_dir
+    }
+
+    fn is_obsidian(&self) -> bool {
+        self.vault_path.join("10_Projects").is_dir()
+            || self.vault_path.join(".obsidian").exists()
+            || self.vault_path.join("20_Cards").is_dir()
+    }
+
+    fn get_or_init_storage(&mut self) -> Result<&mut SqliteStorage, Box<dyn std::error::Error>> {
+        if self.storage.is_none() {
+            let cache_dir = self.vault_path.join(".k0maru");
+            let cache_path = cache_dir.join("cache.sqlite");
+            let storage = match SqliteStorage::open(&cache_path) {
+                Ok(s) => s,
+                Err(_) => SqliteStorage::in_memory()?,
+            };
+            self.storage = Some(storage);
+        }
+        Ok(self.storage.as_mut().unwrap())
+    }
+
+    fn sync_cache(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let is_obsidian = self.is_obsidian();
+        let vault_path = self.vault_path.clone();
+        let embedder = self.embedder.clone();
+        let storage = self.get_or_init_storage()?;
+
+        let had_vectors = storage.has_vectors().unwrap_or(false);
+        let migrated = if let Some(ref emb) = embedder {
+            storage
+                .ensure_vector_dimension(emb.dimension())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        let should_sync_vectors = had_vectors || migrated;
+
+        if is_obsidian {
+            let adapter = ObsidianAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, storage);
+            let _ = scanner.sync(false)?;
+            if should_sync_vectors {
+                if let Some(ref emb) = embedder {
+                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+                }
+            }
+        } else {
+            let adapter = GenericWikiAdapter::new(&vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, storage);
+            let _ = scanner.sync(false)?;
+            if should_sync_vectors {
+                if let Some(ref emb) = embedder {
+                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn detect_default_project(&self) -> String {
+        let projects_dir = self.vault_path.join("10_Projects");
+        if projects_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+                let mut stems: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                    .filter_map(|e| {
+                        e.path()
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect();
+                stems.sort();
+                if let Some(first) = stems.into_iter().next() {
+                    return first;
+                }
+            }
+        }
+        let repo_root = crate::guard::resolve_repo_root(&self.vault_path);
+        repo_root
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("project")
+            .to_string()
+    }
+
+    fn call_get_project_loadout(&mut self, arguments: &Value) -> Result<String, String> {
+        let default_proj = self.detect_default_project();
+        let project_name = arguments
+            .get("project_name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&default_proj);
+        let diff_requested = arguments
+            .get("diff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let branch = arguments.get("branch").and_then(|v| v.as_str());
+
+        if let Err(e) = self.sync_cache() {
+            return Err(format!("Cache sync failed: {}", e));
+        }
+
+        let is_obsidian = self.is_obsidian();
+        let vault_path = self.vault_path.clone();
+        let embedder = self.embedder.clone();
+        let storage = self
+            .get_or_init_storage()
+            .map_err(|e| format!("Storage initialization failed: {}", e))?;
+
+        let loadout_opt = if diff_requested || branch.is_some() {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| vault_path.clone());
+            let mut modified_files =
+                crate::git::GitInspector::inspect_diff(&cwd, branch).unwrap_or_default();
+            if modified_files.is_empty() {
+                modified_files =
+                    crate::git::GitInspector::inspect_diff(&vault_path, branch).unwrap_or_default();
+            }
+
+            if is_obsidian {
+                let adapter = ObsidianAdapter::new(&vault_path);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
+                builder
+                    .build_with_diff(project_name, &modified_files)
+                    .map_err(|e| e.to_string())?
+            } else {
+                let adapter = GenericWikiAdapter::new(&vault_path);
+                let mut builder = LoadoutBuilder::new(&adapter, storage);
+                if let Some(ref emb) = embedder {
+                    builder = builder.with_embedder(emb.clone());
+                }
+                builder
+                    .build_with_diff(project_name, &modified_files)
+                    .map_err(|e| e.to_string())?
+            }
+        } else if is_obsidian {
+            let adapter = ObsidianAdapter::new(&vault_path);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
+            builder.build(project_name).map_err(|e| e.to_string())?
+        } else {
+            let adapter = GenericWikiAdapter::new(&vault_path);
+            let mut builder = LoadoutBuilder::new(&adapter, storage);
+            if let Some(ref emb) = embedder {
+                builder = builder.with_embedder(emb.clone());
+            }
+            builder.build(project_name).map_err(|e| e.to_string())?
+        };
+
+        match loadout_opt {
+            Some(loadout) => Ok(loadout.markdown),
+            None => Err(format!(
+                "Project matching '{}' not found in vault.",
+                project_name
+            )),
+        }
+    }
+
+    fn call_recall_memory(&mut self, arguments: &Value) -> Result<String, String> {
+        let query = arguments
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'query'".to_string())?;
+
+        let limit = arguments
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(5);
+
+        let full = arguments
+            .get("full")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let mode = match arguments.get("mode").and_then(|v| v.as_str()) {
+            Some(raw) => match raw.to_lowercase().as_str() {
+                "hybrid" => SearchMode::Hybrid,
+                "bm25" => SearchMode::Bm25,
+                "vector" => SearchMode::Vector,
+                other => {
+                    return Err(format!(
+                        "Invalid mode '{}'. Supported modes: hybrid, bm25, vector",
+                        other
+                    ))
+                }
+            },
+            None => SearchMode::Hybrid,
+        };
+
+        if let Err(e) = self.sync_cache() {
+            return Err(format!("Cache sync failed: {}", e));
+        }
+
+        let has_vectors = {
+            let storage = self
+                .get_or_init_storage()
+                .map_err(|e| format!("Storage initialization failed: {}", e))?;
+            if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+                return Err("Vector index is empty. Run 'k0maru sync --vector' first.".to_string());
+            }
+            storage.has_vectors().unwrap_or(false)
+        };
+
+        let effective_embedder = if has_vectors && mode != SearchMode::Bm25 {
+            self.ensure_embedder()
+        } else {
+            None
+        };
+        let storage = self
+            .get_or_init_storage()
+            .map_err(|e| format!("Storage initialization failed: {}", e))?;
+        let engine = HybridSearchEngine::new(storage, effective_embedder);
+        let results = engine
+            .search(query, mode, limit)
+            .map_err(|e| format!("Search failed: {}", e))?;
+
+        if results.is_empty() {
+            return Ok(format!("No memories found matching query: '{}'", query));
+        }
+
+        if full {
+            let mut formatted = Vec::new();
+            for res in &results {
+                let mut item = format!("## {} ({})\n", res.title, res.path);
+                item.push_str(&format!("Score: {:.4}\n", res.score));
+
+                let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
+                if !backlinks.is_empty() {
+                    let bl_strs: Vec<String> =
+                        backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
+                    item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
+                }
+
+                if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
+                    if !doc.tags.is_empty() {
+                        item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
+                    }
+                    item.push_str(&format!("Hierarchy: {}\n", doc.hierarchy));
+                }
+
+                item.push_str(&format!("\n{}", res.snippet));
+                formatted.push(item);
+            }
+
+            Ok(formatted.join("\n\n---\n\n"))
+        } else {
+            let mut hits = Vec::with_capacity(results.len());
+            for res in &results {
+                let in_links = retrieve_backlinks(storage, &res.title, &res.path).len();
+                let (tier, out_links) = match storage.get_document(Path::new(&res.path)) {
+                    Ok(Some(doc)) => (hierarchy_to_tier(doc.hierarchy), doc.links.len()),
+                    _ => (
+                        infer_tier_from_path(&res.path),
+                        storage
+                            .get_outgoing_links(Path::new(&res.path))
+                            .map(|l| l.len())
+                            .unwrap_or(0),
+                    ),
+                };
+                hits.push(CompactRecallHit {
+                    tier,
+                    path: res.path.as_str(),
+                    score: res.score,
+                    in_links,
+                    out_links,
+                    raw_snippet: res.snippet.as_str(),
+                });
+            }
+            Ok(format_compact_kdsl_hits(&hits))
+        }
+    }
+
+    fn call_offload_context(&self, arguments: &Value) -> Result<String, String> {
+        let raw_text = arguments
+            .get("raw_text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'raw_text'".to_string())?;
+
+        let task_name = arguments
+            .get("task_name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let mut engine = OffloadEngine::new(&self.refs_dir).with_threshold(50);
+        if let Some(task) = task_name {
+            engine = engine.with_task_id(task);
+        }
+
+        let result = engine
+            .offload_text(raw_text)
+            .map_err(|e| format!("Offload failed: {}", e))?;
+
+        if result.truncated {
+            Ok(format!(
+                "{}\n\n{}",
+                result.mermaid_graph, result.summary_text
+            ))
+        } else {
+            Ok(result.summary_text)
+        }
+    }
+
+    fn call_inspect_log_node(&self, arguments: &Value) -> Result<String, String> {
+        let node_id = arguments
+            .get("node_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'node_id'".to_string())?;
+
+        inspect_node(&self.refs_dir, node_id)
+            .map_err(|e| format!("Inspection failed for node '{}': {}", node_id, e))
+    }
+
+    fn call_flush_session(&mut self, arguments: &Value) -> Result<String, String> {
+        let title = arguments
+            .get("title")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'title'".to_string())?;
+
+        let content = arguments
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
+
+        let summary = arguments
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let category = arguments
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("log")
+            .to_string();
+
+        let tags: Vec<String> = arguments
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let related_notes: Vec<String> = arguments
+            .get("related_notes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let supersedes: Vec<String> = match arguments.get("supersedes") {
+            Some(Value::String(single)) => vec![single.to_string()],
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect(),
+            _ => Vec::new(),
+        };
+
+        let engine = crate::convention::FlushEngine::new(&self.vault_path)
+            .map_err(|e| format!("FlushEngine initialization failed: {}", e))?;
+
+        let request = crate::convention::FlushRequest {
+            title: title.to_string(),
+            summary,
+            content: content.to_string(),
+            category,
+            tags,
+            related_notes: related_notes.clone(),
+            dry_run: false,
+            supersedes,
+        };
+
+        let result = engine
+            .flush(request)
+            .map_err(|e| format!("Flush failed: {}", e))?;
+
+        let _ = self.sync_cache();
+
+        let links_str = if related_notes.is_empty() {
+            "None".to_string()
+        } else {
+            related_notes
+                .iter()
+                .map(|r| {
+                    let t = r.trim();
+                    if t.starts_with("[[") && t.ends_with("]]") {
+                        t.to_string()
+                    } else {
+                        format!("[[{}]]", t)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let superseded_str = if result.superseded_files.is_empty() {
+            String::new()
+        } else {
+            let list = result
+                .superseded_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("\nSuperseded: {}", list)
+        };
+
+        if !result.created {
+            Ok(format!(
+                "Note already up to date with identical content.\nPath: {}\nCategory: {}{}",
+                result.relative_path.display(),
+                result.category,
+                superseded_str
+            ))
+        } else {
+            Ok(format!(
+                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}{}",
+                title,
+                result.relative_path.display(),
+                result.category,
+                links_str,
+                superseded_str
+            ))
+        }
+    }
+
+    fn call_distill_session_skill(&mut self, arguments: &Value) -> Result<String, String> {
+        let raw_trace = arguments.get("raw_trace").and_then(|v| v.as_str());
+        let node_id = arguments.get("node_id").and_then(|v| v.as_str());
+
+        if raw_trace.is_none() && node_id.is_none() {
+            return Err("Either 'raw_trace' or 'node_id' must be provided".to_string());
+        }
+
+        let title = arguments
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let context_hint = arguments
+            .get("context_hint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let category = arguments
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("skill")
+            .to_string();
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let tags: Vec<String> = arguments
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let related_notes: Vec<String> = arguments
+            .get("related_notes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let target = arguments
+            .get("target")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                std::str::FromStr::from_str(s)
+                    .map_err(|e: String| format!("Invalid target parameter: {}", e))
+            })
+            .transpose()?
+            .unwrap_or(crate::distill::DistillTarget::Default);
+
+        let engine = crate::distill::DistillEngine::new(&self.vault_path, &self.refs_dir);
+        let opts = crate::distill::DistillOptions {
+            title,
+            context_hint,
+            category: Some(category),
+            tags,
+            related_notes: related_notes.clone(),
+            dry_run,
+            target,
+            home_override: None,
+        };
+
+        let result = if let Some(trace) = raw_trace {
+            engine
+                .distill_text(trace, opts)
+                .map_err(|e| format!("Distill failed: {}", e))?
+        } else if let Some(nid) = node_id {
+            engine
+                .distill_node(nid, opts)
+                .map_err(|e| format!("Distill failed: {}", e))?
+        } else {
+            unreachable!();
+        };
+
+        if !dry_run {
+            let _ = self.sync_cache();
+        }
+
+        let links_str = if related_notes.is_empty() {
+            "None".to_string()
+        } else {
+            related_notes
+                .iter()
+                .map(|r| {
+                    let t = r.trim();
+                    if t.starts_with("[[") && t.ends_with("]]") {
+                        t.to_string()
+                    } else {
+                        format!("[[{}]]", t)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        let export_line = result
+            .export_path
+            .as_ref()
+            .map(|ep| format!("Export Path: {}\n", ep.display()))
+            .unwrap_or_default();
+
+        if dry_run {
+            Ok(format!(
+                "[Dry Run] Generated skill preview:\n\nTitle: {}\nCategory: {}\nRelative Path: {}\nWikiLinks: {}\n{}\n---\n{}",
+                result.skill.title,
+                result.flush_result.category,
+                result.flush_result.relative_path.display(),
+                links_str,
+                export_line,
+                result.preview_markdown
+            ))
+        } else if !result.flush_result.created {
+            Ok(format!(
+                "Skill note already up to date with identical content.\nPath: {}\nCategory: {}\n{}",
+                result.flush_result.relative_path.display(),
+                result.flush_result.category,
+                export_line
+            ))
+        } else {
+            Ok(format!(
+                "✓ Crystallized skill note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}\n{}",
+                result.skill.title,
+                result.flush_result.relative_path.display(),
+                result.flush_result.category,
+                links_str,
+                export_line
+            ))
+        }
+    }
+
+    fn call_gc_session_context(&mut self, arguments: &Value) -> Result<String, String> {
+        let trajectory: SessionTrajectory =
+            if let Some(raw_str) = arguments.get("trajectory_json").and_then(|v| v.as_str()) {
+                serde_json::from_str(raw_str)
+                    .map_err(|e| format!("Failed to parse 'trajectory_json' string: {}", e))?
+            } else if let Some(obj) = arguments.get("trajectory_json") {
+                serde_json::from_value(obj.clone())
+                    .map_err(|e| format!("Failed to parse 'trajectory_json' value: {}", e))?
+            } else if let Some(obj) = arguments.get("trajectory") {
+                serde_json::from_value(obj.clone())
+                    .map_err(|e| format!("Failed to parse 'trajectory' value: {}", e))?
+            } else {
+                return Err("Missing required argument: 'trajectory_json'".to_string());
+            };
+
+        let threshold = arguments
+            .get("threshold")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(20);
+
+        let hot_window = arguments
+            .get("hot_window")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(5);
+
+        let context_window = arguments
+            .get("context_window")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(128_000);
+
+        let options = GcOptions {
+            line_threshold: threshold,
+            hot_window_turns: hot_window,
+            context_window_tokens: context_window,
+            refs_dir: Some(self.vault_path.join(".scratch/refs")),
+            ..Default::default()
+        };
+
+        let engine = ContextGcEngine::new();
+        let result = engine
+            .compact(&trajectory, &options)
+            .map_err(|e| format!("Context GC compaction failed: {}", e))?;
+
+        serde_json::to_string_pretty(&result)
+            .map_err(|e| format!("Failed to serialize GC result: {}", e))
+    }
+
+    fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
+        let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
+        let project_name = arguments.get("project_name").and_then(|v| v.as_str());
+        let branch = arguments.get("branch").and_then(|v| v.as_str());
+        let strict = arguments
+            .get("strict")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let files: Vec<PathBuf> = arguments
+            .get("files")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let repo_dir = match arguments.get("repo_path").and_then(|v| v.as_str()) {
+            Some(explicit) => crate::guard::resolve_repo_root(Path::new(explicit)),
+            None => {
+                // Prefer the repository the agent is actually working in over
+                // the vault mount, which may live in an unrelated repo.
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let cwd_root = crate::guard::resolve_repo_root(&cwd);
+                let vault_root = crate::guard::resolve_repo_root(&self.vault_path);
+                if cwd_root.join(".git").exists() && cwd_root != vault_root {
+                    cwd_root
+                } else if vault_root.join(".git").exists() {
+                    vault_root
+                } else {
+                    cwd_root
+                }
+            }
+        };
+
+        let mut rules = crate::guard::resolve_guard_rules_with_repo(
+            &self.vault_path,
+            project_name,
+            Some(&repo_dir),
+        )
+        .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
+
+        // A repository may own a `.k0maru/wiki` vault even when this MCP server
+        // was launched against a global vault. Its Living ADRs must still be
+        // enforced, so resolve and merge them without duplicating rules.
+        let repo_vault = repo_dir.join(".k0maru").join("wiki");
+        let self_canonical = self.vault_path.canonicalize();
+        if repo_vault.is_dir() {
+            let distinct_vault = match (&self_canonical, repo_vault.canonicalize()) {
+                (Ok(current), Ok(repo)) => current != &repo,
+                (Err(_), Ok(_)) => true,
+                _ => false,
+            };
+            if distinct_vault {
+                if let Ok(repo_rules) = crate::guard::resolve_guard_rules_with_repo(
+                    &repo_vault,
+                    project_name,
+                    Some(&repo_dir),
+                ) {
+                    let mut seen: std::collections::HashSet<(String, String)> = rules
+                        .iter()
+                        .map(|rule| (rule.id.clone(), format!("{:?}", rule.condition)))
+                        .collect();
+                    for rule in repo_rules {
+                        if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                            rules.push(rule);
+                        }
+                    }
+                }
+            }
+        }
+
+        let report = if !files.is_empty() {
+            let mut file_tuples: Vec<(PathBuf, String)> = Vec::new();
+            for file in &files {
+                // MCP clients usually send repository-relative paths.
+                let path = if file.is_absolute() {
+                    file.clone()
+                } else {
+                    repo_dir.join(file)
+                };
+                if !path.exists() {
+                    return Err(format!("Target file does not exist: '{}'", path.display()));
+                }
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
+                file_tuples.push((path, content));
+            }
+            crate::guard::GuardEngine::check_files(&file_tuples, &rules)
+        } else {
+            let diff_text = if let Some(d) = diff_arg {
+                let trimmed = d.trim();
+                if !trimmed.is_empty()
+                    && !trimmed.contains("diff --git ")
+                    && !trimmed.contains("@@ ")
+                    && !trimmed.contains("+++ ")
+                {
+                    return Err("Invalid unified diff: missing diff headers or hunks".to_string());
+                }
+                d.to_string()
+            } else {
+                crate::guard::get_git_diff(&repo_dir, branch)
+                    .map_err(|e| format!("Failed to inspect git diff: {}", e))?
+            };
+            let root = repo_dir.clone();
+            crate::guard::GuardEngine::check_diff_with_reader(
+                &diff_text,
+                &rules,
+                crate::guard::repo_content_reader(&root),
+            )
+        };
+
+        // A non-empty diff that matched no file headers is malformed (or was
+        // mangled in transit): fail closed instead of reporting a clean pass.
+        if files.is_empty() {
+            if let Some(d) = diff_arg {
+                if !d.trim().is_empty() && report.checked_files == 0 {
+                    return Err(
+                        "Invalid unified diff: no file headers (diff --git or +++ b/) matched"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+
+        let formatted = crate::guard::format_guard_report(&report);
+        let json_report = serde_json::to_string_pretty(&report)
+            .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
+
+        let combined = format!("{}\n\n```json\n{}\n```", formatted, json_report);
+
+        if !report.is_passed || (strict && !report.violations.is_empty()) {
+            return Err(combined);
+        }
+
+        Ok(combined)
+    }
+
+    fn handle_initialize(&self, id: Value, params: Option<&Value>) -> Value {
+        // Echo versions we actually speak; anything unknown falls back to the
+        // original 2024-11-05 revision.
+        let requested = params
+            .and_then(|p| p.get("protocolVersion"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("2024-11-05");
+        let protocol_version = match requested {
+            "2024-11-05" | "2025-03-26" | "2025-06-18" => requested,
+            _ => "2024-11-05",
+        };
+
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": protocol_version,
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "k0maru",
+                    "version": crate::VERSION
+                },
+                "instructions": "K0maru-Agent-Memory Autonomous Protocol: 1) Call get_project_loadout(diff=true) at session start. 2) Call recall_memory before searching external docs. 3) Call guard_check before git commit or yielding code edits. 4) On a guard DENY, either fix the code per Remedy or, if the user asked to replace the architecture, call flush_session with category='decision', supersedes=['<source_note>'], and content containing '## Non-Negotiable Invariants\\n- [id] (deny) [glob] forbidden: \"...\" | remediation: \"...\"'. Always stage .k0maru/wiki with code changes."
+            }
+        })
+    }
+
+    fn handle_tools_list(&self, id: Value) -> Value {
+        let mut tools = json!([
+            {
+                "name": "get_project_loadout",
+                "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "project_name": {
+                            "type": "string",
+                            "description": "Optional target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway'); auto-detected from repository/vault when omitted"
+                        },
+                        "diff": {
+                            "type": "boolean",
+                            "description": "Inspect Git changes in workspace and dynamically activate module-relevant ADRs (<300 tokens)"
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "recall_memory",
+                "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (Obsidian Vault / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. 'what did we decide about...', 'how is X configured', 'find notes on...'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return (default: 5)"
+                        },
+                        "full": {
+                            "type": "boolean",
+                            "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["hybrid", "bm25", "vector"],
+                            "description": "Search mode (default: hybrid). 'vector' requires 'k0maru sync --vector'."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "offload_context",
+                "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_text": {
+                            "type": "string",
+                            "description": "Raw log or output text to be offloaded"
+                        },
+                        "task_name": {
+                            "type": "string",
+                            "description": "Optional task identifier prefix"
+                        }
+                    },
+                    "required": ["raw_text"]
+                }
+            },
+            {
+                "name": "inspect_log_node",
+                "description": "Retrieve and inspect the full offloaded raw terminal log or compiler trace content by its node ID (e.g. node_1a2b3c4d).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "node_id": {
+                            "type": "string",
+                            "description": "Offloaded log node identifier (e.g. node_1a2b3c4d)"
+                        }
+                    },
+                    "required": ["node_id"]
+                }
+            },
+            {
+                "name": "flush_session",
+                "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Title of the decision or log note"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Detailed Markdown content"
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "Brief one-line summary or executive conclusion"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Category: 'decision', 'log', 'concept' (alias: 'card'), 'skill', or custom (default: 'log'). A 'card' whose content declares '## Non-Negotiable Invariants' is stored as a decision."
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Associated tags"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Related existing notes to link via WikiLinks"
+                        },
+                        "supersedes": {
+                            "description": "Existing note(s) or ADR(s) that this note supersedes (automatically marks old notes as status: superseded). Accepts a single string or an array of strings.",
+                            "oneOf": [
+                                { "type": "string" },
+                                { "type": "array", "items": { "type": "string" } }
+                            ]
+                        }
+                    },
+                    "required": ["title", "content"]
+                }
+            },
+            {
+                "name": "distill_session_skill",
+                "description": "Distill an execution trace, compilation error, or debugging session into a reusable troubleshooting playbook/skill note and save it to the vault or export to Hermes Agent.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "raw_trace": {
+                            "type": "string",
+                            "description": "Raw execution log, error stack trace, or debugging terminal output"
+                        },
+                        "node_id": {
+                            "type": "string",
+                            "description": "Optional offloaded node ID from offload_context (e.g. node_1a2b3c4d)"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional explicit skill title (auto-inferred if omitted)"
+                        },
+                        "context_hint": {
+                            "type": "string",
+                            "description": "Optional context hint or explanation describing what was happening"
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Target category (defaults to 'skill')"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional tags array (e.g. ['topic/rust', 'topic/build'])"
+                        },
+                        "related_notes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional related notes or WikiLinks array"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, simulates distillation and returns preview without writing to vault"
+                        },
+                        "target": {
+                            "type": "string",
+                            "enum": ["default", "hermes", "omp"],
+                            "description": "Optional target ecosystem schema: 'default' (Obsidian / Markdown Vault), 'hermes' (Nous Research Hermes dynamic skill), or 'omp' (Oh My Pi native skill://<name>)"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "gc_session_context",
+                "description": "Perform long-trajectory context garbage collection (Context GC) on a multi-turn agent session trajectory, folding verbose tool outputs and repetitive compiler error dumps into symbolic references to keep context within the cognitive Smart-Zone (15%-60%) with TRR >= 85%.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "trajectory_json": {
+                            "type": "string",
+                            "description": "JSON serialized SessionTrajectory containing session_id and turns array (or direct JSON object)"
+                        },
+                        "threshold": {
+                            "type": "integer",
+                            "description": "Line threshold before tool output is folded (default: 20)"
+                        },
+                        "hot_window": {
+                            "type": "integer",
+                            "description": "Number of recent turns preserved untouched in hot window (default: 5)"
+                        },
+                        "context_window": {
+                            "type": "integer",
+                            "description": "Context window size in tokens for Smart-Zone evaluation (default: 128000)"
+                        }
+                    },
+                    "required": ["trajectory_json"]
+                }
+            },
+            {
+                "name": "guard_check",
+                "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "diff": {
+                            "type": "string",
+                            "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                        },
+                        "project_name": {
+                            "type": "string",
+                            "description": "Optional target project name to filter ADR invariants for."
+                        },
+                        "repo_path": {
+                            "type": "string",
+                            "description": "Optional path to the git repository to audit (defaults to the vault's repository or the current directory)."
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional base branch/revision for comparison (e.g. 'main', 'dev')."
+                        },
+                        "strict": {
+                            "type": "boolean",
+                            "description": "Treat advisory warnings as blocking failures."
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional explicit file paths to audit instead of a diff."
+                        }
+                    }
+                }
+            }
+        ]);
+
+        if self.sidecar {
+            if let Some(tool_list) = tools.as_array_mut() {
+                tool_list.retain(|tool| {
+                    !matches!(
+                        tool["name"].as_str().unwrap_or(""),
+                        "offload_context" | "inspect_log_node" | "gc_session_context"
+                    )
+                });
+            }
+        }
+
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": tools
+            }
+        })
+    }
+
+    /// Dispatches and executes an MCP tool call given request ID and tool parameters.
+    pub fn handle_tool_call(&mut self, id: Value, params: &Value) -> Value {
+        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let empty_args = Value::Object(serde_json::Map::new());
+        let arguments = params.get("arguments").unwrap_or(&empty_args);
+
+        let (content_text, is_error) = match tool_name {
+            "get_project_loadout" => match self.call_get_project_loadout(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "recall_memory" => match self.call_recall_memory(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "offload_context" => match self.call_offload_context(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "inspect_log_node" => match self.call_inspect_log_node(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "flush_session" => match self.call_flush_session(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "distill_session_skill" => match self.call_distill_session_skill(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "gc_session_context" => match self.call_gc_session_context(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "guard_check" => match self.call_guard_check(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            unknown => {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32602,
+                        "message": format!("Unknown tool: '{}'", unknown)
+                    }
+                });
+            }
+        };
+
+        let mut result_obj = serde_json::Map::new();
+        result_obj.insert(
+            "content".to_string(),
+            json!([
+                {
+                    "type": "text",
+                    "text": content_text
+                }
+            ]),
+        );
+        if is_error {
+            result_obj.insert("isError".to_string(), Value::Bool(true));
+        }
+
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": Value::Object(result_obj)
+        })
+    }
+
+    /// Alias for [`Self::handle_tool_call`].
+    pub fn handle_call_tool(&mut self, id: Value, params: &Value) -> Value {
+        self.handle_tool_call(id, params)
+    }
+
+    /// Handles a single incoming JSON-RPC 2.0 request string.
+    pub fn handle_request(&mut self, request: &str) -> Option<String> {
+        self.handle_line(request)
+    }
+
+    /// Handles a single incoming JSON-RPC 2.0 request or notification string.
+    ///
+    /// Returns `Some(response_json)` for requests, or `None` for notifications (silent acknowledgment).
+    pub fn handle_line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let parsed: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => {
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": Value::Null,
+                    "error": {
+                        "code": -32700,
+                        "message": "Parse error"
+                    }
+                });
+                return Some(err_resp.to_string());
+            }
+        };
+
+        let obj = match parsed.as_object() {
+            Some(o) => o,
+            None => {
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": Value::Null,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid Request"
+                    }
+                });
+                return Some(err_resp.to_string());
+            }
+        };
+
+        let id = obj.get("id").cloned();
+        let is_notification = !obj.contains_key("id");
+
+        let method = match obj.get("method").and_then(|m| m.as_str()) {
+            Some(m) => m,
+            None => {
+                if is_notification {
+                    return None;
+                }
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id.unwrap_or(Value::Null),
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid Request"
+                    }
+                });
+                return Some(err_resp.to_string());
+            }
+        };
+
+        let params = obj.get("params").unwrap_or(&Value::Null);
+
+        match method {
+            "initialize" => {
+                let params_opt = obj.get("params");
+                let resp = self.handle_initialize(id.unwrap_or(Value::Null), params_opt);
+                Some(resp.to_string())
+            }
+            "notifications/initialized" | "initialized" => {
+                // Silent acknowledgment according to MCP specification
+                None
+            }
+            "tools/list" => {
+                let resp = self.handle_tools_list(id.unwrap_or(Value::Null));
+                Some(resp.to_string())
+            }
+            "tools/call" => {
+                let resp = self.handle_tool_call(id.unwrap_or(Value::Null), params);
+                Some(resp.to_string())
+            }
+            "ping" => {
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id.unwrap_or(Value::Null),
+                    "result": {}
+                });
+                Some(resp.to_string())
+            }
+            _ => {
+                if is_notification {
+                    None
+                } else {
+                    let err_resp = json!({
+                        "jsonrpc": "2.0",
+                        "id": id.unwrap_or(Value::Null),
+                        "error": {
+                            "code": -32601,
+                            "message": "Method not found"
+                        }
+                    });
+                    Some(err_resp.to_string())
+                }
+            }
+        }
+    }
+
+    /// Runs the stdio JSON-RPC loop reading lines from `reader` and writing responses to `writer`.
+    pub fn run_stdio<R: BufRead, W: Write>(
+        &mut self,
+        mut reader: R,
+        mut writer: W,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Some(resp) = self.handle_line(trimmed) {
+                            if let Err(e) = writer.write_all(resp.as_bytes()) {
+                                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                    break;
+                                }
+                                return Err(Box::new(e));
+                            }
+                            if let Err(e) = writer.write_all(b"\n") {
+                                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                    break;
+                                }
+                                return Err(Box::new(e));
+                            }
+                            if let Err(e) = writer.flush() {
+                                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                                    break;
+                                }
+                                return Err(Box::new(e));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+                        break;
+                    }
+                    return Err(Box::new(e));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Helper function to retrieve all backlinks matching document title, file stem, or whitespace-normalized variants.
+fn retrieve_backlinks(storage: &SqliteStorage, title: &str, path_str: &str) -> Vec<String> {
+    let mut all = Vec::new();
+    if let Ok(bls) = storage.get_backlinks(title) {
+        for b in bls {
+            let s = b.to_string_lossy().to_string();
+            if !all.contains(&s) {
+                all.push(s);
+            }
+        }
+    }
+    if let Some(stem) = Path::new(path_str).file_stem().and_then(|s| s.to_str()) {
+        if stem != title {
+            if let Ok(bls) = storage.get_backlinks(stem) {
+                for b in bls {
+                    let s = b.to_string_lossy().to_string();
+                    if !all.contains(&s) {
+                        all.push(s);
+                    }
+                }
+            }
+        }
+    }
+    let under = title.replace(' ', "_");
+    if under != title {
+        if let Ok(bls) = storage.get_backlinks(&under) {
+            for b in bls {
+                let s = b.to_string_lossy().to_string();
+                if !all.contains(&s) {
+                    all.push(s);
+                }
+            }
+        }
+    }
+    let space = title.replace('_', " ");
+    if space != title {
+        if let Ok(bls) = storage.get_backlinks(&space) {
+            for b in bls {
+                let s = b.to_string_lossy().to_string();
+                if !all.contains(&s) {
+                    all.push(s);
+                }
+            }
+        }
+    }
+    all.sort();
+    all
+}
+
+/// Helper struct representing a search hit to be formatted into compact K-DSL wire format.
+#[derive(Debug, Clone)]
+pub struct CompactRecallHit<'a> {
+    pub tier: &'a str,
+    pub path: &'a str,
+    pub score: f32,
+    pub in_links: usize,
+    pub out_links: usize,
+    pub raw_snippet: &'a str,
+}
+
+/// Converts a HierarchyLevel into its standard compact K-DSL tier code (L0..L3).
+pub fn hierarchy_to_tier(hierarchy: HierarchyLevel) -> &'static str {
+    match hierarchy {
+        HierarchyLevel::L0Ephemeral => "L0",
+        HierarchyLevel::L1Resource => "L1",
+        HierarchyLevel::L2Log => "L2",
+        HierarchyLevel::L3Evergreen => "L3",
+    }
+}
+
+/// Fallback tier inference based on document path conventions.
+pub fn infer_tier_from_path(path: &str) -> &'static str {
+    let p = path.replace('\\', "/");
+    if p.starts_with("00_") || p.contains("/00_") || p.contains("Daily") {
+        "L0"
+    } else if p.starts_with("10_") || p.contains("/10_") || p.contains("Projects") {
+        "L1"
+    } else if p.starts_with("01_") || p.contains("/01_") || p.contains("AI_Logs") {
+        "L2"
+    } else {
+        "L3"
+    }
+}
+
+/// Flattens multi-line snippet into a clean single line with collapsed whitespace.
+pub fn clean_single_line_snippet(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Formats search hits into compact single-line K-DSL wire format:
+/// `!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet_single_line_max_220_chars>`
+/// ensuring each line is a single line, snippets do not exceed 220 characters,
+/// and total output length is strictly under 1200 characters.
+pub fn format_compact_kdsl_hits(hits: &[CompactRecallHit]) -> String {
+    if hits.is_empty() {
+        return String::new();
+    }
+
+    let n = hits.len();
+    let normalized_paths: Vec<String> = hits.iter().map(|h| h.path.replace('\\', "/")).collect();
+
+    let headers: Vec<String> = hits
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            format!(
+                "!μ:{}|{}|score:{:.4}|links:{}/{} § ",
+                h.tier, normalized_paths[i], h.score, h.in_links, h.out_links
+            )
+        })
+        .collect();
+
+    let total_headers_len: usize = headers.iter().map(|h| h.len()).sum();
+    let newlines_len = n.saturating_sub(1);
+    let target_max_total: usize = 1190;
+    let available_for_snippets = target_max_total.saturating_sub(total_headers_len + newlines_len);
+    let max_per_snippet = (available_for_snippets / n).clamp(40, 220);
+
+    let mut lines = Vec::with_capacity(n);
+    for (i, hit) in hits.iter().enumerate() {
+        let cleaned = clean_single_line_snippet(hit.raw_snippet);
+        let snippet: String = cleaned.chars().take(max_per_snippet).collect();
+        lines.push(format!("{}{}", headers[i], snippet.trim()));
+    }
+
+    let output = lines.join("\n");
+    if output.len() >= 1200 {
+        output.chars().take(1190).collect()
+    } else {
+        output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hierarchy_to_tier_mapping() {
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L0Ephemeral), "L0");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L1Resource), "L1");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L2Log), "L2");
+        assert_eq!(hierarchy_to_tier(HierarchyLevel::L3Evergreen), "L3");
+    }
+
+    #[test]
+    fn test_clean_single_line_snippet() {
+        let raw = "  # Title\n\n  Line 1   with   spaces\r\n\tLine 2  ";
+        let cleaned = clean_single_line_snippet(raw);
+        assert_eq!(cleaned, "# Title Line 1 with spaces Line 2");
+        assert!(!cleaned.contains('\n'));
+    }
+
+    #[test]
+    fn test_format_compact_kdsl_hits_wire_and_length_budget() {
+        let long_body = "word ".repeat(100);
+        let hits = vec![
+            CompactRecallHit {
+                tier: "L3",
+                path: "20_Cards/Arch.md",
+                score: 0.8542,
+                in_links: 4,
+                out_links: 2,
+                raw_snippet: &long_body,
+            },
+            CompactRecallHit {
+                tier: "L2",
+                path: "01_AI_Logs/Log1.md",
+                score: 0.1234,
+                in_links: 1,
+                out_links: 0,
+                raw_snippet: "Short log snippet",
+            },
+        ];
+
+        let formatted = format_compact_kdsl_hits(&hits);
+        let lines: Vec<&str> = formatted.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        // Check line 1 format
+        assert!(lines[0].starts_with("!μ:L3|20_Cards/Arch.md|score:0.8542|links:4/2 § "));
+        assert!(!lines[0].contains('\n'));
+
+        // Check line 2 format
+        assert!(lines[1]
+            .starts_with("!μ:L2|01_AI_Logs/Log1.md|score:0.1234|links:1/0 § Short log snippet"));
+
+        // Check length budget < 1200
+        assert!(formatted.len() < 1200);
+
+        // Verify with 5 hits
+        let mut five_hits = Vec::new();
+        for i in 0..5 {
+            five_hits.push(CompactRecallHit {
+                tier: "L3",
+                path: "20_Cards/Doc.md",
+                score: 0.5,
+                in_links: i,
+                out_links: i + 1,
+                raw_snippet: &long_body,
+            });
+        }
+        let five_formatted = format_compact_kdsl_hits(&five_hits);
+        assert!(five_formatted.len() < 1200);
+        for l in five_formatted.lines() {
+            assert!(l.starts_with("!μ:"));
+            let parts: Vec<&str> = l.split(" § ").collect();
+            assert_eq!(parts.len(), 2);
+            assert!(parts[1].chars().count() <= 220);
+        }
+    }
+}

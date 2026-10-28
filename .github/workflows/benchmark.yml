@@ -1,0 +1,65 @@
+name: Benchmark & Token Reduction Regression Gate
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - dev
+
+jobs:
+  benchmark-gate:
+    name: Run Benchmark & Latency Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r benchmarks/requirements.txt
+
+      - name: Build k0maru Binary (Release Profile)
+        run: cargo build --release
+
+      - name: Run Token Reduction Benchmark Gate (TRR >= 60%)
+        run: |
+          python3 benchmarks/run_token_benchmark.py --assert-min-reduction 60.0
+
+      - name: Run Systems & Latency Benchmark Gate (Cold Start <= 25ms)
+        run: |
+          python3 benchmarks/run_systems_benchmark.py --assert-max-cold-start-ms 25.0
+
+      - name: Run Benchmark Unit Tests
+        run: |
+          python3 -m unittest discover -s benchmarks
+
+      - name: Generate Publication Charts
+        run: |
+          python3 benchmarks/generate_charts.py
+
+      - name: Upload Benchmark Results & Charts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-artifacts
+          path: |
+            benchmarks/results/*.csv
+            benchmarks/charts/*.png
+          retention-days: 14

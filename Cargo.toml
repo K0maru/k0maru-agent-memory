@@ -1,0 +1,78 @@
+[workspace]
+members = [
+    ".",
+    "crates/k0maru-core",
+]
+
+[package]
+name = "k0maru"
+version = "1.0.0"
+edition = "2021"
+description = "Cleanroom, single-static-binary, zero-daemon agent memory hub mounting Obsidian and LLM-Wiki"
+license = "MIT"
+repository = "https://github.com/K0maru/k0maru-agent-memory"
+homepage = "https://github.com/K0maru/k0maru-agent-memory"
+readme = "README.md"
+rust-version = "1.88"
+exclude = [
+    ".agents/*",
+    ".internal/*",
+    ".k0maru/*",
+    ".scratch/*",
+    "benchmarks/*",
+    "packaging/*",
+    "tests/fixtures/*",
+    "*.ipynb",
+]
+
+[lib]
+name = "k0maru"
+path = "src/lib.rs"
+
+[[bin]]
+name = "k0maru"
+path = "src/main.rs"
+
+[[bin]]
+name = "k0maru-memory"
+path = "src/main.rs"
+
+[dependencies]
+k0maru-core = { path = "crates/k0maru-core", version = "1.0.0", default-features = false }
+clap = { version = "4.5", features = ["derive", "cargo"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+pulldown-cmark = "0.11"
+walkdir = "2.5"
+arboard = { version = "3.4", default-features = false }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+sqlite-vec = "0.1"
+axum = "0.7"
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors"] }
+rust-embed = { version = "8", features = ["mime-guess"] }
+mime_guess = "2.0"
+dirs = "7.0.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
+[features]
+default = ["fastembed"]
+fastembed = ["k0maru-core/fastembed"]
+
+[dev-dependencies]
+tempfile = "3.10"
+assert_cmd = "2.0"
+predicates = "3.1"
+
+[profile.release]
+opt-level = "z"
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

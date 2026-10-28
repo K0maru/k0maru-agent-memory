@@ -1,0 +1,67 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Runtime Database & Caches (Ephemeral/Disposable)
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+cache.sqlite
+.k0maru/
+
+# Python Virtualenv & Cache
+.venv/
+benchmarks/.venv/
+__pycache__/
+*.py[cod]
+
+# Runtime Logs & Offloaded Context
+*.log
+!benchmarks/fixtures/*.log
+.scratch/
+*.tmp
+tmp/
+
+# Maintainer Internal & Colab Foundry Tooling (Isolated from End Users)
+.internal/
+*.ipynb
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# Operating System Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+.claude/
+# Node & VitePress
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# Agent Workspaces & Multi-Agent Scratch
+.agents/
+
+# Generated Colab Runners
+benchmarks/run_colab_*.py

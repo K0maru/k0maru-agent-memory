@@ -1,0 +1,112 @@
+/* Developer Dark Cockpit Design System for VitePress */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  --vp-c-brand-1: #22C55E;
+  --vp-c-brand-2: #16A34A;
+  --vp-c-brand-3: #15803D;
+  --vp-c-brand-soft: rgba(34, 197, 94, 0.14);
+
+  --vp-font-family-base: 'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Force Dark Cockpit palette across both light and dark modes */
+.dark, :root {
+  --vp-c-bg: #0F172A;
+  --vp-c-bg-alt: #141C2E;
+  --vp-c-bg-elv: #1B2336;
+  --vp-c-bg-soft: #1B2336;
+
+  --vp-c-border: #334155;
+  --vp-c-divider: #334155;
+  --vp-c-gutter: #334155;
+
+  --vp-c-text-1: #F8FAFC;
+  --vp-c-text-2: #94A3B8;
+  --vp-c-text-3: #64748B;
+
+  --vp-c-default-1: #F8FAFC;
+  --vp-c-default-2: #94A3B8;
+  --vp-c-default-3: #64748B;
+  --vp-c-default-soft: rgba(148, 163, 184, 0.14);
+
+  /* Code block */
+  --vp-code-block-bg: #141C2E;
+  --vp-code-line-highlight-color: rgba(34, 197, 94, 0.12);
+  --vp-code-line-number-color: #64748B;
+  --vp-code-copy-code-bg: #1B2336;
+  --vp-code-copy-code-hover-bg: #232D45;
+
+  /* Custom blocks */
+  --vp-custom-block-info-border: #38BDF8;
+  --vp-custom-block-info-text: #38BDF8;
+  --vp-custom-block-info-bg: rgba(56, 189, 248, 0.1);
+
+  --vp-custom-block-tip-border: #22C55E;
+  --vp-custom-block-tip-text: #22C55E;
+  --vp-custom-block-tip-bg: rgba(34, 197, 94, 0.1);
+
+  --vp-custom-block-warning-border: #F59E0B;
+  --vp-custom-block-warning-text: #F59E0B;
+  --vp-custom-block-warning-bg: rgba(245, 158, 11, 0.1);
+
+  --vp-custom-block-danger-border: #EF4444;
+  --vp-custom-block-danger-text: #EF4444;
+  --vp-custom-block-danger-bg: rgba(239, 68, 68, 0.1);
+
+  /* Nav & Sidebar */
+  --vp-nav-bg-color: rgba(15, 23, 42, 0.9);
+  --vp-nav-screen-bg-color: #0F172A;
+  --vp-sidebar-bg-color: #0F172A;
+
+  /* Hero gradients */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #22C55E 30%, #38BDF8);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #22c55e 30%, #38bdf8 70%);
+  --vp-home-hero-image-filter: blur(72px);
+}
+
+/* Feature cards */
+.VPFeature {
+  border: 1px solid #334155 !important;
+  background-color: #1B2336 !important;
+  border-radius: 8px !important;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.VPFeature:hover {
+  border-color: #22C55E !important;
+  background-color: #232D45 !important;
+  transform: translateY(-2px);
+}
+
+/* Inline code tags */
+:not(pre) > code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.875em;
+  background-color: #1B2336;
+  color: #22C55E;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  border: 1px solid #334155;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0F172A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

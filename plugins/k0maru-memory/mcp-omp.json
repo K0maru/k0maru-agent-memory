@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "k0maru-memory": {
+      "command": "k0maru",
+      "args": ["mcp", "--sidecar"]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "k0maru-core"
+version = "1.0.0"
+edition = "2021"
+description = "Cleanroom, single-static-binary core library for K0maru Agent Memory Hub"
+license = "MIT"
+rust-version = "1.88"
+repository = "https://github.com/K0maru/k0maru-agent-memory"
+homepage = "https://github.com/K0maru/k0maru-agent-memory"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+rusqlite = { version = "0.31", features = ["bundled"] }
+sqlite-vec = "0.1"
+pulldown-cmark = "0.11"
+walkdir = "2.5"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+fastembed = { version = "4", optional = true }
+toml = "1.1.8"
+regex = "1.13.1"
+glob = "0.3.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
+[features]
+default = ["fastembed"]
+fastembed = ["dep:fastembed"]
+
+[dev-dependencies]
+tempfile = "3.10"

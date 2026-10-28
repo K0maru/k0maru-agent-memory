@@ -1,0 +1,1183 @@
+//! SQLite and FTS5 cache storage engine.
+//!
+//! Provides disposable, high-performance local SQLite caching implementing
+//! [`CacheStorage`], with BM25-ranked full-text search and link graph index.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Once;
+
+use rusqlite::{params, OptionalExtension};
+
+use crate::core::models::{CachedDocMeta, Document, HierarchyLevel, WikiLink};
+use crate::core::traits::CacheStorage;
+
+static INIT_SQLITE_VEC: Once = Once::new();
+
+/// Registers sqlite-vec as an auto-extension for all new SQLite connections in the current process.
+pub fn ensure_sqlite_vec_registered() {
+    INIT_SQLITE_VEC.call_once(|| unsafe {
+        #[allow(clippy::missing_transmute_annotations)]
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+}
+
+/// Default embedding dimensions for document vectors.
+pub const VECTOR_DIMENSIONS: usize = 384;
+
+/// Ephemeral SQLite-backed storage implementing [`CacheStorage`].
+pub struct SqliteStorage {
+    conn: rusqlite::Connection,
+    active_dimension: AtomicUsize,
+}
+
+impl SqliteStorage {
+    /// Default embedding dimensions for document vectors.
+    pub const VECTOR_DIMENSIONS: usize = VECTOR_DIMENSIONS;
+
+    /// Opens or creates a SQLite cache database at the specified file path.
+    ///
+    /// Automatically ensures parent directories exist and runs schema initialization.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        ensure_sqlite_vec_registered();
+        let path_ref = path.as_ref();
+        if let Some(parent) = path_ref.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        let conn = rusqlite::Connection::open(path_ref)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+
+        let mut storage = Self {
+            conn,
+            active_dimension: AtomicUsize::new(0),
+        };
+        storage.initialize()?;
+        Ok(storage)
+    }
+
+    /// Creates an in-memory SQLite cache database (ideal for tests and ephemeral runs).
+    pub fn in_memory() -> Result<Self, Box<dyn std::error::Error>> {
+        ensure_sqlite_vec_registered();
+        let conn = rusqlite::Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+
+        let mut storage = Self {
+            conn,
+            active_dimension: AtomicUsize::new(0),
+        };
+        storage.initialize()?;
+        Ok(storage)
+    }
+
+    /// Returns an immutable reference to the underlying [`rusqlite::Connection`].
+    pub fn connection(&self) -> &rusqlite::Connection {
+        &self.conn
+    }
+
+    /// Returns a mutable reference to the underlying [`rusqlite::Connection`].
+    pub fn connection_mut(&mut self) -> &mut rusqlite::Connection {
+        &mut self.conn
+    }
+
+    /// Returns the currently active vector dimension, querying `vector_schema_info` or active tables.
+    pub fn get_vector_dimension(&self) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+        let table_exists: bool = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type IN ('table', 'shadow') AND name = 'document_vectors'",
+                [],
+                |row| Ok(row.get::<_, i64>(0)? > 0),
+            )
+            .unwrap_or(false);
+
+        if !table_exists {
+            return Ok(None);
+        }
+
+        let schema_info_exists: bool = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'vector_schema_info'",
+                [],
+                |row| Ok(row.get::<_, i64>(0)? > 0),
+            )
+            .unwrap_or(false);
+
+        if schema_info_exists {
+            let dim: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT dimension FROM vector_schema_info ORDER BY updated_at DESC LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(d) = dim {
+                return Ok(Some(d as usize));
+            }
+        }
+
+        // If document_vectors exists but no schema info is recorded, legacy schema used 384
+        Ok(Some(Self::VECTOR_DIMENSIONS))
+    }
+
+    /// Alias for [`get_vector_dimension`].
+    pub fn current_vector_dimension(&self) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+        self.get_vector_dimension()
+    }
+
+    /// Ensures that the underlying vector table has the specified dimension.
+    ///
+    /// If `document_vectors` does not exist, creates it with `target_dim` and records it in `vector_schema_info`. Returns `false`.
+    /// If current dimension equals `target_dim`, does nothing and returns `false`.
+    /// If current dimension differs from `target_dim`, drops old vector tables, recreates them with `target_dim`,
+    /// updates `vector_schema_info`, and returns `true` (indicating migration occurred).
+    pub fn ensure_vector_dimension(
+        &mut self,
+        target_dim: usize,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        if target_dim == 0 {
+            return Err("Target vector dimension must be greater than 0".into());
+        }
+
+        let current_dim = self.get_vector_dimension()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS vector_schema_info (dimension INTEGER NOT NULL, updated_at INTEGER NOT NULL);",
+        )?;
+
+        match current_dim {
+            None => {
+                let sql = format!(
+                    r#"
+                    CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
+                        id TEXT PRIMARY KEY,
+                        embedding float[{}] distance_metric=cosine
+                    );
+                    CREATE TABLE IF NOT EXISTS vector_metadata (
+                        document_id TEXT PRIMARY KEY,
+                        content_hash INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                    DELETE FROM vector_schema_info;
+                    INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2);
+                    "#,
+                    target_dim
+                );
+                self.conn.execute_batch(&sql)?;
+                let _ = self.conn.execute(
+                    "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2)",
+                    params![target_dim as i64, now],
+                );
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(false)
+            }
+            Some(curr) if curr == target_dim => {
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(false)
+            }
+            Some(_curr) => {
+                let drop_and_recreate_sql = format!(
+                    r#"
+                    DROP TABLE IF EXISTS document_vectors;
+                    DROP TABLE IF EXISTS vector_metadata;
+                    CREATE VIRTUAL TABLE document_vectors USING vec0(
+                        id TEXT PRIMARY KEY,
+                        embedding float[{}] distance_metric=cosine
+                    );
+                    CREATE TABLE vector_metadata (
+                        document_id TEXT PRIMARY KEY,
+                        content_hash INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                    DELETE FROM vector_schema_info;
+                    "#,
+                    target_dim
+                );
+                self.conn.execute_batch(&drop_and_recreate_sql)?;
+                self.conn.execute(
+                    "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (?1, ?2)",
+                    params![target_dim as i64, now],
+                )?;
+                self.active_dimension.store(target_dim, Ordering::Relaxed);
+                Ok(true)
+            }
+        }
+    }
+
+    fn active_dimension(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let cached = self.active_dimension.load(Ordering::Relaxed);
+        if cached > 0 {
+            return Ok(cached);
+        }
+        let dim = self
+            .get_vector_dimension()?
+            .unwrap_or(Self::VECTOR_DIMENSIONS);
+        self.active_dimension.store(dim, Ordering::Relaxed);
+        Ok(dim)
+    }
+
+    /// Inserts or replaces a document vector and its corresponding metadata content hash.
+    pub fn insert_vector(
+        &self,
+        doc_id: &str,
+        embedding: &[f32],
+        hash: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let expected_dim = self.active_dimension()?;
+        if embedding.len() != expected_dim {
+            return Err(format!(
+                "Embedding dimensions mismatch: expected {}, got {}",
+                expected_dim,
+                embedding.len()
+            )
+            .into());
+        }
+
+        // Delete existing vector if present to support upsert behavior
+        let _ = self.conn.execute(
+            "DELETE FROM document_vectors WHERE id = ?1",
+            params![doc_id],
+        );
+
+        let bytes = f32_slice_to_bytes(embedding);
+        self.conn.execute(
+            "INSERT INTO document_vectors (id, embedding) VALUES (?1, ?2)",
+            params![doc_id, bytes],
+        )?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            r#"
+            INSERT INTO vector_metadata (document_id, content_hash, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(document_id) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                updated_at = excluded.updated_at
+            "#,
+            params![doc_id, hash as i64, now],
+        )?;
+
+        Ok(())
+    }
+
+    /// Deletes a document vector and its metadata by document ID.
+    pub fn delete_vector(&self, doc_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.conn.execute(
+            "DELETE FROM document_vectors WHERE id = ?1",
+            params![doc_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM vector_metadata WHERE document_id = ?1",
+            params![doc_id],
+        )?;
+        Ok(())
+    }
+
+    /// Searches for the nearest vector neighbors by cosine distance.
+    ///
+    /// Returns pairs of `(document_id, distance)` ordered by ascending distance.
+    pub fn search_vectors(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+        if limit == 0 || query_embedding.is_empty() {
+            return Ok(Vec::new());
+        }
+        let expected_dim = self.active_dimension()?;
+        if query_embedding.len() != expected_dim {
+            return Err(format!(
+                "Embedding dimensions mismatch: expected {}, got {}",
+                expected_dim,
+                query_embedding.len()
+            )
+            .into());
+        }
+
+        let bytes = f32_slice_to_bytes(query_embedding);
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, distance FROM document_vectors WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance",
+        )?;
+
+        let rows = stmt.query_map(params![bytes, limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let distance: f32 = row.get(1)?;
+            Ok((id, distance))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Retrieves the content hash associated with a document's vector, if present.
+    pub fn get_vector_content_hash(
+        &self,
+        doc_id: &str,
+    ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT content_hash FROM vector_metadata WHERE document_id = ?1")?;
+        let mut rows = stmt.query(params![doc_id])?;
+        if let Some(row) = rows.next()? {
+            let hash: i64 = row.get(0)?;
+            Ok(Some(hash as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the total count of stored vector embeddings in `vector_metadata`.
+    pub fn vector_count(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT count(*) FROM vector_metadata")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Returns the total count of stored documents in `documents`.
+    pub fn document_count(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let mut stmt = self.conn.prepare_cached("SELECT count(*) FROM documents")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Returns true if there is at least one vector embedding in storage.
+    pub fn has_vectors(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(self.vector_count()? > 0)
+    }
+
+    /// Retrieves a document by its relative path if present in cache.
+    pub fn get_document(
+        &self,
+        path: &Path,
+    ) -> Result<Option<Document>, Box<dyn std::error::Error>> {
+        <Self as CacheStorage>::get_document(self, path)
+    }
+
+    /// BM25 full-text search across indexed documents, scoped by path prefix and/or hierarchy.
+    pub fn search_scoped_fts(
+        &self,
+        query: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        <Self as CacheStorage>::search_scoped_fts(self, query, path_prefix, hierarchy, limit)
+    }
+
+    fn query_raw_docs(
+        &self,
+        sql: &str,
+        query_arg: &str,
+        limit: usize,
+    ) -> Result<Vec<RawDocRow>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let mapped = stmt.query_map(params![query_arg, limit as i64], |row| {
+            Ok(RawDocRow {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                hierarchy: row.get(2)?,
+                frontmatter: row.get(3)?,
+                content_hash: row.get(4)?,
+                mtime: row.get(5)?,
+                body: row.get(6)?,
+            })
+        })?;
+        let mut docs = Vec::new();
+        for row in mapped {
+            docs.push(row?);
+        }
+        Ok(docs)
+    }
+
+    fn query_raw_docs_scoped(
+        &self,
+        sql: &str,
+        query_arg: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RawDocRow>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let mapped = stmt.query_map(
+            params![query_arg, path_prefix, hierarchy, limit as i64],
+            |row| {
+                Ok(RawDocRow {
+                    path: row.get(0)?,
+                    title: row.get(1)?,
+                    hierarchy: row.get(2)?,
+                    frontmatter: row.get(3)?,
+                    content_hash: row.get(4)?,
+                    mtime: row.get(5)?,
+                    body: row.get(6)?,
+                })
+            },
+        )?;
+        let mut docs = Vec::new();
+        for row in mapped {
+            docs.push(row?);
+        }
+        Ok(docs)
+    }
+
+    fn hydrate_raw_docs(
+        &self,
+        raw_docs: Vec<RawDocRow>,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let mut results = Vec::with_capacity(raw_docs.len());
+        for raw in raw_docs {
+            let path = PathBuf::from(&raw.path);
+            let links = self.get_outgoing_links(&path)?;
+            let mut tag_stmt = self
+                .conn
+                .prepare_cached("SELECT tag FROM tags WHERE document_path = ?1")?;
+            let tags: Vec<String> = tag_stmt
+                .query_map(params![raw.path], |row| row.get(0))?
+                .collect::<Result<Vec<String>, _>>()?;
+
+            let hierarchy = parse_hierarchy(&raw.hierarchy);
+            let frontmatter =
+                serde_json::from_str(&raw.frontmatter).unwrap_or(serde_json::json!({}));
+
+            results.push(Document {
+                path,
+                title: raw.title,
+                hierarchy,
+                frontmatter,
+                links,
+                tags,
+                content_hash: raw.content_hash,
+                mtime: raw.mtime as u64,
+                body: raw.body,
+            });
+        }
+        Ok(results)
+    }
+}
+
+const SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS documents (
+    path TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    hierarchy TEXT NOT NULL,
+    frontmatter TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    mtime INTEGER NOT NULL,
+    body TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS links (
+    source_path TEXT NOT NULL,
+    target TEXT NOT NULL,
+    alias TEXT,
+    raw_text TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    document_path TEXT NOT NULL,
+    tag TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_path);
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_tags_path ON tags(document_path);
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag COLLATE NOCASE);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    path UNINDEXED,
+    title,
+    body,
+    tags,
+    tokenize = 'unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS vector_schema_info (
+    dimension INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
+    id TEXT PRIMARY KEY,
+    embedding float[384] distance_metric=cosine
+);
+
+CREATE TABLE IF NOT EXISTS vector_metadata (
+    document_id TEXT PRIMARY KEY,
+    content_hash INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"#;
+
+impl CacheStorage for SqliteStorage {
+    fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.conn.execute_batch(SCHEMA_SQL)?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM vector_schema_info", [], |r| r.get(0))
+            .unwrap_or(0);
+        if count == 0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let _ = self.conn.execute(
+                "INSERT INTO vector_schema_info (dimension, updated_at) VALUES (384, ?1)",
+                params![now],
+            );
+        }
+        let dim = self
+            .get_vector_dimension()?
+            .unwrap_or(Self::VECTOR_DIMENSIONS);
+        self.active_dimension.store(dim, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn wipe_and_rebuild(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let drop_sql = r#"
+        DROP TABLE IF EXISTS vector_schema_info;
+        DROP TABLE IF EXISTS vector_metadata;
+        DROP TABLE IF EXISTS document_vectors;
+        DROP TABLE IF EXISTS documents_fts;
+        DROP TABLE IF EXISTS tags;
+        DROP TABLE IF EXISTS links;
+        DROP TABLE IF EXISTS documents;
+        "#;
+        self.conn.execute_batch(drop_sql)?;
+        self.active_dimension.store(0, Ordering::Relaxed);
+        self.initialize()?;
+        Ok(())
+    }
+
+    fn upsert_document(&mut self, doc: &Document) -> Result<(), Box<dyn std::error::Error>> {
+        let tx = self.conn.transaction()?;
+        let path_str = doc.path.to_string_lossy();
+        let frontmatter_str = serde_json::to_string(&doc.frontmatter)?;
+        let tags_str = doc.tags.join(" ");
+
+        // 1. Upsert document record
+        tx.execute(
+            r#"
+            INSERT INTO documents (path, title, hierarchy, frontmatter, content_hash, mtime, body)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(path) DO UPDATE SET
+                title = excluded.title,
+                hierarchy = excluded.hierarchy,
+                frontmatter = excluded.frontmatter,
+                content_hash = excluded.content_hash,
+                mtime = excluded.mtime,
+                body = excluded.body
+            "#,
+            params![
+                path_str,
+                doc.title,
+                doc.hierarchy.as_str(),
+                frontmatter_str,
+                doc.content_hash,
+                doc.mtime as i64,
+                doc.body,
+            ],
+        )?;
+
+        // 2. Synchronize outgoing links
+        tx.execute(
+            "DELETE FROM links WHERE source_path = ?1",
+            params![path_str],
+        )?;
+        {
+            let mut insert_link = tx.prepare_cached(
+                "INSERT INTO links (source_path, target, alias, raw_text) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for link in &doc.links {
+                insert_link.execute(params![path_str, link.target, link.alias, link.raw_text,])?;
+            }
+        }
+
+        // 3. Synchronize tags
+        tx.execute(
+            "DELETE FROM tags WHERE document_path = ?1",
+            params![path_str],
+        )?;
+        {
+            let mut insert_tag =
+                tx.prepare_cached("INSERT INTO tags (document_path, tag) VALUES (?1, ?2)")?;
+            for tag in &doc.tags {
+                insert_tag.execute(params![path_str, tag])?;
+            }
+        }
+
+        // 4. Synchronize FTS entry
+        tx.execute(
+            "DELETE FROM documents_fts WHERE path = ?1",
+            params![path_str],
+        )?;
+        tx.execute(
+            "INSERT INTO documents_fts (path, title, body, tags) VALUES (?1, ?2, ?3, ?4)",
+            params![path_str, doc.title, doc.body, tags_str],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn delete_document(&mut self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let tx = self.conn.transaction()?;
+        let path_str = path.to_string_lossy();
+
+        tx.execute("DELETE FROM documents WHERE path = ?1", params![path_str])?;
+        tx.execute(
+            "DELETE FROM links WHERE source_path = ?1",
+            params![path_str],
+        )?;
+        tx.execute(
+            "DELETE FROM tags WHERE document_path = ?1",
+            params![path_str],
+        )?;
+        tx.execute(
+            "DELETE FROM documents_fts WHERE path = ?1",
+            params![path_str],
+        )?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn search_fts(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Execute query, falling back to quoted tokens if user query hits FTS syntax error
+        let search_sql = r#"
+        SELECT d.path, d.title, d.hierarchy, d.frontmatter, d.content_hash, d.mtime, d.body
+        FROM documents_fts
+        JOIN documents d ON d.path = documents_fts.path
+        WHERE documents_fts MATCH ?1
+        ORDER BY rank
+        LIMIT ?2
+        "#;
+
+        let has_special = trimmed.contains('-')
+            || trimmed.contains(':')
+            || trimmed.contains('/')
+            || trimmed.contains('"')
+            || trimmed.contains('*')
+            || trimmed.contains('^');
+
+        let raw_docs = if !has_special {
+            match self.query_raw_docs(search_sql, trimmed, limit) {
+                Ok(docs) if !docs.is_empty() => docs,
+                Ok(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized != trimmed && !sanitized.is_empty() {
+                        self.query_raw_docs(search_sql, &sanitized, limit)
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Err(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized.is_empty() {
+                        Vec::new()
+                    } else {
+                        self.query_raw_docs(search_sql, &sanitized, limit)?
+                    }
+                }
+            }
+        } else {
+            let sanitized = sanitize_fts5_query(trimmed);
+            if sanitized.is_empty() {
+                Vec::new()
+            } else {
+                match self.query_raw_docs(search_sql, &sanitized, limit) {
+                    Ok(docs) if !docs.is_empty() => docs,
+                    Ok(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() && or_query != sanitized {
+                            self.query_raw_docs(search_sql, &or_query, limit)
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Err(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() {
+                            self.query_raw_docs(search_sql, &or_query, limit)
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                }
+            }
+        };
+
+        self.hydrate_raw_docs(raw_docs)
+    }
+
+    fn search_scoped_fts(
+        &self,
+        query: &str,
+        path_prefix: Option<&str>,
+        hierarchy: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let search_sql = r#"
+        SELECT d.path, d.title, d.hierarchy, d.frontmatter, d.content_hash, d.mtime, d.body
+        FROM documents_fts
+        JOIN documents d ON d.path = documents_fts.path
+        WHERE documents_fts MATCH ?1
+          AND (?2 IS NULL OR d.path LIKE ?2 || '%' OR replace(d.path, '\', '/') LIKE ?2 || '%')
+          AND (?3 IS NULL OR d.hierarchy = ?3)
+        ORDER BY rank
+        LIMIT ?4
+        "#;
+
+        let has_special = trimmed.contains('-')
+            || trimmed.contains(':')
+            || trimmed.contains('/')
+            || trimmed.contains('"')
+            || trimmed.contains('*')
+            || trimmed.contains('^');
+
+        let raw_docs = if !has_special {
+            match self.query_raw_docs_scoped(search_sql, trimmed, path_prefix, hierarchy, limit) {
+                Ok(docs) if !docs.is_empty() => docs,
+                Ok(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized != trimmed && !sanitized.is_empty() {
+                        self.query_raw_docs_scoped(
+                            search_sql,
+                            &sanitized,
+                            path_prefix,
+                            hierarchy,
+                            limit,
+                        )
+                        .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Err(_) => {
+                    let sanitized = sanitize_fts5_query(trimmed);
+                    if sanitized.is_empty() {
+                        Vec::new()
+                    } else {
+                        self.query_raw_docs_scoped(
+                            search_sql,
+                            &sanitized,
+                            path_prefix,
+                            hierarchy,
+                            limit,
+                        )?
+                    }
+                }
+            }
+        } else {
+            let sanitized = sanitize_fts5_query(trimmed);
+            if sanitized.is_empty() {
+                Vec::new()
+            } else {
+                match self.query_raw_docs_scoped(
+                    search_sql,
+                    &sanitized,
+                    path_prefix,
+                    hierarchy,
+                    limit,
+                ) {
+                    Ok(docs) if !docs.is_empty() => docs,
+                    Ok(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() && or_query != sanitized {
+                            self.query_raw_docs_scoped(
+                                search_sql,
+                                &or_query,
+                                path_prefix,
+                                hierarchy,
+                                limit,
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Err(_) => {
+                        let or_query = sanitize_fts5_or_query(trimmed);
+                        if !or_query.is_empty() {
+                            self.query_raw_docs_scoped(
+                                search_sql,
+                                &or_query,
+                                path_prefix,
+                                hierarchy,
+                                limit,
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                }
+            }
+        };
+
+        self.hydrate_raw_docs(raw_docs)
+    }
+
+    fn get_outgoing_links(&self, path: &Path) -> Result<Vec<WikiLink>, Box<dyn std::error::Error>> {
+        let path_str = path.to_string_lossy();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT target, alias, raw_text FROM links WHERE source_path = ?1 ORDER BY rowid ASC",
+        )?;
+
+        let links = stmt
+            .query_map(params![path_str], |row| {
+                let target: String = row.get(0)?;
+                let alias: Option<String> = row.get(1)?;
+                let raw_text: String = row.get(2)?;
+                Ok(WikiLink {
+                    target,
+                    alias,
+                    raw_text,
+                })
+            })?
+            .collect::<Result<Vec<WikiLink>, _>>()?;
+
+        Ok(links)
+    }
+
+    fn get_backlinks(
+        &self,
+        target_title: &str,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        let clean = target_title.strip_suffix(".md").unwrap_or(target_title);
+        let with_md = format!("{}.md", clean);
+        let stem = Path::new(clean)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(clean);
+        let stem_with_md = format!("{}.md", stem);
+
+        // Pattern matching any path ending with the card title (e.g. 20_Cards/Arch matches Arch)
+        let like_clean = format!("%/{}", clean);
+        let like_stem = format!("%/{}", stem);
+
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT DISTINCT source_path FROM links
+            WHERE target = ?1 COLLATE NOCASE
+               OR target = ?2 COLLATE NOCASE
+               OR target = ?3 COLLATE NOCASE
+               OR target = ?4 COLLATE NOCASE
+               OR target LIKE ?5 COLLATE NOCASE
+               OR target LIKE ?6 COLLATE NOCASE
+            ORDER BY source_path ASC
+            "#,
+        )?;
+
+        let paths = stmt
+            .query_map(
+                params![clean, with_md, stem, stem_with_md, like_clean, like_stem,],
+                |row| {
+                    let s: String = row.get(0)?;
+                    Ok(PathBuf::from(s))
+                },
+            )?
+            .collect::<Result<Vec<PathBuf>, _>>()?;
+
+        Ok(paths)
+    }
+
+    fn get_cached_metadata(&self) -> Result<Vec<CachedDocMeta>, Box<dyn std::error::Error>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, mtime, content_hash FROM documents ORDER BY path ASC")?;
+
+        let rows = stmt.query_map([], |row| {
+            let path_str: String = row.get(0)?;
+            let mtime: i64 = row.get(1)?;
+            let content_hash: String = row.get(2)?;
+            Ok(CachedDocMeta {
+                path: PathBuf::from(path_str),
+                mtime: mtime as u64,
+                content_hash,
+            })
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            results.push(r?);
+        }
+        Ok(results)
+    }
+
+    fn get_document(&self, path: &Path) -> Result<Option<Document>, Box<dyn std::error::Error>> {
+        let path_str = path.to_string_lossy();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT path, title, hierarchy, frontmatter, content_hash, mtime, body FROM documents WHERE path = ?1",
+        )?;
+        let mut rows = stmt.query(params![path_str])?;
+        if let Some(row) = rows.next()? {
+            let path_val: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let hierarchy_str: String = row.get(2)?;
+            let frontmatter_str: String = row.get(3)?;
+            let content_hash: String = row.get(4)?;
+            let mtime: i64 = row.get(5)?;
+            let body: String = row.get(6)?;
+
+            let path_buf = PathBuf::from(path_val);
+            let links = self.get_outgoing_links(&path_buf)?;
+            let mut tag_stmt = self
+                .conn
+                .prepare_cached("SELECT tag FROM tags WHERE document_path = ?1")?;
+            let tags: Vec<String> = tag_stmt
+                .query_map(params![path_str], |r| r.get(0))?
+                .collect::<Result<Vec<String>, _>>()?;
+
+            let hierarchy = parse_hierarchy(&hierarchy_str);
+            let frontmatter =
+                serde_json::from_str(&frontmatter_str).unwrap_or(serde_json::json!({}));
+
+            Ok(Some(Document {
+                path: path_buf,
+                title,
+                hierarchy,
+                frontmatter,
+                links,
+                tags,
+                content_hash,
+                mtime: mtime as u64,
+                body,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn search_vectors(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+        SqliteStorage::search_vectors(self, query_embedding, limit)
+    }
+}
+
+struct RawDocRow {
+    path: String,
+    title: String,
+    hierarchy: String,
+    frontmatter: String,
+    content_hash: String,
+    mtime: i64,
+    body: String,
+}
+
+fn parse_hierarchy(s: &str) -> HierarchyLevel {
+    match s {
+        "L0Ephemeral" => HierarchyLevel::L0Ephemeral,
+        "L1Resource" => HierarchyLevel::L1Resource,
+        "L2Log" => HierarchyLevel::L2Log,
+        "L3Evergreen" => HierarchyLevel::L3Evergreen,
+        _ => serde_json::from_str(&format!("\"{}\"", s)).unwrap_or(HierarchyLevel::L0Ephemeral),
+    }
+}
+
+pub fn sanitize_fts5_query(query: &str) -> String {
+    let mut terms = Vec::new();
+    for token in query.split(|c: char| {
+        c.is_whitespace()
+            || c == '-'
+            || c == '/'
+            || c == ':'
+            || c == '"'
+            || c == '('
+            || c == ')'
+            || c == '+'
+            || c == '^'
+            || c == '*'
+            || c == '?'
+            || c == '['
+            || c == ']'
+            || c == '{'
+            || c == '}'
+            || c == '~'
+    }) {
+        let cleaned = token.replace('"', "\"\"");
+        let trimmed = cleaned.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if !trimmed.is_empty() {
+            terms.push(format!("\"{}\"", trimmed));
+        }
+    }
+    terms.join(" ")
+}
+
+pub fn sanitize_fts5_or_query(query: &str) -> String {
+    let mut terms = Vec::new();
+    for token in query.split(|c: char| {
+        c.is_whitespace()
+            || c == '-'
+            || c == '/'
+            || c == ':'
+            || c == '"'
+            || c == '('
+            || c == ')'
+            || c == '+'
+            || c == '^'
+            || c == '*'
+            || c == '?'
+            || c == '['
+            || c == ']'
+            || c == '{'
+            || c == '}'
+            || c == '~'
+    }) {
+        let cleaned = token.replace('"', "\"\"");
+        let trimmed = cleaned.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if !trimmed.is_empty() {
+            terms.push(format!("\"{}\"", trimmed));
+        }
+    }
+    terms.join(" OR ")
+}
+
+fn f32_slice_to_bytes(slice: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(slice));
+    for &val in slice {
+        bytes.extend_from_slice(&val.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_doc(
+        path: &str,
+        title: &str,
+        hierarchy: HierarchyLevel,
+        body: &str,
+        tags: Vec<&str>,
+    ) -> Document {
+        Document {
+            path: PathBuf::from(path),
+            title: title.to_string(),
+            hierarchy,
+            frontmatter: serde_json::json!({ "title": title }),
+            links: vec![],
+            tags: tags.into_iter().map(|s| s.to_string()).collect(),
+            content_hash: format!("hash_{}", path),
+            mtime: 1774843200,
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_search_scoped_fts_unit_test() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory sqlite");
+        storage.initialize().expect("init");
+
+        // 10 daily logs
+        for i in 1..=10 {
+            let doc = make_test_doc(
+                &format!("00_Daily/2026-10-{:02}.md", i),
+                &format!("Telemetry Log {}", i),
+                HierarchyLevel::L0Ephemeral,
+                "Telemetry Telemetry Telemetry Telemetry Telemetry distributed tracing pipelines today.",
+                vec!["daily", "telemetry"],
+            );
+            storage.upsert_document(&doc).expect("upsert daily");
+        }
+
+        // 1 project document
+        let proj = make_test_doc(
+            "10_Projects/Telemetry.md",
+            "Telemetry Engine",
+            HierarchyLevel::L1Resource,
+            "Core architecture for Telemetry system.",
+            vec!["project", "topic/telemetry-engine"],
+        );
+        storage.upsert_document(&proj).expect("upsert project");
+
+        let scoped = storage
+            .search_scoped_fts("Telemetry", Some("10_Projects/"), None, 5)
+            .expect("search_scoped_fts");
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].path, PathBuf::from("10_Projects/Telemetry.md"));
+        assert_eq!(scoped[0].title, "Telemetry Engine");
+
+        let scoped_hierarchy = storage
+            .search_scoped_fts("Telemetry", None, Some("L1Resource"), 5)
+            .expect("hierarchy scoped");
+        assert_eq!(scoped_hierarchy.len(), 1);
+        assert_eq!(
+            scoped_hierarchy[0].path,
+            PathBuf::from("10_Projects/Telemetry.md")
+        );
+
+        let scoped_hyphen = storage
+            .search_scoped_fts("telemetry-system", Some("10_Projects/"), None, 5)
+            .expect("hyphen scoped");
+        assert_eq!(scoped_hyphen.len(), 1);
+        assert_eq!(
+            scoped_hyphen[0].path,
+            PathBuf::from("10_Projects/Telemetry.md")
+        );
+    }
+
+    #[test]
+    fn test_search_fts_hyphenated_query() {
+        let mut storage = SqliteStorage::in_memory().expect("in-memory sqlite");
+        storage.initialize().expect("init");
+
+        let doc = make_test_doc(
+            "20_Cards/pre-commit-hooks.md",
+            "Git Pre-commit Guardrails",
+            HierarchyLevel::L3Evergreen,
+            "Installing pre-commit hooks prevents bad commits.",
+            vec!["git", "pre-commit"],
+        );
+        storage.upsert_document(&doc).expect("upsert doc");
+
+        let results = storage
+            .search_fts("pre-commit", 5)
+            .expect("search_fts hyphen");
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].path,
+            PathBuf::from("20_Cards/pre-commit-hooks.md")
+        );
+    }
+}
