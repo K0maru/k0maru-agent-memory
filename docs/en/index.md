@@ -7,40 +7,51 @@ hero:
   tagline: "Single static binary · Zero-daemon · Transparently mounts Markdown notes and local LLM-Wikis"
   actions:
     - theme: brand
-      text: 🚀 3-Minute Quickstart
+      text: "Get Started"
       link: /en/guide/quickstart
     - theme: alt
-      text: 🏗 Architecture Overview
+      text: "Architecture"
       link: /en/architecture/overview
     - theme: alt
-      text: 📦 Installation & Setup
-      link: /en/guide/installation
-    - theme: alt
-      text: 📊 A100 Benchmark Dashboard
+      text: "A100 Benchmarks"
       link: /en/benchmarks/a100-evaluation
 
 features:
-  - icon: ⚡
+  - icon: "01 // 3.4MS"
     title: "Single Static Binary · Zero Daemon"
     details: "Built with pure Rust (3.6 MB pure-Rust core / 19 MB macOS arm64 / 34 MB Linux x86_64 with bundled ONNX Runtime). Requires zero Docker containers, zero Python runtimes, and zero background daemons. Cold-starts in 3.4 ms and releases all memory immediately upon exit."
-  - icon: 📝
-    title: "Bring Your Own Markdown (BYOM)"
+  - icon: "02 // BYOM"
+    title: "Bring Your Own Markdown"
     details: "Treats your local Markdown notes (Obsidian vault, Karpathy LLM-Wiki) as the single source of truth. Imposes zero proprietary format lock-in, using SQLite solely as a disposable index cache."
-  - icon: 🎯
+  - icon: "03 // RRF-60"
     title: "Hybrid RRF Retrieval · Graph Boost"
     details: "Fuses BM25 lexical inverted search, ONNX FastEmbed semantic vectors, and 1-hop bidirectional WikiLinks graph topology (+0.05 Boost) via Reciprocal Rank Fusion (k=60)."
-  - icon: 🛡
-    title: "Symbolic Log Offloading (99.4% Compression)"
-    details: "Intercepts 1,000+ line compiler crashes and test traces through standard Unix pipes, compressing them into 15-line Mermaid state diagrams to eliminate context window blowouts."
-  - icon: 🔌
-    title: "FastMCP Protocol Ready Out-of-the-Box"
-    details: "Integrates with Claude Code, Cursor, Windsurf, Gemini CLI, Cline, Nous Research Hermes Agent, and OpenClaw via standard stdio, enabling autonomous tool calling from natural language intent."
-  - icon: 📈
-    title: "Empirical Production A100 Benchmarks"
+  - icon: "04 // <10MS"
+    title: "Executable Living ADR Guard"
+    details: "Audits staged Git diffs and enforces architectural invariants via Claude Stop-Hooks in under 10 ms, while Unix pipe filters offload compiler crashes with 99.4% log compression."
+  - icon: "05 // MCP"
+    title: "FastMCP Protocol & Lifecycle Hooks"
+    details: "Integrates with Claude Code, Cursor, Windsurf, Gemini CLI, Cline, Nous Research Hermes Agent, and OpenClaw via standard stdio, enabling autonomous tool calling and session lifecycle hooks."
+  - icon: "06 // A100"
+    title: "Empirical A100 Benchmark Proof"
     details: "Evaluated on NVIDIA A100 80GB: Qwen2.5-Coder-32B achieves 100% Pass@1 (+40% jump) with 5.90x faster turnaround; DeepSeek-R1 cuts reflection latency by 48.2%."
 ---
 
 <main class="geo-main-content">
+
+<div class="geo-terminal-window">
+  <div class="geo-terminal-header">
+    <span>k0maru-agent-memory — zsh</span>
+    <span>v1.0.0 · 3.6 MB rust static binary</span>
+  </div>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+k0maru init --install
+k0maru guard check --diff
+```
+
+</div>
 
 <h1>K0maru Agent Memory</h1>
 
@@ -79,50 +90,31 @@ Deterministic ADR supersession eliminates belief entrenchment by invalidating ob
 
 You can install K0maru Agent Memory in under 30 seconds using a single command that downloads the 3.6 MB static Rust binary and configures your local environment. Running `curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash` installs `k0maru` to your system path. Next, executing `k0maru install --vault ~/Documents/MyVault` performs safe, non-destructive JSON merges into configuration files for Claude Code, Cursor, Windsurf, Gemini CLI, and Oh My Pi (`omp`). The integration leverages the official [Model Context Protocol (FastMCP)](https://modelcontextprotocol.io/) over standard stdio, allowing agents to invoke tools like `get_project_loadout` and `recall_memory` autonomously. Running `k0maru doctor` verifies your cache and MCP registration, completing onboarding with zero background daemons and zero Docker setup.
 
-<div class="developer-hero-section" style="margin-top: 2.5rem; text-align: center;">
+<div class="geo-nav-grid">
 
-## ⚡ Instant Terminal Experience
+<a class="geo-nav-card" href="/en/guide/quickstart">
+  <div class="geo-nav-tag">SPEC // 01</div>
+  <div class="geo-nav-card-title">Quickstart</div>
+  <div class="geo-nav-card-desc">Walk through environment diagnostics, context loadout injection, log offloading, and decision crystallization in 3 minutes.</div>
+</a>
 
-Install the binary and mount your local Markdown vault with three commands:
+<a class="geo-nav-card" href="/en/architecture/overview">
+  <div class="geo-nav-tag">SPEC // 02</div>
+  <div class="geo-nav-card-title">Architecture</div>
+  <div class="geo-nav-card-desc">Examine the 4-layer decoupled model, L0–L3 knowledge hierarchy, and the xxh3 incremental dirty-file scanning state machine.</div>
+</a>
 
-```bash
-# 1. Install the binary with the official installer script
-curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/install.sh | bash
+<a class="geo-nav-card" href="/en/workflows/ecosystem">
+  <div class="geo-nav-tag">SPEC // 03</div>
+  <div class="geo-nav-card-title">Agent Ecosystem</div>
+  <div class="geo-nav-card-desc">Mount K0maru into Claude Code, Cursor, Windsurf, Hermes Agent, and OpenClaw with battle-tested AGENTS.md system prompts.</div>
+</a>
 
-# 2. Mount your local vault into Claude Code, Cursor, and Windsurf
-k0maru install --vault ~/Documents/MyVault
-
-# 3. Verify your environment with the health check
-k0maru doctor
-```
-
-</div>
-
-<div class="developer-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; margin-top: 2rem;">
-
-<div style="background: #1B2336; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem;">
-<h3 style="margin-top: 0; color: #22C55E;">🚀 Quickstart</h3>
-<p style="color: #94A3B8; font-size: 0.95rem;">Walk through environment diagnostics, context loadout injection, log offloading, and decision crystallization in 3 minutes.</p>
-<a href="/en/guide/quickstart" style="color: #22C55E; font-weight: 600; text-decoration: none;">Explore Quickstart →</a>
-</div>
-
-<div style="background: #1B2336; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem;">
-<h3 style="margin-top: 0; color: #22C55E;">🏗 Architecture</h3>
-<p style="color: #94A3B8; font-size: 0.95rem;">Examine the 4-layer decoupled model, L0–L3 knowledge hierarchy, and the xxh3 incremental dirty-file scanning state machine.</p>
-<a href="/en/architecture/overview" style="color: #22C55E; font-weight: 600; text-decoration: none;">Inspect Architecture →</a>
-</div>
-
-<div style="background: #1B2336; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem;">
-<h3 style="margin-top: 0; color: #22C55E;">🤖 Agent Ecosystem</h3>
-<p style="color: #94A3B8; font-size: 0.95rem;">Mount K0maru into Claude Code, Cursor, Windsurf, Hermes Agent, and OpenClaw with battle-tested AGENTS.md system prompts.</p>
-<a href="/en/workflows/ecosystem" style="color: #22C55E; font-weight: 600; text-decoration: none;">Integrate Ecosystem →</a>
-</div>
-
-<div style="background: #1B2336; border: 1px solid #334155; border-radius: 8px; padding: 1.25rem;">
-<h3 style="margin-top: 0; color: #22C55E;">📊 A100 Benchmarks</h3>
-<p style="color: #94A3B8; font-size: 0.95rem;">Review empirical evaluation data across 4 frontier coding models on NVIDIA A100-80GB hardware across 5 defect benchmarks.</p>
-<a href="/en/benchmarks/a100-evaluation" style="color: #22C55E; font-weight: 600; text-decoration: none;">Review Benchmarks →</a>
-</div>
+<a class="geo-nav-card" href="/en/benchmarks/a100-evaluation">
+  <div class="geo-nav-tag">SPEC // 04</div>
+  <div class="geo-nav-card-title">A100 Benchmarks</div>
+  <div class="geo-nav-card-desc">Review empirical evaluation data across 4 frontier coding models on NVIDIA A100-80GB hardware across 5 defect benchmarks.</div>
+</a>
 
 </div>
 

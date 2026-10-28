@@ -171,7 +171,7 @@ export default defineConfig({
         ],
         sidebar: [
           {
-            text: '🚀 起步指南',
+            text: '起步指南',
             items: [
               { text: '项目介绍与设计哲学', link: '/zh/guide/introduction' },
               { text: '安装与环境配置', link: '/zh/guide/installation' },
@@ -179,7 +179,7 @@ export default defineConfig({
             ],
           },
           {
-            text: '🏗 架构与内核',
+            text: '架构与内核',
             items: [
               { text: '四层架构与核心数据流', link: '/zh/architecture/overview' },
               { text: '核心算法与关键模块深度实现', link: '/zh/architecture/key-implementations' },
@@ -187,21 +187,21 @@ export default defineConfig({
             ],
           },
           {
-            text: '🤖 生态与场景',
+            text: '生态与场景',
             items: [
               { text: '智能体生态挂载 (Claude, Cursor, etc.)', link: '/zh/workflows/ecosystem' },
               { text: '工业级应用场景实战', link: '/zh/workflows/scenarios' },
             ],
           },
           {
-            text: '📖 参考手册',
+            text: '参考手册',
             items: [
               { text: 'CLI 完整命令与参数手册', link: '/zh/reference/cli' },
               { text: 'FastMCP 协议规范与工具契约', link: '/zh/reference/mcp' },
             ],
           },
           {
-            text: '📊 实测看板',
+            text: '实测看板',
             items: [
               { text: 'A100 实测看板与 Token 经济学', link: '/zh/benchmarks/a100-evaluation' },
             ],
@@ -237,7 +237,7 @@ export default defineConfig({
         ],
         sidebar: [
           {
-            text: '🚀 Getting Started',
+            text: 'Getting Started',
             items: [
               { text: 'Introduction & Philosophy', link: '/en/guide/introduction' },
               { text: 'Installation Guide', link: '/en/guide/installation' },
@@ -245,7 +245,7 @@ export default defineConfig({
             ],
           },
           {
-            text: '🏗 Architecture & Core',
+            text: 'Architecture & Core',
             items: [
               { text: 'Architectural Overview & Data Flow', link: '/en/architecture/overview' },
               { text: 'Key Implementations Deep Dive', link: '/en/architecture/key-implementations' },
@@ -253,21 +253,21 @@ export default defineConfig({
             ],
           },
           {
-            text: '🤖 Ecosystem & Scenarios',
+            text: 'Ecosystem & Scenarios',
             items: [
               { text: 'Agent Ecosystem Integration', link: '/en/workflows/ecosystem' },
               { text: 'Industrial Production Scenarios', link: '/en/workflows/scenarios' },
             ],
           },
           {
-            text: '📖 Reference Manual',
+            text: 'Reference Manual',
             items: [
               { text: 'CLI Subcommands & Flags', link: '/en/reference/cli' },
               { text: 'FastMCP Stdio Protocol Contracts', link: '/en/reference/mcp' },
             ],
           },
           {
-            text: '📊 Benchmarks',
+            text: 'Benchmarks',
             items: [
               { text: 'A100 Evaluation & Token Economics', link: '/en/benchmarks/a100-evaluation' },
             ],
