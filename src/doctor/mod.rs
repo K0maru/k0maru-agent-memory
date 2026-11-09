@@ -289,35 +289,48 @@ pub fn probe_vault(vault_path: &Path) -> Vec<DiagnosticItem> {
 
     // 3. Knowledge hierarchy detection
     let hierarchy_dirs = [
+        "projects",
+        "decisions",
+        "logs",
         "10_Projects",
         "20_Cards",
         "01_AI_Logs",
         "30_Logs",
         "40_Archives",
         "Projects",
-        "projects",
         "Cards",
         "cards",
-        "decisions",
         "adr",
         "notes",
         "wiki",
-        "logs",
         "docs",
         "Archive",
     ];
-    let detected: Vec<&str> = hierarchy_dirs
+    let mut detected: Vec<String> = hierarchy_dirs
         .iter()
-        .copied()
         .filter(|dir| vault_path.join(dir).is_dir())
+        .map(|s| s.to_string())
         .collect();
 
+    if vault_path.join("INDEX.md").is_file() {
+        detected.push("INDEX.md".to_string());
+    } else if vault_path.join("index.md").is_file() {
+        detected.push("index.md".to_string());
+    }
+
     if !detected.is_empty() {
-        items.push(DiagnosticItem::pass(
-            cat,
-            "Knowledge Hierarchy",
-            format!("Detected structure: {}", detected.join(", ")),
-        ));
+        let is_llm_wiki = detected.iter().any(|d| {
+            matches!(
+                d.as_str(),
+                "projects" | "decisions" | "logs" | "INDEX.md" | "index.md"
+            )
+        });
+        let label = if is_llm_wiki {
+            format!("Detected LLM-Wiki structure: {}", detected.join(", "))
+        } else {
+            format!("Detected structure: {}", detected.join(", "))
+        };
+        items.push(DiagnosticItem::pass(cat, "Knowledge Hierarchy", label));
     } else if md_count > 0 {
         items.push(DiagnosticItem::pass(
             cat,
@@ -328,9 +341,9 @@ pub fn probe_vault(vault_path: &Path) -> Vec<DiagnosticItem> {
         items.push(DiagnosticItem::warn(
             cat,
             "Knowledge Hierarchy",
-            "Standard hierarchy folders (10_Projects, 20_Cards) not detected",
+            "Standard hierarchy folders (projects, decisions, logs, or 10_Projects, 20_Cards) not detected",
             Some(
-                "Organizing notes with 10_Projects and 20_Cards optimizes agent loadout context"
+                "Organizing notes into projects/, decisions/, and logs/ (or 10_Projects, 20_Cards) optimizes agent loadout context"
                     .to_string(),
             ),
         ));

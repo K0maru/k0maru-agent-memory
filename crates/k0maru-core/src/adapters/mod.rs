@@ -174,6 +174,157 @@ pub(crate) fn parse_hierarchy_override(frontmatter: &serde_json::Value) -> Optio
     None
 }
 
+/// Returns true if any standard structured vault or LLM-Wiki directory exists under `vault_path`.
+pub fn is_structured_vault(vault_path: &Path) -> bool {
+    const CANDIDATES: &[&str] = &[
+        ".obsidian",
+        "projects",
+        "decisions",
+        "cards",
+        "logs",
+        "10_Projects",
+        "20_Cards",
+        "01_AI_Logs",
+    ];
+    CANDIDATES.iter().any(|c| vault_path.join(c).is_dir())
+}
+
+/// Resolves the LLM-Wiki hierarchy level for a document according to Karpathy-style and
+/// structured knowledge topologies.
+///
+/// Hierarchy determination logic:
+/// 1. Check `parse_hierarchy_override(frontmatter)` first.
+/// 2. Check frontmatter `type` or `category` (case-insensitive string):
+///    - `"decision" | "adr" | "card" | "concept" | "project" | "architecture" | "evergreen"` -> `HierarchyLevel::L3Evergreen`
+///    - `"log" | "ai-log" | "session" | "postmortem" | "record"` -> `HierarchyLevel::L2Log`
+///    - `"daily" | "ephemeral" | "scratch" | "inbox"` -> `HierarchyLevel::L0Ephemeral`
+///    - `"resource" | "reference" | "doc"` -> `HierarchyLevel::L1Resource`
+/// 3. Inspect directory components of `relative_path` (all components except the filename, case-insensitive):
+///    - `"20_cards" | "2_cards" | "cards" | "decisions" | "concepts" | "architecture" | "adr" | "specs" | "rules" | "projects" | "10_projects" | "1_projects"` -> `HierarchyLevel::L3Evergreen`
+///    - `"01_ai_logs" | "30_logs" | "logs" | "ai_logs" | "journal" | "records" | "postmortems"` -> `HierarchyLevel::L2Log`
+///    - `"00_daily" | "0_daily" | "daily" | "ephemeral" | "scratch" | "inbox"` -> `HierarchyLevel::L0Ephemeral`
+///    - `"30_resources" | "3_resources" | "resources" | "references" | "docs"` -> `HierarchyLevel::L1Resource`
+/// 4. If `relative_path.parent()` is `None` or `Some(Path::new(""))` (root-level `.md` file), return `HierarchyLevel::L3Evergreen`.
+/// 5. Otherwise return `fallback`.
+pub fn determine_llm_wiki_hierarchy(
+    frontmatter: &serde_json::Value,
+    relative_path: &Path,
+    fallback: HierarchyLevel,
+) -> HierarchyLevel {
+    // 1. Explicit hierarchy override
+    if let Some(level) = parse_hierarchy_override(frontmatter) {
+        return level;
+    }
+
+    // 2. Frontmatter type or category
+    let type_or_cat = frontmatter
+        .get("type")
+        .or_else(|| frontmatter.get("category"))
+        .and_then(|v| v.as_str());
+
+    if let Some(kind) = type_or_cat {
+        let lower = kind.trim().to_lowercase();
+        match lower.as_str() {
+            "decision" | "adr" | "card" | "concept" | "project" | "architecture" | "evergreen" => {
+                return HierarchyLevel::L3Evergreen;
+            }
+            "log" | "ai-log" | "session" | "postmortem" | "record" => {
+                return HierarchyLevel::L2Log;
+            }
+            "daily" | "ephemeral" | "scratch" | "inbox" => {
+                return HierarchyLevel::L0Ephemeral;
+            }
+            "resource" | "reference" | "doc" => {
+                return HierarchyLevel::L1Resource;
+            }
+            _ => {}
+        }
+    }
+
+    // 3. Inspect directory components of relative_path
+    if let Some(parent) = relative_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            let segments: Vec<String> = parent
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                .collect();
+
+            let has_segment = |candidates: &[&str]| {
+                segments
+                    .iter()
+                    .any(|seg| candidates.contains(&seg.as_str()))
+            };
+
+            const EVERGREEN_DIRS: &[&str] = &[
+                "20_cards",
+                "2_cards",
+                "cards",
+                "decisions",
+                "concepts",
+                "architecture",
+                "adr",
+                "specs",
+                "rules",
+                "projects",
+                "10_projects",
+                "1_projects",
+                "wiki",
+                "skills",
+                "playbooks",
+                "evergreen",
+            ];
+            const LOG_DIRS: &[&str] = &[
+                "01_ai_logs",
+                "30_logs",
+                "logs",
+                "ai_logs",
+                "journal",
+                "records",
+                "postmortems",
+            ];
+            const EPHEMERAL_DIRS: &[&str] = &[
+                "00_daily",
+                "0_daily",
+                "daily",
+                "ephemeral",
+                "scratch",
+                "inbox",
+                "dailies",
+                "fleeting",
+            ];
+            const RESOURCE_DIRS: &[&str] = &[
+                "30_resources",
+                "3_resources",
+                "resources",
+                "references",
+                "docs",
+            ];
+
+            if has_segment(EVERGREEN_DIRS) {
+                return HierarchyLevel::L3Evergreen;
+            } else if has_segment(LOG_DIRS) {
+                return HierarchyLevel::L2Log;
+            } else if has_segment(EPHEMERAL_DIRS) {
+                return HierarchyLevel::L0Ephemeral;
+            } else if has_segment(RESOURCE_DIRS) {
+                return HierarchyLevel::L1Resource;
+            }
+        }
+    }
+
+    // 4. Root-level .md file defaults to L3Evergreen
+    if relative_path
+        .parent()
+        .map(|p| p.as_os_str().is_empty())
+        .unwrap_or(true)
+    {
+        return HierarchyLevel::L3Evergreen;
+    }
+
+    // 5. Fallback
+    fallback
+}
+
 /// Extracts and merges tags from frontmatter and body.
 pub(crate) fn extract_tags_combined(
     frontmatter: &serde_json::Value,
@@ -337,5 +488,114 @@ mod tests {
                 "Root.md",
             ]
         );
+    }
+
+    #[test]
+    fn test_determine_llm_wiki_hierarchy_behaviors() {
+        use serde_json::json;
+
+        // 1. Explicit override
+        let fm_override = json!({"hierarchy": "L2Log"});
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_override,
+                Path::new("decisions/adr.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L2Log
+        );
+
+        // 2. Category / type
+        let fm_type = json!({"type": "adr"});
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_type,
+                Path::new("other/something.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L3Evergreen
+        );
+        let fm_cat = json!({"category": "log"});
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_cat,
+                Path::new("other/something.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L2Log
+        );
+
+        // 3. Directory components
+        let fm_empty = json!({});
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("projects/acme.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L3Evergreen
+        );
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("decisions/adr-001.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L3Evergreen
+        );
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("logs/2026-11-09.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L2Log
+        );
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("daily/notes.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L0Ephemeral
+        );
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("resources/spec.md"),
+                HierarchyLevel::L0Ephemeral
+            ),
+            HierarchyLevel::L1Resource
+        );
+
+        // 4. Root file
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("INDEX.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L3Evergreen
+        );
+
+        // 5. Fallback for nested unrecognized folder
+        assert_eq!(
+            determine_llm_wiki_hierarchy(
+                &fm_empty,
+                Path::new("unrecognized/file.md"),
+                HierarchyLevel::L1Resource
+            ),
+            HierarchyLevel::L1Resource
+        );
+    }
+
+    #[test]
+    fn test_is_structured_vault_detection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(!is_structured_vault(root));
+
+        fs::create_dir_all(root.join("decisions")).unwrap();
+        assert!(is_structured_vault(root));
     }
 }

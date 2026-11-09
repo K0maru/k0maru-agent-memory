@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::adapters::{
-    parse_hierarchy_override, read_document_impl, resolve_unique_path, scan_markdown_files,
+    determine_llm_wiki_hierarchy, read_document_impl, resolve_unique_path, scan_markdown_files,
 };
 use crate::core::models::{Document, HierarchyLevel};
 use crate::core::traits::VaultAdapter;
@@ -46,12 +46,8 @@ impl VaultAdapter for GenericWikiAdapter {
 
     fn read_document(&self, relative_path: &Path) -> Result<Document, Box<dyn std::error::Error>> {
         let default_hierarchy = self.default_hierarchy;
-        read_document_impl(&self.root, relative_path, move |frontmatter, _rel_path| {
-            if let Some(level) = parse_hierarchy_override(frontmatter) {
-                level
-            } else {
-                default_hierarchy
-            }
+        read_document_impl(&self.root, relative_path, move |frontmatter, rel_path| {
+            determine_llm_wiki_hierarchy(frontmatter, rel_path, default_hierarchy)
         })
     }
 

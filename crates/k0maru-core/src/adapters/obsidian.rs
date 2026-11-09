@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::adapters::{
-    parse_hierarchy_override, read_document_impl, resolve_unique_path, scan_markdown_files,
+    determine_llm_wiki_hierarchy, read_document_impl, resolve_unique_path, scan_markdown_files,
 };
 use crate::core::models::{Document, HierarchyLevel};
 use crate::core::traits::VaultAdapter;
@@ -40,55 +40,7 @@ impl ObsidianAdapter {
         frontmatter: &serde_json::Value,
         relative_path: &Path,
     ) -> HierarchyLevel {
-        if let Some(level) = parse_hierarchy_override(frontmatter) {
-            return level;
-        }
-
-        let path_str = relative_path.to_string_lossy().replace('\\', "/");
-        let segments: Vec<String> = path_str
-            .split('/')
-            .map(|segment| segment.to_lowercase())
-            .collect();
-
-        const EVERGREEN_SEGMENTS: &[&str] = &[
-            "20_cards",
-            "10_projects",
-            "cards",
-            "concepts",
-            "decisions",
-            "adr",
-            "wiki",
-            "rules",
-            "skills",
-            "playbooks",
-            "evergreen",
-        ];
-        const LOG_SEGMENTS: &[&str] = &[
-            "01_ai_logs",
-            "30_logs",
-            "logs",
-            "ai_logs",
-            "journal",
-            "records",
-            "postmortems",
-        ];
-        const EPHEMERAL_SEGMENTS: &[&str] = &["00_daily", "daily", "dailies", "inbox", "fleeting"];
-
-        let has_segment = |candidates: &[&str]| {
-            segments
-                .iter()
-                .any(|segment| candidates.contains(&segment.as_str()))
-        };
-
-        if has_segment(EVERGREEN_SEGMENTS) {
-            HierarchyLevel::L3Evergreen
-        } else if has_segment(LOG_SEGMENTS) {
-            HierarchyLevel::L2Log
-        } else if has_segment(EPHEMERAL_SEGMENTS) {
-            HierarchyLevel::L0Ephemeral
-        } else {
-            HierarchyLevel::L1Resource
-        }
+        determine_llm_wiki_hierarchy(frontmatter, relative_path, HierarchyLevel::L1Resource)
     }
 }
 
@@ -107,11 +59,46 @@ impl VaultAdapter for ObsidianAdapter {
         content: &str,
         hierarchy: HierarchyLevel,
     ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let subfolder = match hierarchy {
-            HierarchyLevel::L3Evergreen => "20_Cards",
-            HierarchyLevel::L2Log => "01_AI_Logs",
-            HierarchyLevel::L0Ephemeral => "00_Daily",
-            HierarchyLevel::L1Resource => "10_Projects",
+        let use_llm_wiki = !self.root.join("10_Projects").is_dir()
+            && !self.root.join("20_Cards").is_dir()
+            && (self.root.join("decisions").is_dir()
+                || self.root.join("projects").is_dir()
+                || self.root.join("logs").is_dir());
+
+        let subfolder = if use_llm_wiki {
+            match hierarchy {
+                HierarchyLevel::L3Evergreen => {
+                    if self.root.join("cards").is_dir() && !self.root.join("decisions").is_dir() {
+                        "cards"
+                    } else {
+                        "decisions"
+                    }
+                }
+                HierarchyLevel::L2Log => "logs",
+                HierarchyLevel::L0Ephemeral => "daily",
+                HierarchyLevel::L1Resource => {
+                    if self.root.join("projects").is_dir() {
+                        "projects"
+                    } else {
+                        "resources"
+                    }
+                }
+            }
+        } else {
+            match hierarchy {
+                HierarchyLevel::L3Evergreen => "20_Cards",
+                HierarchyLevel::L2Log => "01_AI_Logs",
+                HierarchyLevel::L0Ephemeral => "00_Daily",
+                HierarchyLevel::L1Resource => {
+                    if self.root.join("30_Resources").is_dir() {
+                        "30_Resources"
+                    } else if self.root.join("10_Projects").is_dir() {
+                        "10_Projects"
+                    } else {
+                        "30_Resources"
+                    }
+                }
+            }
         };
 
         let target_dir = self.root.join(subfolder);
