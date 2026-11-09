@@ -6,47 +6,80 @@
   <title>K0maru Agent Memory Hub</title>
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="cockpit-body">
   <!-- Top Navigation Cockpit Header -->
   <header class="cockpit-header">
     <div class="header-left">
+      <!-- Brand Identity -->
       <div class="brand-group">
-        <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="brand-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="12 2 2 7 2 17 12 22 22 17 22 7 12 2"></polygon>
           <polyline points="2 7 12 12 22 7"></polyline>
           <polyline points="12 22 12 12"></polyline>
         </svg>
         <div class="brand-text">
           <h1 class="brand-title">K0maru Agent Memory Hub</h1>
-          <!-- Screen-reader / compatibility heading -->
+          <!-- Accessibility / screen-reader heading -->
           <span class="sr-only"><h1>K0maru Dashboard API Active</h1></span>
-          <span class="brand-subtitle" data-i18n="brand.subtitle">Obsidian &amp; LLM-Wiki Zero-Daemon Memory Core</span>
+          <span class="brand-subtitle" data-i18n="brand.subtitle">LLM-Wiki Zero-Daemon Memory Cockpit</span>
         </div>
-        <span class="badge badge-emerald">v0.4.2</span>
+        <span class="badge badge-tech mono">v1.1 // COCKPIT</span>
+      </div>
+
+      <!-- Live Vault Switcher Monospace Pill & Popover -->
+      <div class="vault-switcher-container">
+        <button type="button" class="vault-pill-btn" id="active-vault-pill" title="Active Vault: click to switch or bootstrap" data-i18n-title="vault.switcher_title">
+          <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span class="pill-prefix mono">VAULT:</span>
+          <span id="status-vault-path" class="vault-path-text mono truncate">Connecting...</span>
+          <svg class="icon icon-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <!-- Dropdown Popover for Quick Vault Switch & Bootstrap -->
+        <div class="vault-switcher-dropdown" id="vault-switcher-dropdown" style="display: none;">
+          <div class="dropdown-header">
+            <span class="dropdown-title mono" data-i18n="vault.dropdown_title">Switch Active Vault</span>
+            <span class="badge badge-muted mono">HOT-SWAP</span>
+          </div>
+          <div class="recent-vaults-section">
+            <span class="section-label mono" data-i18n="vault.recent_label">Recent Vaults:</span>
+            <div id="top-recent-vaults-list" class="recent-vaults-pills">
+              <span class="text-muted text-xs mono" data-i18n="vault.no_recents">No recent vaults recorded</span>
+            </div>
+          </div>
+          <div class="quick-switch-section">
+            <div class="quick-input-group">
+              <input type="text" id="quick-vault-input" class="input mono" placeholder="/path/to/vault" data-i18n-placeholder="vault.quick_placeholder" autocomplete="off" spellcheck="false">
+              <button type="button" class="btn btn-sm btn-secondary mono" id="btn-quick-switch" data-i18n="vault.btn_switch">Switch</button>
+            </div>
+            <div class="quick-action-row">
+              <button type="button" class="btn btn-sm btn-outline mono" id="btn-quick-bootstrap" title="Initialize standard LLM-Wiki folders (projects/, decisions/, logs/, INDEX.md)" data-i18n="vault.btn_bootstrap">[Init LLM-Wiki]</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Live Status Badges -->
+    <!-- Live Telemetry Scoreboard Pills -->
     <div class="status-bar" id="status-bar">
-      <div class="status-pill" title="Active Vault Path" data-i18n-title="status.vault_title">
-        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-        <span class="pill-label" data-i18n="status.vault">Vault:</span>
-        <span id="status-vault-path" class="mono pill-value truncate">Connecting...</span>
-      </div>
-
+      <!-- Docs Pill -->
       <div class="status-pill" title="Total Indexed Documents" data-i18n-title="status.docs_title">
-        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
           <polyline points="14 2 14 8 20 8"></polyline>
         </svg>
         <span class="pill-label" data-i18n="status.docs">Docs:</span>
         <span id="status-doc-count" class="mono pill-value font-bold">--</span>
+        <span id="scoreboard-doc-count" class="sr-only">--</span>
       </div>
 
+      <!-- Vectors Pill -->
       <div class="status-pill" title="Total Embedded Vectors" data-i18n-title="status.vectors_title">
-        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <path d="m4.93 4.93 4.24 4.24"></path>
           <path d="m14.83 9.17 4.24-4.24"></path>
@@ -55,10 +88,36 @@
         </svg>
         <span class="pill-label" data-i18n="status.vectors">Vectors:</span>
         <span id="status-vector-count" class="mono pill-value font-bold">--</span>
+        <span id="scoreboard-vec-count" class="sr-only">--</span>
       </div>
 
+      <!-- Cache Pill -->
+      <div class="status-pill" title="SQLite Cache Footprint" data-i18n-title="status.cache_title">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+        </svg>
+        <span class="pill-label" data-i18n="status.cache">Cache:</span>
+        <span id="status-cache-size" class="mono pill-value font-bold">-- KB</span>
+        <span id="scoreboard-cache-size" class="sr-only">-- KB</span>
+      </div>
+
+      <!-- Logs Pill -->
+      <div class="status-pill" title="Offloaded Log Nodes" data-i18n-title="status.logs_title">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        <span class="pill-label" data-i18n="status.logs">Logs:</span>
+        <span id="status-log-count" class="mono pill-value font-bold">--</span>
+        <span id="scoreboard-log-count" class="sr-only">--</span>
+      </div>
+
+      <!-- Synced Pill -->
       <div class="status-pill" title="Last Incremental Sync Timestamp" data-i18n-title="status.synced_title">
-        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
@@ -67,19 +126,19 @@
       </div>
     </div>
 
-    <!-- Actions -->
+    <!-- Header Actions -->
     <div class="header-right">
       <button id="btn-lang-toggle" class="btn btn-secondary btn-lang" title="Switch Language / 切换语言">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="2" y1="12" x2="22" y2="12"></line>
           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
         </svg>
-        <span id="lang-indicator">EN / 中文</span>
+        <span id="lang-indicator" class="mono">EN / 中文</span>
       </button>
 
-      <button id="btn-sync" class="btn btn-primary" title="Trigger incremental scanner and vector reindex" data-i18n-title="sync.title">
-        <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button id="btn-sync-vault" class="btn btn-primary btn-sync" title="Trigger incremental scanner and vector reindex" data-i18n-title="sync.title">
+        <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
           <path d="M3 3v5h5"></path>
           <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
@@ -94,15 +153,25 @@
   <nav class="cockpit-tabs" aria-label="Cockpit Views">
     <div class="tabs-container">
       <button class="tab-btn active" data-tab="search" id="tab-btn-search">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"></circle>
           <path d="m21 21-4.3-4.3"></path>
         </svg>
         <span data-i18n="tabs.search">Search Debugger</span>
+        <span class="tab-badge mono">[L3-L0]</span>
+      </button>
+
+      <button class="tab-btn" data-tab="timeline" id="tab-btn-timeline">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 14 14"></polyline>
+        </svg>
+        <span data-i18n="tabs.timeline">Timeline Stream</span>
+        <span class="tab-badge mono">[STREAM]</span>
       </button>
 
       <button class="tab-btn" data-tab="graph" id="tab-btn-graph">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="18" cy="5" r="3"></circle>
           <circle cx="6" cy="12" r="3"></circle>
           <circle cx="18" cy="19" r="3"></circle>
@@ -110,33 +179,38 @@
           <line x1="15.41" x2="8.59" y1="6.51" y2="10.49"></line>
         </svg>
         <span data-i18n="tabs.graph">Graph Explorer</span>
+        <span class="tab-badge mono">[2D FORCE]</span>
       </button>
 
       <button class="tab-btn" data-tab="logs" id="tab-btn-logs">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" x2="8" y1="13" y2="13"></line>
-          <line x1="16" x2="8" y1="17" y2="17"></line>
-          <polyline points="10 9 9 9 8 9"></polyline>
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
         </svg>
-        <span data-i18n="tabs.logs">Log Inspector</span>
+        <span data-i18n="tabs.logs">ADR Guard &amp; Logs</span>
+        <span class="tab-badge mono">[SENTINEL]</span>
       </button>
 
-      <button class="tab-btn" data-tab="scoreboard" id="tab-btn-scoreboard">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" x2="12" y1="20" y2="10"></line>
-          <line x1="18" x2="18" y1="20" y2="4"></line>
-          <line x1="6" x2="6" y1="20" y2="16"></line>
+      <button class="tab-btn" data-tab="settings" id="tab-btn-settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14"></line>
+          <line x1="4" y1="10" x2="4" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12" y2="3"></line>
+          <line x1="20" y1="21" x2="20" y2="16"></line>
+          <line x1="20" y1="12" x2="20" y2="3"></line>
+          <line x1="1" y1="14" x2="7" y2="14"></line>
+          <line x1="9" y1="8" x2="15" y2="8"></line>
+          <line x1="17" y1="16" x2="23" y2="16"></line>
         </svg>
-        <span data-i18n="tabs.scoreboard">Token Scoreboard</span>
+        <span data-i18n="tabs.settings">Control Center</span>
+        <span class="tab-badge mono">[CONFIG]</span>
       </button>
     </div>
   </nav>
 
   <!-- Cockpit Main Viewports -->
   <main class="cockpit-main">
-    <!-- Tab 1: Hybrid Search Debugger -->
+    <!-- TAB 1: Search Debugger -->
     <section id="panel-search" class="tab-panel active" aria-labelledby="tab-btn-search">
       <div class="panel-header">
         <div>
@@ -145,40 +219,40 @@
         </div>
         <div class="panel-header-badges">
           <span class="badge badge-muted mono" id="search-latency" title="Search query execution latency" data-i18n-title="search.latency_title">-- ms</span>
-          <span class="badge badge-muted mono">Endpoint: /api/search</span>
+          <span class="badge badge-tech mono">Endpoint: /api/search</span>
         </div>
       </div>
 
       <div class="cockpit-card">
-        <div class="search-form-stub">
+        <div class="search-form-wrap">
           <div class="search-input-wrap">
-            <svg class="icon search-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="icon search-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
             <input type="text" class="input search-input" id="search-input" placeholder="Type query to test retrieval ranking (e.g. memory architecture, vector index)..." data-i18n-placeholder="search.placeholder" autocomplete="off" spellcheck="false">
             <div class="shortcut-hint-wrap">
-              <kbd class="shortcut-hint" data-i18n="search.shortcut_hint">[ / or ⌘K ]</kbd>
+              <kbd class="shortcut-hint mono" data-i18n="search.shortcut_hint">[ / or ⌘K ]</kbd>
             </div>
           </div>
 
           <div class="search-controls">
             <div class="search-controls-left">
-              <span class="control-label" data-i18n="search.mode_label">Mode:</span>
+              <span class="control-label mono" data-i18n="search.mode_label">Mode:</span>
               <div class="mode-toggles" role="radiogroup" aria-label="Search Mode">
-                <button type="button" class="btn btn-sm btn-mode active" data-mode="hybrid" title="Reciprocal Rank Fusion with WikiLinks Graph Boost" data-i18n-title="search.mode_hybrid_title" data-i18n="search.mode_hybrid">Hybrid (RRF)</button>
-                <button type="button" class="btn btn-sm btn-mode" data-mode="bm25" title="Pure BM25 full-text keyword retrieval" data-i18n-title="search.mode_bm25_title" data-i18n="search.mode_bm25">BM25 Lexical</button>
-                <button type="button" class="btn btn-sm btn-mode" data-mode="vector" title="Dense vector semantic cosine similarity" data-i18n-title="search.mode_vector_title" data-i18n="search.mode_vector">Vector Dense</button>
+                <button type="button" class="btn btn-sm btn-mode active mono" data-mode="hybrid" title="Reciprocal Rank Fusion with WikiLinks Graph Boost" data-i18n-title="search.mode_hybrid_title" data-i18n="search.mode_hybrid">Hybrid (RRF)</button>
+                <button type="button" class="btn btn-sm btn-mode mono" data-mode="bm25" title="Pure BM25 full-text keyword retrieval" data-i18n-title="search.mode_bm25_title" data-i18n="search.mode_bm25">FTS5 BM25</button>
+                <button type="button" class="btn btn-sm btn-mode mono" data-mode="vector" title="Dense vector semantic cosine similarity" data-i18n-title="search.mode_vector_title" data-i18n="search.mode_vector">Vector Cosine</button>
               </div>
             </div>
 
             <div class="search-controls-right">
               <div class="slider-group">
-                <label for="search-limit" class="slider-label"><span data-i18n="search.limit_label">Limit:</span> <span id="search-limit-val" class="mono font-bold">5</span></label>
-                <input type="range" id="search-limit" class="range-slider" min="1" max="20" value="5" step="1">
+                <label for="search-limit" class="slider-label mono"><span data-i18n="search.limit_label">Limit:</span> <span id="search-limit-val" class="mono font-bold">5</span></label>
+                <input type="range" id="search-limit" class="range-slider" min="1" max="25" value="5" step="1">
               </div>
-              <button class="btn btn-sm btn-secondary" id="btn-run-search" title="Execute Query immediately" data-i18n-title="search.run_title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <button class="btn btn-sm btn-secondary mono" id="btn-run-search" title="Execute Query immediately" data-i18n-title="search.run_title">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
                 <span data-i18n="search.run_button">Run</span>
@@ -190,7 +264,7 @@
         <div class="results-container" id="search-results-container">
           <div id="search-results" class="search-results-list">
             <div class="placeholder-state" id="search-initial-state">
-              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.3-4.3"></path>
               </svg>
@@ -202,7 +276,55 @@
       </div>
     </section>
 
-    <!-- Tab 2: Knowledge Graph Explorer -->
+    <!-- TAB 2: Timeline Stream -->
+    <section id="panel-timeline" class="tab-panel" aria-labelledby="tab-btn-timeline">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title" data-i18n="timeline.title">Timeline Stream &amp; Session Continuity</h2>
+          <p class="panel-desc" data-i18n="timeline.desc">Chronological vertical neighborhood of passive session observations, engineering logs, and ADR milestones.</p>
+        </div>
+        <div class="panel-header-badges">
+          <span class="badge badge-tech mono" id="timeline-count-badge">0 items</span>
+          <span class="badge badge-muted mono">Endpoint: /api/timeline</span>
+        </div>
+      </div>
+
+      <div class="cockpit-card timeline-card">
+        <div class="timeline-toolbar">
+          <div class="timeline-search-wrap">
+            <svg class="icon timeline-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <input type="text" class="input timeline-search-input mono" id="timeline-anchor-input" placeholder="Search anchor note path, date (YYYY-MM-DD), or keyword..." data-i18n-placeholder="timeline.anchor_placeholder" autocomplete="off" spellcheck="false">
+          </div>
+
+          <div class="timeline-filter-pills" role="radiogroup" aria-label="Timeline Categories">
+            <button type="button" class="btn-filter-pill active mono" data-timeline-filter="all" data-i18n="timeline.filter_all">All</button>
+            <button type="button" class="btn-filter-pill mono" data-timeline-filter="observation" data-i18n="timeline.filter_observations">Observations</button>
+            <button type="button" class="btn-filter-pill mono" data-timeline-filter="log" data-i18n="timeline.filter_logs">Logs</button>
+            <button type="button" class="btn-filter-pill mono" data-timeline-filter="decision" data-i18n="timeline.filter_decisions">Decisions</button>
+          </div>
+
+          <button type="button" class="btn btn-sm btn-secondary mono" id="btn-refresh-timeline" title="Reload timeline stream" data-i18n-title="timeline.refresh_title">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+            </svg>
+            <span data-i18n="timeline.refresh_btn">Refresh</span>
+          </button>
+        </div>
+
+        <div class="timeline-viewport" id="timeline-viewport">
+          <div class="timeline-stream" id="timeline-stream-container">
+            <div class="placeholder-state" id="timeline-initial-state">
+              <p class="placeholder-text" data-i18n="timeline.loading">Loading timeline stream...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Knowledge Graph Explorer -->
     <section id="panel-graph" class="tab-panel" aria-labelledby="tab-btn-graph">
       <div class="panel-header">
         <div>
@@ -211,7 +333,7 @@
         </div>
         <div class="panel-header-badges">
           <span class="badge badge-muted mono" id="graph-counter">0 nodes &bull; 0 links</span>
-          <span class="badge badge-muted mono">Endpoint: /api/graph</span>
+          <span class="badge badge-tech mono">Endpoint: /api/graph</span>
         </div>
       </div>
 
@@ -220,31 +342,31 @@
         <div class="graph-toolbar" id="graph-toolbar">
           <div class="graph-toolbar-left">
             <div class="graph-search-wrap">
-              <svg class="icon graph-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg class="icon graph-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.3-4.3"></path>
               </svg>
-              <input type="text" class="input graph-search-input" id="graph-search" placeholder="Search / focus node..." data-i18n-placeholder="graph.search_placeholder" autocomplete="off" spellcheck="false">
+              <input type="text" class="input graph-search-input mono" id="graph-search" placeholder="Search / focus node..." data-i18n-placeholder="graph.search_placeholder" autocomplete="off" spellcheck="false">
             </div>
 
             <div class="hierarchy-filters" role="group" aria-label="Hierarchy Level Filters">
-              <button type="button" class="btn-filter-pill active" data-tier="Project" title="Toggle Project notes" data-i18n-title="graph.tier_project_title">
-                <span class="pill-dot dot-project"></span>
+              <button type="button" class="btn-filter-pill active mono" data-tier="Project" title="Toggle Project notes" data-i18n-title="graph.tier_project_title">
+                <span class="pill-dot dot-l3"></span>
                 <span data-i18n="graph.tier_project">Project</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L3 Evergreen" title="Toggle L3 Evergreen notes" data-i18n-title="graph.tier_l3_title">
+              <button type="button" class="btn-filter-pill active mono" data-tier="L3 Evergreen" title="Toggle L3 Evergreen notes" data-i18n-title="graph.tier_l3_title">
                 <span class="pill-dot dot-l3"></span>
                 <span data-i18n="graph.tier_l3">L3 Evergreen</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L2 Log" title="Toggle L2 Log notes" data-i18n-title="graph.tier_l2_title">
+              <button type="button" class="btn-filter-pill active mono" data-tier="L2 Log" title="Toggle L2 Log notes" data-i18n-title="graph.tier_l2_title">
                 <span class="pill-dot dot-l2"></span>
                 <span data-i18n="graph.tier_l2">L2 Log</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L1 Resource" title="Toggle L1 Resource notes" data-i18n-title="graph.tier_l1_title">
+              <button type="button" class="btn-filter-pill active mono" data-tier="L1 Resource" title="Toggle L1 Resource notes" data-i18n-title="graph.tier_l1_title">
                 <span class="pill-dot dot-l1"></span>
                 <span data-i18n="graph.tier_l1">L1 Resource</span>
               </button>
-              <button type="button" class="btn-filter-pill active" data-tier="L0 Daily" title="Toggle L0 Daily notes" data-i18n-title="graph.tier_l0_title">
+              <button type="button" class="btn-filter-pill active mono" data-tier="L0 Daily" title="Toggle L0 Daily notes" data-i18n-title="graph.tier_l0_title">
                 <span class="pill-dot dot-l0"></span>
                 <span data-i18n="graph.tier_l0">L0 Daily</span>
               </button>
@@ -255,22 +377,22 @@
             <label class="toggle-switch-wrap" title="Highlight nodes with 0 links and 0 backlinks" data-i18n-title="graph.highlight_orphans_title">
               <input type="checkbox" id="toggle-orphans" class="toggle-switch-input">
               <span class="toggle-switch-slider"></span>
-              <span class="toggle-switch-label" data-i18n="graph.highlight_orphans">Highlight Orphans</span>
+              <span class="toggle-switch-label mono" data-i18n="graph.highlight_orphans">Highlight Orphans</span>
             </label>
 
             <div class="zoom-controls" role="group" aria-label="Graph Zoom Controls">
               <button type="button" class="btn-icon" id="btn-zoom-in" title="Zoom In (+)" data-i18n-title="graph.zoom_in_title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
               </button>
               <button type="button" class="btn-icon" id="btn-zoom-out" title="Zoom Out (-)" data-i18n-title="graph.zoom_out_title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
               </button>
-              <button type="button" class="btn-icon btn-fit" id="btn-zoom-fit" title="Fit to View" data-i18n-title="graph.zoom_fit_title">
+              <button type="button" class="btn-icon btn-fit mono" id="btn-zoom-fit" title="Fit to View" data-i18n-title="graph.zoom_fit_title">
                 <span data-i18n="graph.zoom_fit">Fit</span>
               </button>
             </div>
@@ -281,16 +403,16 @@
         <div class="graph-viewport-container" id="graph-viewport-container">
           <canvas id="graph-canvas"></canvas>
 
-          <!-- Side Inspector Drawer -->
+          <!-- Side Inspector Drawer for Graph -->
           <aside id="graph-inspector" class="graph-drawer" aria-label="Note Inspector" aria-hidden="true">
             <div class="drawer-header">
               <div class="drawer-header-info">
-                <span id="drawer-hierarchy" class="badge-tier tier-project">Project</span>
+                <span id="drawer-hierarchy" class="badge-tier tier-project mono">[L3 // ADR]</span>
                 <h3 id="drawer-title" class="drawer-title" data-i18n="graph.drawer_title_default">Select a Note</h3>
                 <span id="drawer-path" class="drawer-path mono">--</span>
               </div>
               <button type="button" class="btn-icon drawer-close-btn" id="graph-drawer-close" title="Close Inspector (Esc)" data-i18n-title="graph.drawer_close_title">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
@@ -298,32 +420,38 @@
             </div>
 
             <div class="drawer-body">
+              <div class="drawer-actions-row">
+                <button type="button" class="btn btn-sm btn-primary mono btn-block" id="btn-open-drawer-from-graph">
+                  <span data-i18n="graph.btn_inspect_full">[Inspect Note Drawer]</span>
+                </button>
+              </div>
+
               <!-- Tags Section -->
               <div class="drawer-section" id="drawer-section-tags">
-                <h4 class="drawer-section-title" data-i18n="graph.drawer_tags">Tags</h4>
+                <h4 class="drawer-section-title mono" data-i18n="graph.drawer_tags">Tags</h4>
                 <div id="drawer-tags" class="drawer-tags-list">
-                  <span class="drawer-empty-hint" data-i18n="graph.drawer_no_tags">No tags</span>
+                  <span class="drawer-empty-hint mono" data-i18n="graph.drawer_no_tags">No tags</span>
                 </div>
               </div>
 
               <!-- Out-Links Section -->
               <div class="drawer-section" id="drawer-section-outlinks">
-                <h4 class="drawer-section-title">
+                <h4 class="drawer-section-title mono">
                   <span data-i18n="graph.drawer_outlinks">Out-Links</span>
                   <span class="section-count mono" id="drawer-outlinks-count">(0)</span>
                 </h4>
-                <ul id="drawer-outlinks" class="drawer-link-list">
+                <ul id="drawer-outlinks" class="drawer-link-list mono">
                   <li class="drawer-empty-hint" data-i18n="graph.drawer_no_outlinks">No outgoing WikiLinks</li>
                 </ul>
               </div>
 
               <!-- Inbound Backlinks Section -->
               <div class="drawer-section" id="drawer-section-backlinks">
-                <h4 class="drawer-section-title">
+                <h4 class="drawer-section-title mono">
                   <span data-i18n="graph.drawer_backlinks">Inbound Backlinks</span>
                   <span class="section-count mono" id="drawer-backlinks-count">(0)</span>
                 </h4>
-                <ul id="drawer-backlinks" class="drawer-link-list">
+                <ul id="drawer-backlinks" class="drawer-link-list mono">
                   <li class="drawer-empty-hint" data-i18n="graph.drawer_no_backlinks">No inbound backlinks</li>
                 </ul>
               </div>
@@ -333,36 +461,89 @@
       </div>
     </section>
 
-    <!-- Tab 3: Log & Trace Inspector -->
+    <!-- TAB 4: ADR Guard & Logs -->
     <section id="panel-logs" class="tab-panel" aria-labelledby="tab-btn-logs">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title" data-i18n="logs.title">Log &amp; Trace Inspector</h2>
-          <p class="panel-desc" data-i18n="logs.desc">Visual Mermaid state machine diagram renderer and collapsible stack trace viewer for offloaded nodes.</p>
+          <h2 class="panel-title" data-i18n="logs.title">Living ADR Guard Sentinel &amp; Symbolic Log Offload</h2>
+          <p class="panel-desc" data-i18n="logs.desc">Active ADR invariant rules, interactive unified diff sandbox, and visual Mermaid pipeline traces.</p>
         </div>
         <div class="panel-header-badges">
+          <span class="badge badge-tech mono" id="guard-rules-count-badge">0 rules</span>
           <span class="badge badge-muted mono" id="logs-count-badge">0 logs</span>
-          <span class="badge badge-muted mono">Endpoint: /api/logs</span>
         </div>
       </div>
 
+      <!-- Living ADR Sentinel & Interactive Diff Sandbox -->
+      <div class="cockpit-card guard-sandbox-card">
+        <div class="card-section-header">
+          <div class="section-title-wrap">
+            <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            <h3 class="card-section-title mono" data-i18n="guard.sentinel_title">Living ADR Guard Sentinel &amp; Diff Sandbox</h3>
+          </div>
+          <span class="badge badge-tech mono" data-i18n="guard.speed_badge">&lt;10ms FAST CHECK</span>
+        </div>
+
+        <div class="guard-sandbox-grid">
+          <!-- Active ADR Rules Table -->
+          <div class="guard-rules-column">
+            <div class="column-header">
+              <span class="column-title mono" data-i18n="guard.active_rules_title">Active Living ADR Invariants</span>
+              <button type="button" class="btn btn-xs btn-secondary mono" id="btn-reload-guard-rules" title="Reload guard rules" data-i18n="guard.btn_reload">Reload</button>
+            </div>
+            <div class="guard-rules-list" id="guard-rules-list">
+              <div class="placeholder-state">
+                <span class="mono text-muted text-xs" data-i18n="guard.loading_rules">Loading active ADR rules...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Unified Diff Sandbox -->
+          <div class="guard-diff-column">
+            <div class="column-header">
+              <span class="column-title mono" data-i18n="guard.diff_sandbox_title">Unified Git Diff Evaluator</span>
+              <button type="button" class="btn btn-xs btn-outline mono" id="btn-load-sample-diff" data-i18n="guard.btn_load_sample">Load Sample Diff</button>
+            </div>
+            <div class="diff-input-wrap">
+              <textarea id="guard-diff-input" class="diff-textarea mono" placeholder="Paste unified git diff here (e.g. diff --git a/src/core.rs b/src/core.rs)..." data-i18n-placeholder="guard.diff_placeholder" spellcheck="false"></textarea>
+            </div>
+            <div class="diff-action-bar">
+              <button type="button" class="btn btn-sm btn-primary mono" id="btn-run-guard-check">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+                <span data-i18n="guard.btn_run_check">Run Guard Check (&lt;10ms)</span>
+              </button>
+            </div>
+            <div id="guard-check-result" class="guard-result-container">
+              <div class="guard-initial-result mono text-xs text-muted" data-i18n="guard.initial_hint">
+                Paste a git diff above and click "Run Guard Check" to evaluate invariants.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Symbolic Log Offload Explorer -->
       <div class="logs-layout">
         <!-- Master List Sidebar -->
         <aside class="logs-sidebar" id="logs-list-container" aria-label="Log Node List">
           <div class="logs-search-wrap">
-            <svg class="icon logs-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="icon logs-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
-            <input type="text" class="input logs-search-input" id="logs-search" placeholder="Filter by node ID or task ID..." data-i18n-placeholder="logs.search_placeholder" autocomplete="off" spellcheck="false">
+            <input type="text" class="input logs-search-input mono" id="logs-search" placeholder="Filter by node ID or task ID..." data-i18n-placeholder="logs.search_placeholder" autocomplete="off" spellcheck="false">
           </div>
           <div class="logs-list" id="logs-list" role="list">
             <div class="placeholder-state logs-empty-state" id="logs-empty-hint">
-              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg class="icon icon-xl icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                 <polyline points="14 2 14 8 20 8"></polyline>
               </svg>
-              <p class="placeholder-text" data-i18n="logs.empty_title">No offloaded logs found in .scratch/refs/</p>
+              <p class="placeholder-text" data-i18n="logs.empty_title">No offloaded logs found in .k0maru/refs/</p>
               <span class="placeholder-subtext mono" data-i18n="logs.empty_subtext">Run long commands or k0maru offload to capture logs</span>
             </div>
           </div>
@@ -373,22 +554,22 @@
           <div class="detail-header" id="log-detail-header">
             <div class="detail-title-group">
               <div class="detail-badges">
-                <span id="log-detail-id" class="badge badge-emerald mono" data-i18n="logs.select_node">Select a log node</span>
+                <span id="log-detail-id" class="badge badge-tech mono" data-i18n="logs.select_node">Select a log node</span>
                 <span id="log-detail-task" class="badge badge-muted mono" style="display: none;"></span>
                 <span id="log-detail-lines" class="badge badge-muted mono" style="display: none;">0 lines</span>
               </div>
               <span id="log-detail-time" class="mono text-muted text-xs">--</span>
             </div>
             <div class="detail-actions" id="log-detail-actions">
-              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-node-id" title="Copy Node ID to clipboard" data-i18n-title="logs.copy_node_id_title" disabled>
-                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <button type="button" class="btn btn-sm btn-secondary mono" id="btn-copy-node-id" title="Copy Node ID to clipboard" data-i18n-title="logs.copy_node_id_title" disabled>
+                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
                   <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
                 </svg>
                 <span class="btn-copy-text" data-i18n="logs.copy_node_id">Copy Node ID</span>
               </button>
-              <button type="button" class="btn btn-sm btn-secondary" id="btn-copy-raw-log" title="Copy Raw Log slice to clipboard" data-i18n-title="logs.copy_raw_log_title" disabled>
-                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <button type="button" class="btn btn-sm btn-secondary mono" id="btn-copy-raw-log" title="Copy Raw Log slice to clipboard" data-i18n-title="logs.copy_raw_log_title" disabled>
+                <svg class="icon copy-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
                   <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
                 </svg>
@@ -401,7 +582,7 @@
           <div class="cockpit-card mermaid-card">
             <div class="card-section-header">
               <h3 class="card-section-title">
-                <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
                   <line x1="3" y1="9" x2="21" y2="9"></line>
                   <line x1="9" y1="21" x2="9" y2="9"></line>
@@ -421,7 +602,7 @@
           <div class="cockpit-card raw-log-card">
             <div class="card-section-header raw-log-toggle-header" id="raw-log-toggle-btn" role="button" tabindex="0" aria-expanded="true">
               <h3 class="card-section-title">
-                <svg class="icon chevron-icon" id="raw-log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg class="icon chevron-icon" id="raw-log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
                 <span data-i18n="logs.raw_slice_title">Raw Log Slice</span>
@@ -439,180 +620,231 @@
       </div>
     </section>
 
-    <!-- Tab 4: Token Scoreboard -->
-    <section id="panel-scoreboard" class="tab-panel" aria-labelledby="tab-btn-scoreboard">
+    <!-- TAB 5: Control Center -->
+    <section id="panel-settings" class="tab-panel" aria-labelledby="tab-btn-settings">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title" data-i18n="scoreboard.title">Cache Health &amp; Token Scoreboard</h2>
-          <p class="panel-desc" data-i18n="scoreboard.desc">Real-time stats on documents, vector coverage, cache file size, and cumulative Token Reduction Ratio (TRR).</p>
+          <h2 class="panel-title" data-i18n="settings.title">Control Center &amp; Agent Configuration</h2>
+          <p class="panel-desc" data-i18n="settings.desc">Live hot-swappable --vault management, LLM-Wiki bootstrap, engine config, and AI client matrix.</p>
         </div>
         <div class="panel-header-badges">
-          <span class="badge badge-muted mono" id="scoreboard-status-badge" data-i18n="scoreboard.status_healthy">Healthy</span>
-          <span class="badge badge-muted mono">Endpoint: /api/status</span>
+          <span class="badge badge-tech mono">~/.config/k0maru/config.toml</span>
+          <span class="badge badge-muted mono">Endpoint: /api/config</span>
         </div>
       </div>
 
-      <!-- KPI Metric Grid -->
-      <div class="grid grid-cols-4 scoreboard-grid">
-        <div class="cockpit-card metric-card">
-          <div class="metric-icon-wrap">
-            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-            </svg>
-          </div>
-          <span class="metric-label" data-i18n="scoreboard.kpi_docs_label">Vault Documents</span>
-          <span id="scoreboard-doc-count" class="metric-value font-bold mono">--</span>
-          <span class="metric-subtitle" data-i18n="scoreboard.kpi_docs_sub">Parsed Markdown notes</span>
-        </div>
-
-        <div class="cockpit-card metric-card">
-          <div class="metric-icon-wrap">
-            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <path d="m4.93 4.93 4.24 4.24"></path>
-              <path d="m14.83 9.17 4.24-4.24"></path>
-              <path d="m14.83 14.83 4.24 4.24"></path>
-              <path d="m9.17 14.83-4.24 4.24"></path>
-            </svg>
-          </div>
-          <span class="metric-label" data-i18n="scoreboard.kpi_vecs_label">Vector Embeddings</span>
-          <div class="metric-value-row">
-            <span id="scoreboard-vec-count" class="metric-value font-bold mono">--</span>
-            <span id="scoreboard-vec-coverage" class="badge badge-emerald mono">0%</span>
-          </div>
-          <span class="metric-subtitle" data-i18n="scoreboard.kpi_vecs_sub">Dense vector index coverage</span>
-        </div>
-
-        <div class="cockpit-card metric-card">
-          <div class="metric-icon-wrap">
-            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-            </svg>
-          </div>
-          <span class="metric-label" data-i18n="scoreboard.kpi_cache_label">Cache Database Size</span>
-          <span id="scoreboard-cache-size" class="metric-value font-bold mono">-- KB</span>
-          <span class="metric-subtitle" data-i18n="scoreboard.kpi_cache_sub">SQLite cache.sqlite footprint</span>
-        </div>
-
-        <div class="cockpit-card metric-card">
-          <div class="metric-icon-wrap">
-            <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="20" x2="18" y2="10"></line>
-              <line x1="12" y1="20" x2="12" y2="4"></line>
-              <line x1="6" y1="20" x2="6" y2="14"></line>
-            </svg>
-          </div>
-          <span class="metric-label" data-i18n="scoreboard.kpi_logs_label">Offloaded Log Nodes</span>
-          <span id="scoreboard-log-count" class="metric-value font-bold mono">--</span>
-          <span class="metric-subtitle" data-i18n="scoreboard.kpi_logs_sub">Symbolic terminal traces</span>
-        </div>
-      </div>
-
-      <!-- Token Economics & Operations Grid -->
-      <div class="scoreboard-two-col">
-        <!-- Token Economics & Context Hygiene Card -->
-        <div class="cockpit-card token-economics-card">
+      <div class="settings-grid">
+        <!-- Section A: Active Vault & LLM-Wiki Bootstrap -->
+        <div class="cockpit-card settings-card">
           <div class="card-section-header">
             <h3 class="card-section-title">
-              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
               </svg>
-              <span data-i18n="scoreboard.token_title">Token Economics &amp; Context Hygiene</span>
+              <span data-i18n="settings.vault_section_title">Section A: Active Vault &amp; LLM-Wiki Bootstrap</span>
             </h3>
-            <span class="badge badge-emerald" id="token-benchmark-badge" data-i18n="scoreboard.benchmark_badge">Phase 3.8 Baseline</span>
+            <span class="badge badge-muted mono">--vault</span>
           </div>
 
-          <div class="token-economics-body">
-            <div class="token-metric-hero">
-              <span class="token-hero-label" data-i18n="scoreboard.token_hero_label">Estimated Cumulative Tokens Saved</span>
-              <div class="token-hero-val-wrap">
-                <span id="token-saved-val" class="token-hero-value mono">0</span>
-                <span class="token-hero-unit mono" data-i18n="scoreboard.token_hero_unit">tokens</span>
+          <div class="settings-card-body">
+            <div class="form-group">
+              <label for="config-vault-path" class="form-label mono" data-i18n="settings.vault_path_label">Active Vault Path:</label>
+              <div class="input-with-button">
+                <input type="text" id="config-vault-path" class="input mono" placeholder="/path/to/vault" data-i18n-placeholder="settings.vault_path_placeholder" autocomplete="off" spellcheck="false">
+                <button type="button" class="btn btn-secondary mono" id="btn-apply-vault" data-i18n="settings.btn_apply_vault">Apply &amp; Hot-Swap</button>
               </div>
-              <span class="token-hero-desc" data-i18n="scoreboard.token_hero_desc">Saved by replacing bulky terminal streams with symbolic pointer nodes.</span>
+              <span class="form-help-text mono" data-i18n="settings.vault_help">Hot-swaps memory engine, SQLite cache, and vector store live without restarting cockpit.</span>
             </div>
 
-            <div class="trr-meter-section">
-              <div class="trr-meter-header">
-                <span class="trr-meter-title" data-i18n="scoreboard.trr_title">Token Reduction Ratio (TRR)</span>
-                <span id="token-trr-val" class="trr-meter-val mono font-bold">99.44%</span>
-              </div>
-              <div class="trr-progress-track">
-                <div id="token-trr-bar" class="trr-progress-fill" style="width: 99.44%;"></div>
-              </div>
-              <div class="trr-benchmarks">
-                <span class="benchmark-point mono">0%</span>
-                <span class="benchmark-point mono active" title="Phase 3.8 Baseline" data-i18n="scoreboard.trr_target" data-i18n-title="scoreboard.benchmark_badge">Phase 3.8: 99.44% Target</span>
-                <span class="benchmark-point mono">100%</span>
+            <div class="form-group">
+              <label class="form-label mono" data-i18n="settings.recent_vaults_label">Recent Vaults (Click to Switch):</label>
+              <div id="recent-vaults-list" class="recent-vaults-list">
+                <span class="text-muted text-xs mono" data-i18n="vault.no_recents">No recent vaults recorded</span>
               </div>
             </div>
 
-            <div class="benchmark-callout">
-              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <div class="callout-text">
-                <strong class="callout-title" data-i18n="scoreboard.callout_title">Benchmark Verified:</strong>
-                <span class="callout-desc" data-i18n="scoreboard.callout_desc">Exceeds Phase 3.8 TRR baseline of 99.44% context reduction on 10,000-line compiler traces.</span>
+            <div class="form-group bootstrap-box">
+              <div class="bootstrap-info">
+                <strong class="mono" data-i18n="settings.bootstrap_title">Bootstrap Karpathy LLM-Wiki</strong>
+                <p class="text-xs text-muted" data-i18n="settings.bootstrap_desc">Creates semantic folders (projects/, decisions/, logs/, INDEX.md) at the target path and hot-swaps to it.</p>
               </div>
+              <button type="button" class="btn btn-outline mono" id="btn-bootstrap-vault" data-i18n="settings.btn_bootstrap">[Bootstrap New LLM-Wiki Here]</button>
             </div>
           </div>
         </div>
 
-        <!-- Cache Operations & Synchronization Card -->
-        <div class="cockpit-card cache-operations-card">
+        <!-- Section B: Engine & Retrieval Configuration -->
+        <div class="cockpit-card settings-card">
           <div class="card-section-header">
             <h3 class="card-section-title">
-              <svg class="icon icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                <path d="M3 3v5h5"></path>
-                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
-                <path d="M16 21h5v-5"></path>
+              <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
-              <span data-i18n="scoreboard.sync_card_title">Cache Operations &amp; Index Sync</span>
+              <span data-i18n="settings.engine_section_title">Section B: Engine &amp; Retrieval Configuration</span>
             </h3>
-            <span class="badge badge-muted mono" id="scoreboard-sync-status" data-i18n="scoreboard.sync_ready">Ready</span>
+            <span class="badge badge-muted mono">PERSISTENT</span>
           </div>
 
-          <div class="cache-operations-body">
-            <p class="cache-desc" data-i18n="scoreboard.sync_card_desc">
-              Trigger an incremental scan to index newly added or modified Markdown files, update WikiLinks connections, and compute vector embeddings without daemon overhead.
-            </p>
+          <div class="settings-card-body">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="config-embedding-model" class="form-label mono" data-i18n="settings.embedding_model_label">Embedding Model:</label>
+                <select id="config-embedding-model" class="input mono">
+                  <option value="bge-small">BAAI/bge-small-en-v1.5 (384-dim, Fast)</option>
+                  <option value="bge-m3">BAAI/bge-m3 (1024-dim, Multilingual)</option>
+                </select>
+              </div>
 
-            <div class="sync-status-details">
-              <div class="sync-detail-row">
-                <span class="detail-label" data-i18n="scoreboard.active_vault_label">Active Vault Path:</span>
-                <span id="scoreboard-vault-path" class="detail-value mono truncate">Connecting...</span>
-              </div>
-              <div class="sync-detail-row">
-                <span class="detail-label" data-i18n="scoreboard.last_sync_label">Last Sync Completed:</span>
-                <span id="scoreboard-last-sync" class="detail-value mono">--</span>
-              </div>
-              <div class="sync-detail-row">
-                <span class="detail-label" data-i18n="scoreboard.engine_mode_label">Engine Mode:</span>
-                <span class="detail-value mono" data-i18n="scoreboard.engine_mode_val">Zero-Daemon Embedded (FastMCP)</span>
+              <div class="form-group flex-1">
+                <label for="config-search-mode" class="form-label mono" data-i18n="settings.search_mode_label">Default Search Mode:</label>
+                <select id="config-search-mode" class="input mono">
+                  <option value="hybrid">Hybrid (FTS5 + Dense Vector + Graph RRF)</option>
+                  <option value="fts">FTS5 BM25 Lexical Keyword Only</option>
+                  <option value="vector">Vector Dense Cosine Semantic Only</option>
+                </select>
               </div>
             </div>
 
-            <div class="cache-actions">
-              <button type="button" class="btn btn-primary btn-block" id="btn-scoreboard-sync">
-                <svg class="icon sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                  <path d="M3 3v5h5"></path>
-                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
-                  <path d="M16 21h5v-5"></path>
+            <div class="form-group">
+              <div class="label-with-value">
+                <label for="config-token-budget" class="form-label mono" data-i18n="settings.token_budget_label">Loadout Token Budget:</label>
+                <span id="config-token-budget-val" class="mono font-bold">300</span> <span class="mono text-muted text-xs">tokens</span>
+              </div>
+              <input type="range" id="config-token-budget" class="range-slider" min="100" max="1000" step="50" value="300">
+              <span class="form-help-text mono" data-i18n="settings.token_budget_help">Strict limit for k0maru loadout &amp; SessionStart MCP hook payload to preserve agent context.</span>
+            </div>
+
+            <div class="toggles-row">
+              <label class="toggle-card">
+                <input type="checkbox" id="config-guard-strict" class="toggle-switch-input" checked>
+                <span class="toggle-switch-slider"></span>
+                <div class="toggle-card-text">
+                  <strong class="mono" data-i18n="settings.guard_strict_title">Guard Strict Invariants</strong>
+                  <span class="text-xs text-muted" data-i18n="settings.guard_strict_desc">Enforce hard DENY exits on ADR rule violations during pre-commit checks.</span>
+                </div>
+              </label>
+
+              <label class="toggle-card">
+                <input type="checkbox" id="config-passive-capture" class="toggle-switch-input" checked>
+                <span class="toggle-switch-slider"></span>
+                <div class="toggle-card-text">
+                  <strong class="mono" data-i18n="settings.passive_capture_title">Passive Lifecycle Capture</strong>
+                  <span class="text-xs text-muted" data-i18n="settings.passive_capture_desc">Log passive session observations on SessionStart, PostToolFailure, and SessionEnd.</span>
+                </div>
+              </label>
+            </div>
+
+            <div class="form-actions-right">
+              <button type="button" class="btn btn-primary mono" id="btn-save-config" data-i18n="settings.btn_save_config">Save Engine Configuration</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section C: AI Agent Client & Hook Matrix -->
+        <div class="cockpit-card settings-card grid-col-span-2">
+          <div class="card-section-header">
+            <div>
+              <h3 class="card-section-title">
+                <svg class="icon icon-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
                 </svg>
-                <span class="btn-text" data-i18n="scoreboard.btn_incremental_sync">Run Incremental Sync</span>
-              </button>
+                <span data-i18n="settings.client_matrix_title">Section C: AI Agent Client &amp; Hook Matrix</span>
+              </h3>
+              <p class="panel-desc text-xs" data-i18n="settings.client_matrix_desc">Zero-daemon FastMCP integration and passive lifecycle hook status across 8 coding assistants.</p>
+            </div>
+            <div class="client-actions-right">
+              <button type="button" class="btn btn-sm btn-secondary mono" id="btn-refresh-clients" data-i18n="settings.btn_refresh_clients">Refresh Status</button>
+              <button type="button" class="btn btn-sm btn-outline mono" id="btn-configure-all-clients" data-i18n="settings.btn_configure_all">[Configure All Clients]</button>
+            </div>
+          </div>
+
+          <div class="settings-card-body">
+            <div id="clients-matrix-container" class="clients-matrix-grid">
+              <div class="placeholder-state">
+                <span class="mono text-muted text-xs" data-i18n="settings.loading_clients">Scanning AI client configurations...</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </section>
   </main>
+
+  <!-- Slide-Over Note Inspector Drawer -->
+  <div id="note-drawer" class="note-drawer-overlay" aria-hidden="true" style="display: none;">
+    <div class="note-drawer-backdrop" id="note-drawer-backdrop"></div>
+    <aside class="note-drawer-panel" id="note-drawer-panel" aria-label="Note Inspector Drawer">
+      <div class="note-drawer-header">
+        <div class="note-drawer-title-group">
+          <div class="drawer-badges-row">
+            <span id="drawer-note-tier" class="badge-tier tier-project mono">[L3 // ADR]</span>
+            <span id="drawer-note-status" class="badge badge-tech mono">[ACTIVE]</span>
+          </div>
+          <h2 id="drawer-note-title" class="drawer-main-title">Note Title</h2>
+          <span id="drawer-note-path" class="drawer-rel-path mono truncate">path/to/note.md</span>
+        </div>
+        <button type="button" class="btn-icon drawer-close-btn" id="btn-close-note-drawer" title="Close Drawer (Esc)" data-i18n-title="drawer.close_title">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="note-drawer-body">
+        <!-- Supersedes & Superseded By Section -->
+        <div class="drawer-card supersedes-card" id="drawer-supersedes-container" style="display: none;">
+          <h4 class="drawer-card-title mono" data-i18n="drawer.lifecycle_chain">ADR Lifecycle Chain</h4>
+          <div class="chain-row" id="row-supersedes" style="display: none;">
+            <span class="chain-label mono text-muted" data-i18n="drawer.supersedes">Supersedes:</span>
+            <div id="drawer-note-supersedes" class="chain-links mono"></div>
+          </div>
+          <div class="chain-row" id="row-superseded-by" style="display: none;">
+            <span class="chain-label mono text-muted" data-i18n="drawer.superseded_by">Superseded By:</span>
+            <div id="drawer-note-superseded-by" class="chain-links mono"></div>
+          </div>
+        </div>
+
+        <!-- Frontmatter Metadata Section -->
+        <div class="drawer-card frontmatter-card" id="drawer-frontmatter-container">
+          <h4 class="drawer-card-title mono" data-i18n="drawer.frontmatter_title">Frontmatter Metadata</h4>
+          <div id="drawer-note-frontmatter" class="frontmatter-table mono">
+            <span class="text-muted text-xs" data-i18n="drawer.no_frontmatter">No frontmatter recorded</span>
+          </div>
+        </div>
+
+        <!-- WikiLinks Graph Neighborhood -->
+        <div class="drawer-card wikilinks-card">
+          <h4 class="drawer-card-title mono" data-i18n="drawer.wikilinks_title">WikiLinks Neighborhood</h4>
+          <div class="wikilinks-group">
+            <span class="wikilinks-group-label mono text-xs text-muted" data-i18n="drawer.incoming_links">Incoming WikiLinks (Backlinks):</span>
+            <div id="drawer-note-inbound" class="wikilinks-pills mono">
+              <span class="text-muted text-xs" data-i18n="drawer.no_inbound">No incoming backlinks</span>
+            </div>
+          </div>
+          <div class="wikilinks-group">
+            <span class="wikilinks-group-label mono text-xs text-muted" data-i18n="drawer.outgoing_links">Outbound WikiLinks:</span>
+            <div id="drawer-note-outbound" class="wikilinks-pills mono">
+              <span class="text-muted text-xs" data-i18n="drawer.no_outbound">No outgoing WikiLinks</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Markdown Document Body -->
+        <div class="drawer-card markdown-card">
+          <h4 class="drawer-card-title mono" data-i18n="drawer.document_body_title">Document Markdown Body</h4>
+          <div id="drawer-note-body" class="note-markdown-body">
+            <div class="placeholder-state">
+              <span class="mono text-muted text-xs" data-i18n="drawer.loading_body">Loading note content...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
 
   <!-- Toast Notification Container -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>

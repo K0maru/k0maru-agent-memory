@@ -412,10 +412,21 @@ fn collect_markdown_files(dir: &Path, results: &mut Vec<PathBuf>) {
     }
 }
 
-/// Returns true when a path lives under the `01_AI_Logs/` session-log tree.
+/// Returns true when a path lives under any session-log or journal tree.
 fn is_ai_log_path(path: &Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str() == "01_AI_Logs")
+    const CANDIDATES: &[&str] = &[
+        "01_ai_logs",
+        "30_logs",
+        "logs",
+        "ai_logs",
+        "journal",
+        "records",
+        "postmortems",
+    ];
+    path.components().any(|component| {
+        let seg = component.as_os_str().to_string_lossy().to_lowercase();
+        CANDIDATES.contains(&seg.as_str())
+    })
 }
 
 /// Returns true when a slug already starts with an ISO `YYYY-MM-DD` date.
