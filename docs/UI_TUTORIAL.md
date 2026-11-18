@@ -161,7 +161,7 @@ Used to **quantify token savings and monitor underlying memory system health**.
 ## 7. Standard Human-in-the-Loop Workflows
 
 ### Scenario A: Verifying Memory Retrieval for New Notes
-1. Create a new architecture card in your vault: `20_Cards/distributed-deadlock-handling.md`.
+1. Create a new architecture card in your vault: `decisions/distributed-deadlock-handling.md`.
 2. Launch `k0maru ui --open` (or click **"Sync Vault"** in an already open dashboard).
 3. In the search panel, press `/` and type: *"how to resolve cross-shard deadlocks"*.
 4. Verify that the new note ranks at the top, and inspect its RRF score and `+0.05 Graph Boost` badge. If the graph boost is absent, add `[[RelatedArchitectureCard]]` WikiLinks to strengthen topological associations.

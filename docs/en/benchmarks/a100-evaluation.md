@@ -1,13 +1,13 @@
 # NVIDIA A100 Evaluation & Token Economics
 
-To bridge theoretical design and industrial software engineering, we conducted empirical evaluations using an enterprise **NVIDIA A100-SXM4-80GB GPU** (80 GB HBM2e VRAM, 167 GB host RAM) hosted on Google Colab Pro. We evaluated leading open-weight coding and reasoning models across a suite of industrial defect benchmarks.
+To bridge theoretical design and industrial software engineering, we conducted empirical evaluations using a **Cloud GPU VM (NVIDIA A100-SXM4-80GB GPU**, 80 GB HBM2e VRAM, 167 GB host RAM). We evaluated leading open-weight coding and reasoning models across a suite of industrial defect benchmarks.
 
 ---
 
 ## 🖥️ Hardware Setup & Evaluation Protocol
 
 ```text
-Compute Platform: Google Colab Pro Dedicated Instance
+Compute Platform: Cloud GPU VM (Dedicated A100 Instance)
 Accelerator:      NVIDIA A100-SXM4-80GB (80 GB HBM2e, 2,039 GB/s bandwidth)
 Driver & CUDA:    NVIDIA Driver 580.82.07, CUDA 13.0
 Host System:      Intel Xeon CPU @ 2.20GHz (12 vCPUs), 167 GiB RAM, 194 GiB NVMe SSD

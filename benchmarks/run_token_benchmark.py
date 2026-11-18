@@ -168,7 +168,7 @@ def main():
 
     results = []
     # Dedicated temp refs directory for clean benchmark isolated storage
-    bench_refs = os.path.join(_REPO_ROOT, ".scratch", "benchmark_refs")
+    bench_refs = os.path.join(_REPO_ROOT, ".k0maru", "benchmark_refs")
     os.makedirs(bench_refs, exist_ok=True)
 
     for fix_file in fixture_files:

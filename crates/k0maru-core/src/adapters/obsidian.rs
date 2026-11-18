@@ -59,44 +59,43 @@ impl VaultAdapter for ObsidianAdapter {
         content: &str,
         hierarchy: HierarchyLevel,
     ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let use_llm_wiki = !self.root.join("10_Projects").is_dir()
-            && !self.root.join("20_Cards").is_dir()
-            && (self.root.join("decisions").is_dir()
-                || self.root.join("projects").is_dir()
-                || self.root.join("logs").is_dir());
-
-        let subfolder = if use_llm_wiki {
-            match hierarchy {
-                HierarchyLevel::L3Evergreen => {
-                    if self.root.join("cards").is_dir() && !self.root.join("decisions").is_dir() {
-                        "cards"
-                    } else {
-                        "decisions"
-                    }
-                }
-                HierarchyLevel::L2Log => "logs",
-                HierarchyLevel::L0Ephemeral => "daily",
-                HierarchyLevel::L1Resource => {
-                    if self.root.join("projects").is_dir() {
-                        "projects"
-                    } else {
-                        "resources"
-                    }
+        let subfolder = match hierarchy {
+            HierarchyLevel::L3Evergreen => {
+                if self.root.join("decisions").is_dir() {
+                    "decisions"
+                } else if self.root.join("cards").is_dir() {
+                    "cards"
+                } else if self.root.join("20_Cards").is_dir() {
+                    "20_Cards"
+                } else {
+                    "decisions"
                 }
             }
-        } else {
-            match hierarchy {
-                HierarchyLevel::L3Evergreen => "20_Cards",
-                HierarchyLevel::L2Log => "01_AI_Logs",
-                HierarchyLevel::L0Ephemeral => "00_Daily",
-                HierarchyLevel::L1Resource => {
-                    if self.root.join("30_Resources").is_dir() {
-                        "30_Resources"
-                    } else if self.root.join("10_Projects").is_dir() {
-                        "10_Projects"
-                    } else {
-                        "30_Resources"
-                    }
+            HierarchyLevel::L2Log => {
+                if self.root.join("logs").is_dir() {
+                    "logs"
+                } else if self.root.join("01_AI_Logs").is_dir() {
+                    "01_AI_Logs"
+                } else {
+                    "logs"
+                }
+            }
+            HierarchyLevel::L0Ephemeral => {
+                if self.root.join("daily").is_dir() {
+                    "daily"
+                } else if self.root.join("00_Daily").is_dir() {
+                    "00_Daily"
+                } else {
+                    "daily"
+                }
+            }
+            HierarchyLevel::L1Resource => {
+                if self.root.join("resources").is_dir() {
+                    "resources"
+                } else if self.root.join("30_Resources").is_dir() {
+                    "30_Resources"
+                } else {
+                    "resources"
                 }
             }
         };

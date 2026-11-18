@@ -53,7 +53,7 @@ timeline
 - **Phase 5 (v0.4.2)**: Shipped an embedded Developer Dark Cockpit WebUI via Axum and `rust-embed`, featuring query latency telemetry, 2D force graph visualization, and i18n support.
 - **Phase 6 (v0.5.0)**: Introduced `k0maru install` for 5 major AI coding agents with non-destructive JSON merges, alongside `k0maru doctor` multi-probe health diagnostics.
 - **Phase 7 (v0.6.0)**: Released `ConventionSniffer` for automated vault layout discovery, and `FlushEngine` for atomic collision-safe decision crystallization.
-- **Phase 8 (v0.8.0)**: Completed empirical evaluations on Google Colab NVIDIA A100-SXM4-80GB hardware across Qwen2.5-32B-Instruct (100% Pass@1), DeepSeek-R1-32B (-48.2% reflection latency), and DeepSeek-Coder-V2 (1.05s response).
+- **Phase 8 (v0.8.0)**: Completed empirical evaluations on Cloud GPU VM (NVIDIA A100-SXM4-80GB) hardware across Qwen2.5-32B-Instruct (100% Pass@1), DeepSeek-R1-32B (-48.2% reflection latency), and DeepSeek-Coder-V2 (1.05s response).
 - **Phase 8.5 (v0.8.2)**: Shipped the 11-chapter bilingual VitePress documentation platform and automated GitHub Actions deployment.
 
 ---

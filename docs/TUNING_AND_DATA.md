@@ -37,8 +37,8 @@ K0maru includes an **Adaptive Convention Sniffer** (`ConventionSniffer`) that au
 # K0maru Vault Rules
 
 - decisions: docs/adr
-- logs: 01_AI_Logs
-- concepts: 20_Cards
+- logs: logs
+- concepts: decisions
 - skills: playbooks
 ```
 

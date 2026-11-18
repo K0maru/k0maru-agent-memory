@@ -851,6 +851,7 @@ mod tests {
             content_hash: "hash".to_string(),
             mtime: 0,
             body: "## Non-Negotiable Invariants\n- [RULE-BODY] (deny) [*.rs] forbidden: \"old_call()\" | remediation: \"do not call\"".to_string(),
+            body_line_offset: 0,
         };
 
         let rules = extract_rules_from_document(&doc);
@@ -881,6 +882,7 @@ mod tests {
             content_hash: "hash2".to_string(),
             mtime: 0,
             body: String::new(),
+            body_line_offset: 0,
         };
 
         let rules = extract_rules_from_document(&doc);

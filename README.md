@@ -1,6 +1,6 @@
 [English](README.md) | [简体中文](README_zh.md)
 
-> 🤖 **Zero-Human AI Setup (Claude Code / Cursor / Windsurf / Cline / `omp`)**: Open any repository in your coding agent and paste this single sentence:
+> 🤖 **Zero-Human AI Setup (Claude Code / Cursor / Codex / Windsurf / Cline / Gemini CLI)**: Open any repository in your coding agent and paste this single sentence:
 > ```text
 > Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
 > ```
@@ -62,7 +62,7 @@ Existing agent memory frameworks frequently deploy heavy multi-container Docker 
 
 ### 🛡️ Verified Adversarial Supersession & Living ADR Guard A/B Benchmark
 
-Tested across **Local Multi-Agent (`omp` + `DeepSeek V4.1 Flash` on Apple Silicon M3 Max)**, **Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI**, and the **Reproducible CLI Benchmark (`python3 benchmarks/run_supersession_guard_ab.py`)** on the `payment-settlement` repository. Comparing an unmanaged markdown wiki against K0maru's closed-loop governance engine under architectural evolution (migrating from legacy `ADR-010` raw `redis_setnx_unscoped` locks to `ADR-042` distributed fenced token leases `acquire_fenced_lease`):
+Tested across **Local Multi-Agent (`DeepSeek V4.1 Flash` via local coding agent harness on Apple Silicon laptop (ARM64))**, **Cloud GPU VM (NVIDIA L4-24GB + Qwen2.5-Coder-7B)**, and the **Reproducible CLI Benchmark (`python3 benchmarks/run_supersession_guard_ab.py`)** on the `payment-settlement` repository. Comparing an unmanaged markdown wiki against K0maru's closed-loop governance engine under architectural evolution (migrating from legacy `ADR-010` raw `redis_setnx_unscoped` locks to `ADR-042` distributed fenced token leases `acquire_fenced_lease`):
 
 | Evaluation Dimension / Stage | Control Group (Naive Markdown Wiki without `--supersedes`) | Treatment Group (`k0maru flush --supersedes` + `guard check --diff`) | Breakthrough & Governance Impact |
 | :--- | :--- | :--- | :--- |
@@ -70,20 +70,20 @@ Tested across **Local Multi-Agent (`omp` + `DeepSeek V4.1 Flash` on Apple Silico
 | **Dynamic Loadout (`<300-token`)** | Bloated / Stale (`>650 tokens` including superseded notes) | **Compact: 245 tokens** (with `[Guard: forbid ...]` active invariant injection) | **Strict Context Budget**: Keeps prompt within cognitive Smart-Zone |
 | **Turn-1 Implementation (Code Generation)** | Uses unsafe `redis_setnx_unscoped` (poisoned by legacy Wiki links) | **100% Turn-1 Pass@1** (`acquire_fenced_lease` on first attempt, 0 guard violations) | **Proactive Invariant Forwarding**: Forwarded new ADR invariants prevent regressions before execution |
 | **Pre-Commit Guard Enforcement** | **0 violations (Bypassed)**<br>*Unsafe `redis_setnx_unscoped` committed to codebase* | **BLOCKED in <35ms** (`[DENY] ban-legacy-setnx`, <3.9ms core)<br>*Intercepts unsafe lock pattern with 100% precision if staged* | **100% Defect Interception**: Zero architectural regression reaches Git history |
-| **Autonomous Agent Self-Healing** | Failed (Silent production vulnerability) | **100% Pass in 1 Turn**<br>*Drives 1-turn self-healing on both DeepSeek V4.1 Flash (`omp`) and reproducible benchmark CLI* | Autonomous remediation using active ADR invariants and guard feedback |
+| **Autonomous Agent Self-Healing** | Failed (Silent production vulnerability) | **100% Pass in 1 Turn**<br>*Drives 1-turn self-healing on both DeepSeek V4.1 Flash (local coding agent harness) and reproducible benchmark CLI* | Autonomous remediation using active ADR invariants and guard feedback |
 > 🔬 **Reproducible Benchmark Suite & Empirical Data**:  
 > - Executable harness script: [`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
 > - Raw empirical matrix results: [`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
 
-#### Autonomous Agent Ecosystem Adaptation (Hermes Agent & OpenClaw on Real LLM-Wiki)
+#### Autonomous Agent Loop Evaluation (Real LLM-Wiki)
 
-Simulated an enterprise-grade payment gateway LLM-Wiki on Colab (containing P0 service architecture, L3 idempotency rules, and incident postmortems), driving **Llama-3.1-8B-Instruct (A100)** and **Qwen2.5-Coder-7B (Colab L4)** through an autonomous Hermes / OpenClaw function calling loop. Both verified models achieved 100% compliance (`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`, `Qwen2.5-Coder-7B (Colab L4): 100% Pass@1`):
+Simulated an enterprise-grade payment gateway LLM-Wiki on a Cloud GPU VM (containing P0 service architecture, L3 idempotency rules, and incident postmortems), driving **Llama-3.1-8B-Instruct (NVIDIA A100-80GB)** and **Qwen2.5-Coder-7B (NVIDIA L4-24GB)** through an autonomous function-calling loop. Both verified models achieved 100% compliance (`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`, `Qwen2.5-Coder-7B: 100% Pass@1`):
 
 | Invariant Verification Item | Expected Standard & Behavior | Empirical Outcome | Status |
 | :--- | :--- | :--- | :---: |
 | **1. Pre-flight Memory Inspection** | Query loadout and rules before generating any code | Autonomously issued `get_project_loadout` + 2x targeted `recall_memory` calls | **PASS ✓** |
 | **2. Architectural Invariant Compliance** | Generated code must enforce distributed mutex & state guard | Produced Go handler with Redis lock `SET NX EX 30` & `STATUS_PENDING` check | **PASS ✓** |
-| **3. Self-Healing Session Flush** | Persist ADR decision to wiki via `flush_session` with WikiLinks | Automatically created `20_Cards/adr-pay-012-...md` with frontmatter | **PASS ✓** |
+| **3. Self-Healing Session Flush** | Persist ADR decision to wiki via `flush_session` with WikiLinks | Automatically created `decisions/adr-pay-012-...md` with frontmatter | **PASS ✓** |
 | **4. Instant Recall Without Re-indexing** | Note must be recallable immediately without manual re-index | Recalled in **0.88 ms** with top score of 12.05 (Rank #1 hit) | **PASS ✓** |
 
 > 📖 **Comprehensive Case Breakdown & Autonomous Agent Traces**:  
@@ -96,7 +96,7 @@ For deep-dive walkthroughs and multi-agent setup, see [QUICKSTART.md](QUICKSTART
 
 ### 🤖 Option A (Zero-Human): Paste One Sentence to Your Coding Agent
 
-Open any repository in **Claude Code, Cursor, Windsurf, Cline, or `omp`** and send:
+Open any repository in **Claude Code, Cursor, Codex, Windsurf, Cline, or Gemini CLI** and send:
 
 ```text
 Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
@@ -118,9 +118,10 @@ k0maru init --install
 **What `k0maru init --install` (alias `k0maru bootstrap`) does in <1 second:**
 - 🔍 **Scans Repository**: Auto-detects project structure and conventions from `README.md`, package manifests (`Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod`), agent guidelines (`AGENTS.md`, `CLAUDE.md`), and recent git commit history.
 - 📐 **Bootstraps Memory Wiki**: Generates `.k0maru/wiki/` containing:
-  - `10_Projects/<project_slug>.md`: Project architectural scope, module seams, and operational guidelines.
-  - `20_Cards/adr-001-repository-guardrails.md`: Initial Living ADR card with executable regex/boundary invariants (blocks secret leaks, debug dumps, and rule violations).
-  - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`: Initial handoff log summarizing recent commits and development momentum.
+  - `projects/<project_slug>.md`: Project architectural scope, module seams, and operational guidelines.
+  - `decisions/adr-001-repository-guardrails.md`: Initial Living ADR card with executable regex/boundary invariants (blocks secret leaks, debug dumps, and rule violations).
+  - `logs/<YYYY-MM-DD>-initial-bootstrap.md`: Initial handoff log summarizing recent commits and development momentum.
+  - `INDEX.md`: Master Map of Content (MOC) linking projects, decisions, and logs.
 - 🔗 **Wires FastMCP & Full Lifecycle Hooks**: Generates project-scoped `.mcp.json` and `.claude/settings.local.json` (`SessionStart` `<300-token` diff-aware loadout + `Stop` exit-2 self-heal guard), and installs `.git/hooks/pre-commit` (blocks non-compliant commits in `<10ms`) and `.git/hooks/post-commit` (auto-syncs and logs conventional commits).
 - ⚡ **Builds Disposable Cache**: Compiles `cache.sqlite` with FTS5 and vector indices so `k0maru loadout` and `k0maru guard check --diff` work immediately!
 
@@ -235,7 +236,7 @@ cargo test 2>&1 | k0maru offload
 k0maru inspect node_54697ed3
 ```
 
-- **99.44% Token Reduction**: Truncates massive compiler dumps, storing full raw logs safely under `.scratch/refs/` or `<vault>/.k0maru/refs/`.
+- **99.44% Token Reduction**: Truncates massive compiler dumps, storing full raw logs safely under `<vault>/.k0maru/refs/`.
 - **Mermaid State Diagrams**: Transforms raw stack traces into structural transitions (e.g., `Iteration1 --> Failure: E0382 borrow after move`), guiding LLMs directly to the root cause without attention drift.
 - **FastMCP Autonomous Tools**:
   - `offload_context`: Agents can offload terminal logs produced during tool execution.
@@ -256,7 +257,7 @@ k0maru search "concurrency deadlock mitigation" --vault ~/wiki --mode hybrid --l
 k0maru search "vector similarity" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
-- **Ultra-Compact Wire Encoding**: Defaults to condensed single-line wire entries to save context window tokens (see [Advanced: Multiplexer & Sidecar Ecosystem](#advanced-multiplexer--sidecar-ecosystem-tern-omp--k-dsl-wire-protocol)). Pass `"full": true` when verbatim markdown excerpts are required.
+- **Ultra-Compact Wire Encoding**: Defaults to condensed single-line wire entries to save context window tokens (see [K-DSL Wire Protocol & Additional Harness Integrations](#k-dsl-wire-protocol--additional-harness-integrations)). Pass `"full": true` when verbatim markdown excerpts are required.
 - **Pluggable Vector Backends**: Built-in support for `all-minilm-l6-v2` (384d, default), `bge-small-zh-v1.5` (512d), `bge-base-en-v1.5` (768d), `paraphrase-multilingual-minilm-l12-v2` (384d), and mock embedders for offline testing.
 - **Dynamic Dimension Migration**: Seamlessly reconfigures `sqlite-vec` virtual tables upon model switching without manual database rebuilds.
 
@@ -305,7 +306,7 @@ k0maru guard install
 
 #### How Invariants are Declared
 
-In your vault's ADR notes (`20_Cards/` or `10_Projects/`), add an `invariants` block to the frontmatter:
+In your vault's ADR notes (`decisions/` or `docs/adr/`), add an `invariants` block to the frontmatter:
 
 ```yaml
 ---
@@ -371,7 +372,7 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 
 ## 🤖 Autonomous Agent Ecosystem & FastMCP Protocol
 
-When connected via FastMCP, K0maru provides the complete suite of long-term memory, architectural guardrails, and context governance tools across universal IDEs and CLI agents (Claude Code, Cursor, Codex, Windsurf, Gemini CLI, Cline, Hermes, OpenClaw):
+When connected via FastMCP, K0maru provides the complete suite of long-term memory, architectural guardrails, and context governance tools across mainstream OSS IDEs and CLI agents (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI — plus optional harness integrations):
 
 | FastMCP Tool | Target Intent & Natural Prompt Triggers | Core Value & Mechanics |
 | :--- | :--- | :--- |
@@ -396,34 +397,24 @@ K0maru is engineered for zero-human-in-the-loop autonomous execution across the 
 1. **SessionStart (Auto-Briefing)**: Claude Code or IDE hook executes `k0maru loadout "<project>" --diff`, injecting a bounded `<300-token` context backpack (mission, recent logs, active ADR rules triggered by current git diff).
 2. **Pre-Yield Autonomous Guard (`hooks.Stop`)**: Before returning execution to the user, Claude Code triggers `k0maru guard check --diff --claude-stop-hook`. If violations exist, it exits with POSIX code 2, forcing the agent to autonomously self-heal (either refactoring code or superseding the old ADR via `k0maru flush --supersedes`) before the human ever sees the response.
 3. **Pre-Commit Gate (`.git/hooks/pre-commit`)**: Evaluates staged changes against Living ADR invariants deterministically in `<10ms`, halting non-compliant commits.
-4. **Post-Commit Synchronization & Crystallization (`.git/hooks/post-commit`)**: Automatically triggers `k0maru sync` (~11ms) and crystallizes structured milestone notes in `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
+4. **Post-Commit Synchronization & Crystallization (`.git/hooks/post-commit`)**: Automatically triggers `k0maru sync` (~11ms) and crystallizes structured milestone notes in `logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
 
-### 🎛️ Advanced: Multiplexer & Sidecar Ecosystem (Tern, omp, & K-DSL Wire Protocol)
+### 🎛️ K-DSL Wire Protocol & Additional Harness Integrations
 
-For specialized terminal multiplexers, orchestrators, and high-density multi-agent setups:
-
-1. **Tern Terminal Multiplexer Plugin**:
-   Native Luau plugin for Tern featuring an interactive cockpit dashboard, CLI lens, and command palette integration:
-   ```bash
-   tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
-   ```
-
-2. **Oh My Pi (`omp`) & Orthogonal Sidecar Mode (`k0maru mcp --sidecar`)**:
-   Because `omp` natively manages terminal streams and session compaction, K0maru exposes an orthogonal 5-tool subset (`get_project_loadout`, `recall_memory`, `flush_session`, `distill_session_skill`, `guard_check`) omitting `offload_context`, `inspect_log_node`, and `gc_session_context` to prevent pipeline redundancy:
-   ```bash
-   # Add via omp marketplace
-   /marketplace add K0maru/k0maru-agent-memory
-   /marketplace install k0maru-memory@k0maru-agent-memory
-   ```
-
-3. **Ultra-Compact K-DSL Wire Protocol (`!μ:`)**:
+1. **Ultra-Compact K-DSL Wire Protocol (`!μ:`)**:
    To prevent Master Agent context explosion during subagent coordination, MCP `recall_memory` formats results into ultra-dense single-line K-DSL wire entries:
    `!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>` (capped at ≤140 chars per snippet).
    This cuts payload size by **73.16%** (164 bytes / 22 tokens vs 611 bytes / 112 tokens). Pass `"full": true` in tool parameters when verbatim multi-line markdown excerpts are needed.
 
+2. **Additional Harness Integrations (Optional)**:
+   Beyond mainstream clients (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI), K0maru also ships optional adapters for specialized harnesses and multiplexers:
+   - **Sidecar Mode (`k0maru mcp --sidecar`) & `omp`**: Exposes an orthogonal 5-tool subset (`get_project_loadout`, `recall_memory`, `flush_session`, `distill_session_skill`, `guard_check`) omitting `offload_context`, `inspect_log_node`, and `gc_session_context` for hosts with their own stream/compaction pipelines (`/marketplace add K0maru/k0maru-agent-memory` -> `/marketplace install k0maru-memory@k0maru-agent-memory`).
+   - **Tern Terminal Multiplexer Plugin**: Native Luau cockpit and CLI lens (`tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin`).
+   - **Hermes Agent & OpenClaw**: Supported by `k0maru install` and `k0maru distill --target hermes`.
+
 ---
 
-## 📊 Empirical Google Colab A100 Benchmark Matrix
+## 📊 Empirical Cloud GPU (NVIDIA A100-80GB) Benchmark Matrix
 
 Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier and coding models on 5 representative industrial defect scenarios (Rust `E0382`, Python `InvalidStateError`, TypeScript auth null reference, Go deadlock, C double free) and 4 architectural invariants:
 
@@ -437,7 +428,7 @@ Evaluated live on a dedicated **NVIDIA A100-SXM4-80GB GPU** across 5 frontier an
 | **DeepSeek-R1-32B** | 32B Reasoning Distill | 20.0% (1/5) | **40.0% (2/5)** | 12.01s ➔ **9.19s** | **1.31x** | 5,412 ➔ **989** | **81.7%** |
 | **Google Gemma 2 27B** | 27B Open Foundation | 0.0% (0/5) | 0.0% (0/5) | 16.69s ➔ **6.94s** | **2.40x** | 6,356 ➔ **1,134** | **82.2%** |
 
-*Note: 5-Case Symbolic Offload Micro-Benchmark (N=5 industrial defect cases evaluated under Ollama local inference on NVIDIA A100-80GB). See [docs/COMPARISON_REPORT.md](docs/COMPARISON_REPORT.md) for full breakdown, including 4/4 invariant compliance.*
+*Note: 5-Case Symbolic Offload Micro-Benchmark (N=5 industrial defect cases evaluated under Ollama local inference on a Cloud GPU VM with NVIDIA A100-SXM4-80GB). See [docs/COMPARISON_REPORT.md](docs/COMPARISON_REPORT.md) for full breakdown, including 4/4 invariant compliance.*
 
 ### 2. Multi-Agent Concurrency & Heterogeneous Harness Benchmark (A100)
 
@@ -483,7 +474,7 @@ Both `k0maru` and `k0maru-memory` binary names are supported identically.
 | | `--json` | Outputs machine-readable JSON bootstrap summary |
 | `k0maru install` | `--vault <path>` | Injects `k0maru-memory` into agent client config files |
 | | `--hooks` | Installs `.git/hooks/pre-commit` Living ADR guard and Claude Code SessionStart hook |
-| | `--target <client>` | Target client (`all`, `claude`, `cursor`, `gemini`, `windsurf`, `cline`, `hermes`, `openclaw`, `omp`) |
+| | `--target <client>` | Target client (`all`, `claude`, `cursor`, `codex`, `windsurf`, `cline`, `gemini`; optional: `hermes`, `openclaw`, `omp`) |
 | | `--dry-run` | Previews configuration changes without touching disk |
 | `k0maru doctor` | `--vault <path>` | Full diagnostic check of binary, vault, cache, and client bindings |
 | | `--json` | Outputs machine-readable JSON diagnostic report |
@@ -523,7 +514,7 @@ Both `k0maru` and `k0maru-memory` binary names are supported identically.
 | | `--json` | Outputs structured JSON guard report |
 | `k0maru guard install` | `--path <repo_dir>` | Installs `.git/hooks/pre-commit` hook to block non-compliant commits |
 | `k0maru mcp` | `--vault <path>` | Starts stdio FastMCP service exposing all 8 memory tools |
-| | `--sidecar` | Orthogonal 5-tool mode for `omp` (omits log offload and GC tools) |
+| | `--sidecar` | Orthogonal 5-tool sidecar mode (omits log offload and GC tools) |
 | `k0maru pack export` | `--name <name> --tag <tag> -o <file.pack.json>` | Exports portable Memory Pack (.pack.json) of notes & ADRs |
 | `k0maru pack import` | `<file.pack.json> [--dry-run]` | Imports Memory Pack into LLM-Wiki adapting to local topology |
 | `k0maru pack inspect` | `<file.pack.json>` | Inspects pack contents, metadata, and predicted destination paths |
@@ -532,9 +523,9 @@ Both `k0maru` and `k0maru-memory` binary names are supported identically.
 
 ## 📊 Empirical Benchmarks: Cognitive Memory & Living ADR Guard
 
-Empirically measured across a **Google Colab Linux VM** (Intel Xeon @ 2.20GHz, 12.67 GB RAM) protected by Zero-Burn Guard (`runtime.unassign()`), alongside local **Apple M5 Pro Mac** and **Linux Workstation (x86_64)**:
+Empirically measured across a **Cloud Linux VM** (Intel Xeon @ 2.20GHz, 12.67 GB RAM), alongside an **Apple Silicon laptop (ARM64)** and **Linux Workstation (x86_64)**:
 
-| Benchmark Dimension | Baseline (Full Markdown RAG / Manual CI) | Google Colab Linux VM | Apple M5 Pro Mac | Architectural Advantage & Impact |
+| Benchmark Dimension | Baseline (Full Markdown RAG / Manual CI) | Cloud Linux VM | Apple Silicon Laptop (ARM64) | Architectural Advantage & Impact |
 | :--- | :---: | :---: | :---: | :--- |
 | **Recall Payload Size (Single Memory)** | 611 bytes (112 Tokens) | **164 bytes (22 Tokens)** | **164 bytes (22 Tokens)** | **73.16% Token Reduction** via compact `!μ:` K-DSL wire |
 | **Vault Index Sync (`k0maru sync`)** | 500ms ~ 2,000ms | **34.48 ms** | **9.50 ms** | High-performance incremental SQLite + ONNX sync |
@@ -553,8 +544,8 @@ Empirically measured across a **Google Colab Linux VM** (Intel Xeon @ 2.20GHz, 1
 
 ## 🛠️ Customization & Tuning
 
-- **Vault Convention Tuning**: Declare custom directory mappings in `.k0maru/rules.md` or `AGENTS.md` (e.g., `decisions: docs/adr`, `logs: 01_AI_Logs`).
-- **Living ADR Invariants**: Add YAML frontmatter `invariants` to any ADR card in `20_Cards/` to immediately activate guardrails across your repositories.
+- **Vault Convention Tuning**: Declare custom directory mappings in `.k0maru/rules.md` or `AGENTS.md` (e.g., `decisions: docs/adr`, `logs: logs`).
+- **Living ADR Invariants**: Add YAML frontmatter `invariants` to any ADR card in `decisions/` or `docs/adr/` to immediately activate guardrails across your repositories.
 - **Low-Resource Workstations**: On memory-constrained devices (<1GB RAM), run with `--mode bm25` for sub-millisecond keyword retrieval with zero ONNX memory overhead.
 - **Offload Sensitivity**: Adjust `--threshold <N>` to match your model's context window. See [Developer Tuning Guide](docs/TUNING_AND_DATA.md).
 

@@ -105,8 +105,8 @@ pub struct ConventionRules {
 ### Detection Precedence
 1. **Explicit configuration**: Reads mappings declared in `.k0maru/rules.md`, `AGENTS.md`, or `CONVENTIONS.md`.
 2. **Directory heuristics**:
-   - Detects Johnny Decimal structures (`10_Projects/`, `20_Cards/`, `00_Logs/`);
-   - Detects flat conventions (`docs/adr/`, `decisions/`, `journal/`).
+   - Detects standard flat LLM-Wiki and engineering ADR conventions (`projects/`, `decisions/`, `docs/adr/`, `logs/`, `journal/`);
+   - Auto-adapts to PARA (`projects/`, `cards/`, `logs/`) and Johnny.Decimal (`10_Projects/`, `20_Cards/`, `01_AI_Logs/`) layouts.
 3. **Naming pattern inference**: Analyzes existing files to match timestamped (`YYYY-MM-DD-title.md`) or clean (`title.md`) conventions.
 
 ---

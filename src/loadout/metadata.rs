@@ -313,15 +313,9 @@ pub fn is_project_match(query: &str, meta: &ProjectMetadata) -> bool {
     }
 
     let all_covered = q_tokens.iter().all(|&q_tok| {
-        if all_cand_tokens.contains(q_tok) {
-            return true;
-        }
-        all_cand_normalized.iter().any(|norm| norm.contains(q_tok))
+        all_cand_tokens.contains(q_tok)
+            || all_cand_normalized.iter().any(|norm| norm.contains(q_tok))
     });
 
-    if all_covered && !all_cand_tokens.is_empty() {
-        return true;
-    }
-
-    false
+    all_covered && !all_cand_tokens.is_empty()
 }

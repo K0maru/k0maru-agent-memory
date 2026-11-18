@@ -61,6 +61,7 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"guard_check"));
     assert!(tool_names.contains(&"timeline_memory"));
     assert!(tool_names.contains(&"inspect_note"));
+    assert!(tool_names.contains(&"handoff_session"));
 }
 
 #[test]
@@ -394,7 +395,7 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
         "method": "tools/list"
     });
 
-    // Default mode exposes all 8 tools.
+    // Default mode exposes all 11 tools.
     let mut server = McpServer::new(vault.path());
     assert!(!server.is_sidecar());
 
@@ -403,9 +404,9 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
         .expect("Should respond to tools/list");
     let default_resp: Value = serde_json::from_str(&default_str).unwrap();
     let default_tools = default_resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(default_tools.len(), 10);
+    assert_eq!(default_tools.len(), 11);
 
-    // Sidecar mode exposes only the 5 core orthogonal tools.
+    // Sidecar mode exposes only the 8 orthogonal tools.
     let mut server = McpServer::new(vault.path()).with_sidecar(true);
     assert!(server.is_sidecar());
 
@@ -429,9 +430,10 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
             "flush_session",
             "distill_session_skill",
             "guard_check",
+            "handoff_session",
         ]
     );
-    assert_eq!(sidecar_tools.len(), 7);
+    assert_eq!(sidecar_tools.len(), 8);
     assert!(!sidecar_names.contains(&"offload_context"));
     assert!(!sidecar_names.contains(&"inspect_log_node"));
     assert!(!sidecar_names.contains(&"gc_session_context"));
@@ -557,4 +559,467 @@ fn test_mcp_inspect_note_tool_and_traversal_rejection() {
         "Error message should mention rejection: {}",
         err_msg
     );
+}
+
+#[test]
+fn test_mcp_section_recall_locator_and_inspect_note_range() {
+    let vault = mock_obsidian_vault();
+    std::fs::write(
+        vault.path().join("20_Cards/Gateway_Ledger.md"),
+        "\
+---
+title: Gateway Ledger
+hierarchy: L3Evergreen
+---
+# Gateway Ledger
+
+Intro section.
+
+## Settlement Quorum
+Quorum verification requires three replicas.
+
+## Idempotency Window
+Idempotency token TTL is twenty-four hours for distributed-settlement replay protection.
+
+## Compaction
+Run nightly vacuum.
+",
+    )
+    .unwrap();
+
+    let mut server = McpServer::new(vault.path());
+
+    // Compact recall returns section locator in header slot while preserving !μ: and <1200 budget
+    let res_compact = server.handle_tool_call(
+        json!(30),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Idempotency token replay protection",
+                "mode": "bm25"
+            }
+        }),
+    );
+    let compact_text = res_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(compact_text.len() < 1200);
+    let first_line = compact_text.lines().next().unwrap();
+    assert!(first_line.starts_with("!μ:L3|20_Cards/Gateway_Ledger.md:"));
+    assert!(first_line.contains("#Idempotency Window|score:"));
+
+    // Extract the locator from `!μ:L3|<locator>|score:...`
+    let locator = first_line.split('|').nth(1).unwrap();
+
+    // Full mode formats `## {title} ({locator})`
+    let res_full = server.handle_tool_call(
+        json!(31),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Idempotency token replay protection",
+                "mode": "bm25",
+                "full": true
+            }
+        }),
+    );
+    let full_text = res_full["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(full_text.contains(&format!("## Gateway Ledger ({})", locator)));
+
+    // inspect_note with locator returns only that section's lines
+    let res_inspect = server.handle_tool_call(
+        json!(32),
+        &json!({
+            "name": "inspect_note",
+            "arguments": {
+                "path": locator
+            }
+        }),
+    );
+    let inspect_text = res_inspect["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(inspect_text.contains("## Idempotency Window"));
+    assert!(inspect_text.contains("twenty-four hours"));
+    assert!(!inspect_text.contains("## Compaction"));
+
+    // inspect_note with full_body: true returns the whole body
+    let res_inspect_full = server.handle_tool_call(
+        json!(33),
+        &json!({
+            "name": "inspect_note",
+            "arguments": {
+                "path": locator,
+                "full_body": true
+            }
+        }),
+    );
+    let inspect_full_text = res_inspect_full["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(inspect_full_text.contains("## Settlement Quorum"));
+    assert!(inspect_full_text.contains("## Compaction"));
+}
+
+#[test]
+fn test_mcp_budgeted_section_backfill_caps_at_64() {
+    let vault = mock_obsidian_vault();
+    // Create a note with 72 sections so a single MCP call must cap section embedding at 64.
+    let mut big_doc = String::from("# Big Gateway Spec\n\n");
+    for i in 1..=72 {
+        big_doc.push_str(&format!(
+            "## Section {}\nDistributed settlement checkpoint {}.\n\n",
+            i, i
+        ));
+    }
+    std::fs::write(vault.path().join("20_Cards/BigSpec.md"), big_doc).unwrap();
+
+    let embedder = std::sync::Arc::new(k0maru::MockEmbeddingEngine::new(384));
+    let cache_path = vault.path().join(".k0maru").join("cache.sqlite");
+    {
+        let mut storage = k0maru::SqliteStorage::open_rw(&cache_path).unwrap();
+        storage.ensure_vector_dimension(384).unwrap();
+        let adapter = k0maru::ObsidianAdapter::new(vault.path());
+        let mut scanner = k0maru::IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(false).unwrap();
+        // Sync only doc vectors so section_vectors has 0 rows prior to MCP recall
+        k0maru::VectorSyncEngine::sync(&mut storage, &*embedder).unwrap();
+    }
+
+    let mut server = McpServer::new(vault.path()).with_embedder(embedder);
+    let res = server.handle_tool_call(
+        json!(34),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "Distributed settlement checkpoint"
+            }
+        }),
+    );
+    assert_ne!(res["result"]["isError"], true);
+
+    let storage = k0maru::SqliteStorage::open(&cache_path).unwrap();
+    let sec_vec_count: i64 = storage
+        .connection()
+        .query_row("SELECT COUNT(*) FROM section_vectors", [], |r| r.get(0))
+        .unwrap();
+    assert!(
+        sec_vec_count <= 64 && sec_vec_count > 0,
+        "MCP sync_cache_with_storage must cap section embedding at 64 (got {})",
+        sec_vec_count
+    );
+    assert_eq!(
+        storage
+            .meta_get("section_vectors_complete")
+            .unwrap()
+            .as_deref(),
+        Some("0")
+    );
+}
+
+#[test]
+fn test_mcp_federated_recall_inspect_loadout_guard_and_readonly_proof() {
+    let primary_vault = mock_obsidian_vault();
+    let global_dir = tempfile::tempdir().unwrap();
+    let global_vault = global_dir.path();
+
+    std::fs::create_dir_all(global_vault.join("20_Cards")).unwrap();
+    std::fs::write(
+        global_vault.join("20_Cards/GlobalSettlement.md"),
+        "\
+---
+title: Global Settlement Rules
+hierarchy: L3Evergreen
+invariants:
+  - id: ADR-GLOBAL-MCP
+    title: Require fenced lease
+    file_pattern: \"*.rs\"
+    forbidden: \"mcp_global_forbidden_fn\"
+    remediation: \"Use fenced_lease_acquire instead.\"
+---
+# Global Settlement Rules
+
+## Core Concept
+> Every k0maru-memory settlement worker must hold a fenced lease.
+
+## Quorum Check
+Quorum requires three independent settlement replicas.
+
+## Cleanup
+Archive stale checkpoints.
+",
+    )
+    .unwrap();
+    std::fs::write(
+        global_vault.join("20_Cards/GlobalReferrer.md"),
+        "\
+---
+title: Global Referrer
+hierarchy: L3Evergreen
+---
+# Global Referrer
+
+References [[GlobalSettlement]].
+",
+    )
+    .unwrap();
+
+    // Sync global vault into its own cache.sqlite beforehand.
+    let global_cache = global_vault.join(".k0maru").join("cache.sqlite");
+    {
+        let mut storage = k0maru::SqliteStorage::open_rw(&global_cache).unwrap();
+        let adapter = k0maru::ObsidianAdapter::new(global_vault);
+        let mut scanner = k0maru::IncrementalScanner::new(&adapter, &mut storage);
+        scanner.sync(false).unwrap();
+    }
+
+    let before_meta = std::fs::metadata(&global_cache).unwrap();
+    let before_wal = std::fs::metadata(global_vault.join(".k0maru/cache.sqlite-wal"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    // Unconfigured server rejects @global: inspect_note.
+    let mut unconfigured = McpServer::new(primary_vault.path());
+    let unconf_res = unconfigured.handle_tool_call(
+        json!(40),
+        &json!({
+            "name": "inspect_note",
+            "arguments": { "path": "@global:20_Cards/GlobalSettlement.md" }
+        }),
+    );
+    assert_eq!(unconf_res["result"]["isError"], true);
+
+    // Configured federated server.
+    let mut server =
+        McpServer::new(primary_vault.path()).with_global_vault(Some(global_vault.to_path_buf()));
+
+    // 1. recall_memory compact: @global: locator and global backlink count dispatched from ReadOnlyStorage.
+    let recall_compact = server.handle_tool_call(
+        json!(41),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "three independent settlement replicas",
+                "mode": "bm25"
+            }
+        }),
+    );
+    assert_ne!(recall_compact["result"]["isError"], true);
+    let compact_text = recall_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let global_line = compact_text
+        .lines()
+        .find(|l| l.contains("@global:20_Cards/GlobalSettlement.md"))
+        .expect("compact recall must include @global: hit");
+    assert!(
+        global_line.contains("|links:1/0"),
+        "backlinks must be dispatched to global ReadOnlyStorage: {}",
+        global_line
+    );
+    let locator = global_line.split('|').nth(1).unwrap();
+
+    // 2. recall_memory full: dispatches backlinks & hierarchy from global ReadOnlyStorage.
+    let recall_full = server.handle_tool_call(
+        json!(42),
+        &json!({
+            "name": "recall_memory",
+            "arguments": {
+                "query": "three independent settlement replicas",
+                "mode": "bm25",
+                "full": true
+            }
+        }),
+    );
+    let full_text = recall_full["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(full_text.contains("@global:20_Cards/GlobalSettlement.md"));
+    assert!(full_text.contains("[[20_Cards/GlobalReferrer.md]]"));
+    assert!(full_text.contains("Hierarchy: L3Evergreen"));
+
+    // 3. inspect_note on @global: locator slices exact section lines and rejects traversal.
+    let inspect_res = server.handle_tool_call(
+        json!(43),
+        &json!({
+            "name": "inspect_note",
+            "arguments": { "path": locator }
+        }),
+    );
+    assert_ne!(inspect_res["result"]["isError"], true);
+    let inspect_text = inspect_res["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(inspect_text.contains("## Quorum Check"));
+    assert!(!inspect_text.contains("## Cleanup"));
+    assert!(inspect_text.contains("20_Cards/GlobalReferrer.md"));
+
+    let traversal_res = server.handle_tool_call(
+        json!(44),
+        &json!({
+            "name": "inspect_note",
+            "arguments": { "path": "@global:../Cargo.toml" }
+        }),
+    );
+    assert_eq!(traversal_res["result"]["isError"], true);
+
+    // 4. get_project_loadout appends Global invariants within 300 tokens.
+    let loadout_res = server.handle_tool_call(
+        json!(45),
+        &json!({
+            "name": "get_project_loadout",
+            "arguments": { "project_name": "k0maru-memory" }
+        }),
+    );
+    assert_ne!(loadout_res["result"]["isError"], true);
+    let loadout_text = loadout_res["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(loadout_text.contains("## Global invariants"));
+    assert!(loadout_text.contains("@global:20_Cards/GlobalSettlement.md"));
+    assert!(k0maru::loadout::estimate_tokens(loadout_text) <= 300);
+
+    // 5. guard_check tags global-origin rule IDs with [global] in report text.
+    let guard_res = server.handle_tool_call(
+        json!(46),
+        &json!({
+            "name": "guard_check",
+            "arguments": {
+                "diff": "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n+fn f() { mcp_global_forbidden_fn(); }\n"
+            }
+        }),
+    );
+    assert_eq!(guard_res["result"]["isError"], true);
+    let guard_text = guard_res["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        guard_text.contains("[DENY] ADR-GLOBAL-MCP [global]:"),
+        "expected [global] tag in guard_check report text:\n{}",
+        guard_text
+    );
+
+    // 6. flush_session writes ONLY to primary vault.
+    let flush_res = server.handle_tool_call(
+        json!(47),
+        &json!({
+            "name": "flush_session",
+            "arguments": {
+                "title": "Primary Only MCP Flush",
+                "content": "Never writes to global."
+            }
+        }),
+    );
+    assert_ne!(flush_res["result"]["isError"], true);
+    assert!(!global_vault.join("01_AI_Logs").exists());
+
+    // 7. Global cache.sqlite size, mtime, -wal size, and doc_access remain completely untouched.
+    let after_meta = std::fs::metadata(&global_cache).unwrap();
+    let after_wal = std::fs::metadata(global_vault.join(".k0maru/cache.sqlite-wal"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert_eq!(before_meta.len(), after_meta.len());
+    assert_eq!(before_meta.modified().ok(), after_meta.modified().ok());
+    assert_eq!(before_wal, after_wal);
+
+    let ro = k0maru::ReadOnlyStorage::open(&global_cache).unwrap();
+    let access_rows: i64 = ro
+        .storage()
+        .connection()
+        .query_row("SELECT COUNT(*) FROM doc_access", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(access_rows, 0);
+}
+
+#[test]
+fn test_mcp_handoff_session_tool_lifecycle() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    // 1. create
+    let create_res = server.handle_tool_call(
+        json!(50),
+        &json!({
+            "name": "handoff_session",
+            "arguments": {
+                "action": "create",
+                "from_agent": "agent-1",
+                "to_agent": "agent-2",
+                "project": "payment-gateway",
+                "title": "Finish ledger compaction",
+                "goal": "Compact WAL segments",
+                "state": "in_progress",
+                "next_steps": ["Run vacuum", "Verify checksums"],
+                "json": true
+            }
+        }),
+    );
+    assert_ne!(create_res["result"]["isError"], true, "{create_res}");
+    let created: Value =
+        serde_json::from_str(create_res["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let handoff_id = created["id"].as_str().unwrap().to_string();
+
+    // 2. list
+    let list_res = server.handle_tool_call(
+        json!(51),
+        &json!({
+            "name": "handoff_session",
+            "arguments": {
+                "action": "list",
+                "project": "payment-gateway"
+            }
+        }),
+    );
+    assert_ne!(list_res["result"]["isError"], true);
+    assert!(list_res["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains(&handoff_id));
+
+    // 3. show
+    let show_res = server.handle_tool_call(
+        json!(52),
+        &json!({
+            "name": "handoff_session",
+            "arguments": {
+                "action": "show",
+                "id": handoff_id
+            }
+        }),
+    );
+    assert_ne!(show_res["result"]["isError"], true);
+    assert!(show_res["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("Finish ledger compaction"));
+
+    // 4. claim succeeds once, fails on second attempt
+    let claim_ok = server.handle_tool_call(
+        json!(53),
+        &json!({
+            "name": "handoff_session",
+            "arguments": {
+                "action": "claim",
+                "agent": "agent-2",
+                "id": handoff_id
+            }
+        }),
+    );
+    assert_ne!(claim_ok["result"]["isError"], true);
+    assert!(claim_ok["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("claimed by agent-2"));
+
+    let claim_dup = server.handle_tool_call(
+        json!(54),
+        &json!({
+            "name": "handoff_session",
+            "arguments": {
+                "action": "claim",
+                "agent": "agent-2",
+                "id": handoff_id
+            }
+        }),
+    );
+    assert_eq!(claim_dup["result"]["isError"], true);
 }

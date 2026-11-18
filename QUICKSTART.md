@@ -1,6 +1,6 @@
 # ⚡ Quick Start: K0maru-Agent-Memory
 
-> 🤖 **Zero-Human Setup Prompt for AI Coding Assistants (Claude Code, Cursor, Windsurf, Cline, Hermes, OpenClaw)**:  
+> 🤖 **Zero-Human Setup Prompt for AI Coding Assistants (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI)**:  
 > Instruct your AI assistant directly in your project root:
 > ```text
 > Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
@@ -50,9 +50,10 @@ k0maru init --install
 ### What `k0maru init --install` (alias `k0maru bootstrap`) Does Automatically:
 1. 🔍 **Project Topology Sensing**: Analyzes `README.md`, build manifests (`Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod`), agent instruction files (`AGENTS.md`, `CLAUDE.md`), and recent Git commits.
 2. 📐 **Scaffolds Ground-Truth Knowledge Wiki (`.k0maru/wiki/`)**:
-   - `10_Projects/<project-slug>.md`: Synthesizes project mission, core modules, architecture invariants, and operational commands.
-   - `20_Cards/adr-001-repository-guardrails.md`: Initial Living ADR card with executable regex rules preventing credential leaks, debug dumps, and unvetted commits.
-   - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`: First handover log documenting repository baseline.
+   - `projects/<project-slug>.md`: Synthesizes project mission, core modules, architecture invariants, and operational commands.
+   - `decisions/adr-001-repository-guardrails.md`: Initial Living ADR card with executable regex rules preventing credential leaks, debug dumps, and unvetted commits.
+   - `logs/<YYYY-MM-DD>-initial-bootstrap.md`: First handover log documenting repository baseline.
+   - `INDEX.md`: Master Map of Content (MOC) linking active projects, decisions, and logs.
 3. 🔗 **Mounts FastMCP & Configures Lifecycle Hooks**:
    - Wires `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor).
    - Configures Claude Code lifecycle hooks (`SessionStart` auto-loadout, `Stop` pre-yield guard) in `.claude/settings.local.json`.
@@ -79,7 +80,7 @@ k0maru install --vault ~/Documents/MyVault --hooks
 k0maru doctor
 ```
 
-K0maru's non-destructive JSON injector discovers installed clients (Claude Code, Cursor, Windsurf, Cline, Gemini CLI, Hermes Agent, OpenClaw) and safely mounts the MCP server.
+K0maru's non-destructive JSON injector discovers installed clients (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI, plus optional harness integrations such as Hermes Agent and OpenClaw) and safely mounts the MCP server.
 
 ---
 
@@ -141,7 +142,7 @@ Prevent terminal log explosions (>50 lines) from overflowing agent context:
 cargo test | k0maru offload
 pytest -v | k0maru offload
 ```
-Logs exceeding the threshold are stored in `.scratch/refs/` and replaced with an offline Mermaid state diagram. To inspect the full raw trace:
+Logs exceeding the threshold are stored in `<vault>/.k0maru/refs/` and replaced with an offline Mermaid state diagram. To inspect the full raw trace:
 ```bash
 k0maru inspect node_54697ed3
 ```

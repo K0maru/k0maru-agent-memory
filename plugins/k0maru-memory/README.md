@@ -27,7 +27,7 @@ Then confirm the binary resolves on `PATH`:
 k0maru --version
 ```
 
-The MCP server needs a Markdown vault. It resolves the vault by walking up from the agent's working directory looking for `.k0maru/`, `.obsidian/`, `10_Projects/`, or `20_Cards/`. To pin a specific vault, add `--vault /path/to/your/vault` to the `args` array in whichever config below you use.
+The MCP server needs a Markdown vault. It resolves the vault by walking up from the agent's working directory looking for `.k0maru/wiki/`, `.obsidian/`, `INDEX.md` alongside `projects/`/`decisions/`/`logs/`, or both `10_Projects/` and `20_Cards/` (Johnny.Decimal compatibility). To pin a specific vault, add `--vault /path/to/your/vault` to the `args` array in whichever config below you use.
 
 ---
 

@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::adapters::open_vault_adapter;
 use crate::config::K0maruConfig;
 use crate::core::models::HierarchyLevel;
 use crate::guard::GuardEngine;
@@ -18,6 +18,7 @@ use crate::loadout::{estimate_tokens, LoadoutBuilder};
 use crate::scanner::IncrementalScanner;
 use crate::storage::SqliteStorage;
 use crate::{CacheStorage, VaultAdapter};
+use k0maru_core::graph::{LinkResolver, Resolution};
 
 /// Lifecycle hook events supported by `k0maru hook <event>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,53 +102,14 @@ pub struct NoteDetailReport {
     pub body: String,
 }
 
-/// Determines whether a vault root contains structured Johnny.Decimal / LLM-Wiki folders.
-fn is_structured_vault(vault_path: &Path) -> bool {
-    vault_path.join(".obsidian").exists()
-        || vault_path.join("10_Projects").is_dir()
-        || vault_path.join("20_Cards").is_dir()
-        || vault_path.join("projects").is_dir()
-        || vault_path.join("decisions").is_dir()
-        || vault_path.join("logs").is_dir()
-        || vault_path.join("cards").is_dir()
-}
-
-/// Strips ANSI terminal escape sequences from raw tool outputs.
-fn strip_ansi_escapes(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next_c) = chars.peek() {
-                    chars.next();
-                    if next_c.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 /// Refreshes SQLite full-text search and backlink indexes incrementally.
 fn sync_vault_cache(vault_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let cache_dir = vault_path.join(".k0maru");
     let cache_path = cache_dir.join("cache.sqlite");
     if let Ok(mut storage) = SqliteStorage::open(&cache_path) {
-        if is_structured_vault(vault_path) {
-            let adapter = ObsidianAdapter::new(vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            let _ = scanner.sync(false);
-        } else {
-            let adapter = GenericWikiAdapter::new(vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            let _ = scanner.sync(false);
-        }
+        let adapter = open_vault_adapter(vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        let _ = scanner.sync(false);
     }
     Ok(())
 }
@@ -194,21 +156,37 @@ fn find_recent_session_summary(vault_path: &Path) -> Option<(String, String)> {
     None
 }
 
-/// Determines the directory for observation logs inside the vault.
-fn resolve_logs_dir(vault_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if vault_path.join("logs").is_dir() {
-        Ok(vault_path.join("logs"))
-    } else if vault_path.join("01_AI_Logs").is_dir() {
-        Ok(vault_path.join("01_AI_Logs"))
-    } else if vault_path.join("10_Projects").is_dir() || vault_path.join("20_Cards").is_dir() {
-        let d = vault_path.join("01_AI_Logs");
-        fs::create_dir_all(&d)?;
-        Ok(d)
-    } else {
-        let d = vault_path.join("logs");
-        fs::create_dir_all(&d)?;
-        Ok(d)
+/// Strips ANSI terminal escape sequences from raw tool outputs.
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&next_c) = chars.peek() {
+                    chars.next();
+                    if next_c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(c);
+        }
     }
+    out
+}
+
+/// Determines the directory for observation logs inside the vault using [`ConventionSniffer`].
+fn resolve_logs_dir(vault_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let convention = crate::convention::ConventionSniffer::sniff(vault_path);
+    let log_subdir = convention.target_subdir_for("log");
+    let target = vault_path.join(log_subdir);
+    if !target.exists() {
+        fs::create_dir_all(&target)?;
+    }
+    Ok(target)
 }
 
 /// Inspects modified Git repository files, filtering out internal `.k0maru` and session observation notes.
@@ -245,6 +223,14 @@ fn get_git_modified_files(repo_root: &Path) -> Vec<String> {
 
 /// Executes a passive lifecycle hook (`SessionStart`, `PostToolFailure`, `Stop`, `SessionEnd`).
 pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error::Error>> {
+    run_hook_with_global(options, None)
+}
+
+/// Executes a passive lifecycle hook with an optional global vault path override.
+pub fn run_hook_with_global(
+    options: &HookOptions,
+    global_vault: Option<&Path>,
+) -> Result<HookReport, Box<dyn std::error::Error>> {
     let config = K0maruConfig::load();
 
     if matches!(
@@ -282,7 +268,6 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
                 })
                 .unwrap_or_default();
 
-            let is_obs = is_structured_vault(&options.vault_path);
             let cache_dir = options.vault_path.join(".k0maru");
             let cache_path = cache_dir.join("cache.sqlite");
             let mut storage = match SqliteStorage::open(&cache_path) {
@@ -290,33 +275,23 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
                 Err(_) => SqliteStorage::in_memory()?,
             };
 
-            if is_obs {
-                let adapter = ObsidianAdapter::new(&options.vault_path);
-                let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-                let _ = scanner.sync(false);
-            } else {
-                let adapter = GenericWikiAdapter::new(&options.vault_path);
-                let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-                let _ = scanner.sync(false);
-            }
+            let adapter = open_vault_adapter(&options.vault_path);
+            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+            let _ = scanner.sync(false);
 
+            let global_path =
+                k0maru_core::storage::resolve_global_vault(global_vault, &options.vault_path);
+            let global_ro = global_path
+                .as_deref()
+                .and_then(crate::open_global_storage_with_warning);
+
+            let mut builder = LoadoutBuilder::new(&adapter, &storage);
+            if let Some(ref ro) = global_ro {
+                builder = builder.with_global(ro);
+            }
             let loadout_res = if !modified_files.is_empty() {
-                if is_obs {
-                    let adapter = ObsidianAdapter::new(&options.vault_path);
-                    let builder = LoadoutBuilder::new(&adapter, &storage);
-                    builder.build_with_diff(&project_query, &modified_files)?
-                } else {
-                    let adapter = GenericWikiAdapter::new(&options.vault_path);
-                    let builder = LoadoutBuilder::new(&adapter, &storage);
-                    builder.build_with_diff(&project_query, &modified_files)?
-                }
-            } else if is_obs {
-                let adapter = ObsidianAdapter::new(&options.vault_path);
-                let builder = LoadoutBuilder::new(&adapter, &storage);
-                builder.build(&project_query)?
+                builder.build_with_diff(&project_query, &modified_files)?
             } else {
-                let adapter = GenericWikiAdapter::new(&options.vault_path);
-                let builder = LoadoutBuilder::new(&adapter, &storage);
                 builder.build(&project_query)?
             };
 
@@ -327,6 +302,21 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
                 )
             });
 
+            let budget = config.loadout_token_budget.min(300);
+            let handoff_project = options
+                .project
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            if let Ok(Some(hint)) = crate::handoff::HandoffStore::new(&options.vault_path)
+                .latest_pending_hint(handoff_project)
+            {
+                let candidate = format!("{}\n\n{}", markdown, hint);
+                if estimate_tokens(&candidate) <= budget {
+                    markdown = candidate;
+                }
+            }
+
             if let Some((date_or_file, summary_line)) =
                 find_recent_session_summary(&options.vault_path)
             {
@@ -335,7 +325,6 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
                     date_or_file, summary_line
                 );
                 let candidate = format!("{}{}", markdown, continuity);
-                let budget = config.loadout_token_budget.min(300);
                 if estimate_tokens(&candidate) <= budget {
                     markdown = candidate;
                 }
@@ -441,10 +430,13 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
                 .clone()
                 .unwrap_or_else(|| crate::guard::resolve_repo_root(&options.vault_path));
 
-            let rules = crate::guard::resolve_guard_rules_with_repo(
+            let resolved_global =
+                k0maru_core::storage::resolve_global_vault(global_vault, &options.vault_path);
+            let (rules, global_origins) = crate::guard::resolve_guard_rules_with_global(
                 &options.vault_path,
                 options.project.as_deref(),
                 Some(&repo_root),
+                resolved_global.as_deref(),
             )?;
 
             let diff_text = crate::guard::get_git_diff_with_mode(&repo_root, None, false)?;
@@ -455,7 +447,8 @@ pub fn run_hook(options: &HookOptions) -> Result<HookReport, Box<dyn std::error:
             );
 
             if !guard_report.is_passed {
-                let formatted = crate::guard::format_guard_report(&guard_report);
+                let formatted =
+                    crate::guard::format_guard_report_with_global(&guard_report, &global_origins);
                 return Ok(HookReport {
                     event: HookEvent::Stop,
                     handled: true,
@@ -612,32 +605,17 @@ pub fn build_timeline(
         vault_path.to_path_buf()
     };
 
-    let is_obs = is_structured_vault(&canon_vault);
-    let files: Vec<PathBuf> = if is_obs {
-        let adapter = ObsidianAdapter::new(&canon_vault);
-        adapter.scan_files()?
-    } else {
-        let adapter = GenericWikiAdapter::new(&canon_vault);
-        adapter.scan_files()?
-    };
+    let adapter = open_vault_adapter(&canon_vault);
+    let files: Vec<PathBuf> = adapter.scan_files()?;
 
     let mut entries = Vec::new();
 
     for rel_path in files {
         let rel_str = rel_path.to_string_lossy().replace('\\', "/");
 
-        let doc = if is_obs {
-            let adapter = ObsidianAdapter::new(&canon_vault);
-            match adapter.read_document(&rel_path) {
-                Ok(d) => d,
-                Err(_) => continue,
-            }
-        } else {
-            let adapter = GenericWikiAdapter::new(&canon_vault);
-            match adapter.read_document(&rel_path) {
-                Ok(d) => d,
-                Err(_) => continue,
-            }
+        let doc = match adapter.read_document(&rel_path) {
+            Ok(d) => d,
+            Err(_) => continue,
         };
 
         let is_relevant = doc.hierarchy == HierarchyLevel::L2Log
@@ -817,21 +795,184 @@ pub fn build_timeline(
     Ok(entries)
 }
 
+/// Parsed representation of a note locator `[@global:]<path>[:<start>-<end>][#<heading>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedLocator {
+    pub is_global: bool,
+    pub path: String,
+    pub line_range: Option<(u32, u32)>,
+    pub heading: Option<String>,
+}
+
+/// Strips copied K-DSL wrappers (`!μ:L3|...|score:...|links:... § ...` or `#1 | ...`)
+/// so small models can pass search output lines directly into `inspect_note`.
+fn strip_kdsl_wrappers(raw: &str) -> &str {
+    let mut s = raw.trim();
+    if (s.starts_with('`') && s.ends_with('`') && s.len() >= 2)
+        || (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
+        || (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
+    {
+        s = s[1..s.len() - 1].trim();
+    }
+
+    // Strip leading `#<rank> | `
+    if let Some(after_hash) = s.strip_prefix('#') {
+        if let Some(pipe_idx) = after_hash.find('|') {
+            let rank_part = after_hash[..pipe_idx].trim();
+            if !rank_part.is_empty() && rank_part.chars().all(|c| c.is_ascii_digit()) {
+                s = after_hash[pipe_idx + 1..].trim();
+            }
+        }
+    }
+
+    // Strip leading `!μ:<tier>|` or `!u:<tier>|`
+    if s.starts_with("!μ:") || s.starts_with("!u:") {
+        if let Some(pipe_idx) = s.find('|') {
+            s = s[pipe_idx + 1..].trim();
+        }
+    }
+
+    // Strip trailing ` § <snippet>`
+    if let Some(sec_idx) = s.find(" § ") {
+        s = s[..sec_idx].trim();
+    }
+
+    // Strip trailing K-DSL metadata fields (`|score:...`, `|rank:...`, `|links:...`, `|via:...`)
+    let mut cut_at = s.len();
+    for marker in ["|score:", "|rank:", "|links:", "|via:"] {
+        if let Some(idx) = s.find(marker) {
+            if idx < cut_at {
+                cut_at = idx;
+            }
+        }
+    }
+    s[..cut_at].trim()
+}
+
+/// Parses a note path or locator string (`[@global:]<path>[:<start>-<end>][#<heading>]`).
+///
+/// Tolerates copied K-DSL search wire prefixes/suffixes and stems without `.md`.
+pub fn parse_locator(raw: &str) -> Result<ParsedLocator, Box<dyn std::error::Error>> {
+    let trimmed = strip_kdsl_wrappers(raw);
+    if trimmed.is_empty() {
+        return Err("relative_path cannot be empty".into());
+    }
+
+    let (is_global, rest) = if let Some(stripped) = trimmed.strip_prefix("@global:") {
+        (true, stripped)
+    } else {
+        (false, trimmed)
+    };
+
+    if rest.is_empty() {
+        return Err("relative_path cannot be empty".into());
+    }
+
+    let bytes = rest.as_bytes();
+    let mut split_idx: Option<usize> = None;
+    if bytes.len() >= 3 {
+        for i in (0..=bytes.len() - 3).rev() {
+            if bytes[i] == b'.'
+                && bytes[i + 1].eq_ignore_ascii_case(&b'm')
+                && bytes[i + 2].eq_ignore_ascii_case(&b'd')
+            {
+                let end = i + 3;
+                match rest[end..].chars().next() {
+                    None | Some(':') | Some('#') => {
+                        split_idx = Some(end);
+                        break;
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+    }
+
+    // Also split :<start>-<end> or #<heading> on stems without an explicit .md extension
+    if split_idx.is_none() {
+        if let Some(colon_idx) = rest.rfind(':') {
+            let after = &rest[colon_idx + 1..];
+            let range_part = after.split('#').next().unwrap_or(after);
+            if let Some((a, b)) = range_part.split_once('-') {
+                if !a.is_empty()
+                    && !b.is_empty()
+                    && a.bytes().all(|c| c.is_ascii_digit())
+                    && b.bytes().all(|c| c.is_ascii_digit())
+                {
+                    split_idx = Some(colon_idx);
+                }
+            }
+        } else if let Some(hash_idx) = rest.find('#') {
+            if hash_idx > 0 {
+                split_idx = Some(hash_idx);
+            }
+        }
+    }
+
+    let (path, suffix) = match split_idx {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+
+    let (line_range, heading) = if suffix.is_empty() {
+        (None, None)
+    } else if let Some(after_colon) = suffix.strip_prefix(':') {
+        let (range_part, hash_part) = match after_colon.find('#') {
+            Some(pos) => (
+                &after_colon[..pos],
+                Some(after_colon[pos + 1..].to_string()),
+            ),
+            None => (after_colon, None),
+        };
+        let (start_s, end_s) = range_part
+            .split_once('-')
+            .ok_or("Invalid line range in locator: expected :<start>-<end>")?;
+        let start: u32 = start_s
+            .parse()
+            .map_err(|_| "Invalid start line in locator")?;
+        let end: u32 = end_s.parse().map_err(|_| "Invalid end line in locator")?;
+        if start == 0 {
+            return Err("Line numbers in locator must be >= 1".into());
+        }
+        if start > end {
+            return Err("Invalid line range in locator: start > end".into());
+        }
+        (Some((start, end)), hash_part)
+    } else if let Some(after_hash) = suffix.strip_prefix('#') {
+        (None, Some(after_hash.to_string()))
+    } else {
+        (None, None)
+    };
+
+    Ok(ParsedLocator {
+        is_global,
+        path: path.to_string(),
+        line_range,
+        heading,
+    })
+}
+
 /// Inspects a single markdown note safely inside `vault_path` (with symlink & path-traversal protection).
 pub fn inspect_note_detail(
     vault_path: &Path,
     relative_path: &str,
 ) -> Result<NoteDetailReport, Box<dyn std::error::Error>> {
-    let trimmed = relative_path.trim();
-    if trimmed.is_empty() {
-        return Err("relative_path cannot be empty".into());
-    }
+    inspect_note_detail_with_options(vault_path, relative_path, false)
+}
 
-    let p = Path::new(trimmed);
+struct SlicedNote {
+    canon_vault: PathBuf,
+    safe_rel: PathBuf,
+    clean_rel_path: String,
+    doc: k0maru_core::Document,
+    body: String,
+}
+
+fn validate_relative_no_traversal(raw_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let p = Path::new(raw_path);
     if p.is_absolute() {
         return Err("Absolute paths are not allowed".into());
     }
-
     for comp in p.components() {
         match comp {
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
@@ -840,91 +981,340 @@ pub fn inspect_note_detail(
             _ => {}
         }
     }
+    Ok(())
+}
 
-    if !p
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-    {
-        return Err("Only markdown (.md) notes can be inspected".into());
+fn resolve_vault_note_path(
+    canon_vault: &Path,
+    raw_path: &str,
+    scope_label: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    validate_relative_no_traversal(raw_path)?;
+
+    let clean_input = raw_path.replace('\\', "/");
+    let clean_input = clean_input.trim_start_matches("./");
+    let input_path = Path::new(clean_input);
+
+    // Reject explicit non-markdown files (unless `<input>.md` actually exists)
+    if let Some(ext) = input_path.extension().and_then(|e| e.to_str()) {
+        if !ext.eq_ignore_ascii_case("md") {
+            let with_md = canon_vault.join(format!("{}.md", clean_input));
+            if !with_md.is_file() {
+                return Err("Only markdown (.md) notes can be inspected".into());
+            }
+        }
     }
 
-    let canon_vault = vault_path.canonicalize()?;
-    let target = canon_vault.join(p);
-    let canon_note = target.canonicalize()?;
+    // Build candidate relative paths: exact, +.md, and stripped leading vault directory name
+    let mut candidates = Vec::new();
+    let push_with_md = |vec: &mut Vec<String>, s: &str| {
+        if s.is_empty() {
+            return;
+        }
+        let has_md = Path::new(s)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+        if has_md {
+            vec.push(s.to_string());
+        } else {
+            vec.push(format!("{}.md", s));
+        }
+    };
 
-    if !canon_note.starts_with(&canon_vault) || !canon_note.is_file() {
+    push_with_md(&mut candidates, clean_input);
+    if let Some(vault_name) = canon_vault.file_name().and_then(|s| s.to_str()) {
+        if let Some(after_vault) = clean_input
+            .strip_prefix(vault_name)
+            .and_then(|s| s.strip_prefix('/'))
+        {
+            push_with_md(&mut candidates, after_vault);
+        }
+    }
+
+    for cand in &candidates {
+        let target = canon_vault.join(cand);
+        if target.exists() {
+            let canon_note = target.canonicalize()?;
+            if !canon_note.starts_with(canon_vault) || !canon_note.is_file() {
+                return Err(format!(
+                    "Target note does not reside within the {} directory or is not a file",
+                    scope_label
+                )
+                .into());
+            }
+            return Ok(canon_note);
+        }
+    }
+
+    // Fallback: resolve stem/title via LinkResolver across indexed vault markdown files
+    let adapter = open_vault_adapter(canon_vault);
+    let all_files = adapter.scan_files().unwrap_or_default();
+    let mut docs_for_resolver: Vec<(i64, String, String)> = Vec::new();
+    let mut rel_paths: Vec<String> = Vec::new();
+    for (idx, rel) in all_files.iter().enumerate() {
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let title = adapter
+            .read_document(rel)
+            .map(|d| d.title)
+            .unwrap_or_else(|_| {
+                rel.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string()
+            });
+        docs_for_resolver.push((idx as i64, rel_str.clone(), title));
+        rel_paths.push(rel_str);
+    }
+
+    let resolver = LinkResolver::from_docs(docs_for_resolver);
+    let lookup_target = clean_input
+        .strip_suffix(".md")
+        .or_else(|| clean_input.strip_suffix(".MD"))
+        .unwrap_or(clean_input);
+    if let Resolution::Doc(id) = resolver.resolve("", lookup_target) {
+        if let Some(rel_str) = rel_paths.get(id as usize) {
+            let canon_note = canon_vault.join(rel_str).canonicalize()?;
+            if canon_note.starts_with(canon_vault) && canon_note.is_file() {
+                return Ok(canon_note);
+            }
+        }
+    }
+
+    // Build nearest suggestions instead of returning a raw OS error
+    let needle = lookup_target.to_lowercase();
+    let mut suggestions: Vec<String> = rel_paths
+        .iter()
+        .filter(|p| {
+            let pl = p.to_lowercase();
+            pl.contains(&needle)
+                || needle
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|stem| !stem.is_empty() && pl.contains(stem))
+        })
+        .take(3)
+        .cloned()
+        .collect();
+    if suggestions.is_empty() {
+        suggestions = rel_paths.into_iter().take(3).collect();
+    }
+
+    if suggestions.is_empty() {
+        Err(format!(
+            "Note '{}' not found (paths are relative to {}: {}).",
+            raw_path,
+            scope_label,
+            canon_vault.display()
+        )
+        .into())
+    } else {
+        Err(format!(
+            "Note '{}' not found (paths are relative to {}: {}). Did you mean: {}?",
+            raw_path,
+            scope_label,
+            canon_vault.display(),
+            suggestions.join(", ")
+        )
+        .into())
+    }
+}
+
+fn read_and_slice_note(
+    vault_path: &Path,
+    parsed: &ParsedLocator,
+    full_body: bool,
+    scope_label: &str,
+) -> Result<SlicedNote, Box<dyn std::error::Error>> {
+    validate_relative_no_traversal(&parsed.path)?;
+
+    let canon_vault = vault_path.canonicalize()?;
+    let canon_note = resolve_vault_note_path(&canon_vault, &parsed.path, scope_label)?;
+
+    let safe_rel = canon_note.strip_prefix(&canon_vault)?.to_path_buf();
+    let adapter = open_vault_adapter(&canon_vault);
+    let doc = adapter.read_document(&safe_rel)?;
+
+    let body = if !full_body {
+        if let Some((start_line, end_line)) = parsed.line_range {
+            let raw_file = fs::read_to_string(&canon_note)?;
+            slice_file_lines(&raw_file, start_line, end_line)
+        } else {
+            doc.body.clone()
+        }
+    } else {
+        doc.body.clone()
+    };
+    let clean_rel_path = safe_rel.to_string_lossy().replace('\\', "/");
+
+    Ok(SlicedNote {
+        canon_vault,
+        safe_rel,
+        clean_rel_path,
+        doc,
+        body,
+    })
+}
+
+/// Inspects a markdown note or section locator (`path[:start-end][#heading]`) inside `vault_path`.
+///
+/// When `locator` specifies a `start-end` range and `full_body` is `false`, `report.body`
+/// contains the 1-based inclusive file lines `start..=end` read directly from the raw file.
+pub fn inspect_note_detail_with_options(
+    vault_path: &Path,
+    locator: &str,
+    full_body: bool,
+) -> Result<NoteDetailReport, Box<dyn std::error::Error>> {
+    let parsed = parse_locator(locator)?;
+    if parsed.is_global {
         return Err(
-            "Target note does not reside within the vault directory or is not a file".into(),
+            "@global: locator requires a configured global vault and read-only inspection".into(),
         );
     }
 
-    let safe_rel = canon_note.strip_prefix(&canon_vault)?;
-    let is_obs = is_structured_vault(&canon_vault);
+    let sliced = read_and_slice_note(vault_path, &parsed, full_body, "vault")?;
+    let status = sliced.doc.lifecycle_status().to_string();
+    let superseded_by = sliced.doc.superseded_by();
+    let supersedes = sliced.doc.supersedes();
 
-    let doc = if is_obs {
-        let adapter = ObsidianAdapter::new(&canon_vault);
-        adapter.read_document(safe_rel)?
-    } else {
-        let adapter = GenericWikiAdapter::new(&canon_vault);
-        adapter.read_document(safe_rel)?
-    };
-
-    let cache_dir = canon_vault.join(".k0maru");
+    let cache_dir = sliced.canon_vault.join(".k0maru");
     let cache_path = cache_dir.join("cache.sqlite");
     let incoming_links = if let Ok(mut storage) = SqliteStorage::open(&cache_path) {
-        if is_obs {
-            let adapter = ObsidianAdapter::new(&canon_vault);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            let _ = scanner.sync(false);
-        } else {
-            let adapter = GenericWikiAdapter::new(&canon_vault);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            let _ = scanner.sync(false);
-        }
+        let adapter = open_vault_adapter(&sliced.canon_vault);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        let _ = scanner.sync(false);
 
-        let mut links = Vec::new();
-        if let Some(stem) = safe_rel.file_stem().and_then(|s| s.to_str()) {
-            if let Ok(bls) = storage.get_backlinks(stem) {
-                for bl in bls {
-                    links.push(bl.to_string_lossy().replace('\\', "/"));
-                }
-            }
-        }
-        if !doc.title.is_empty() {
-            if let Ok(bls) = storage.get_backlinks(&doc.title) {
-                for bl in bls {
-                    let formatted = bl.to_string_lossy().replace('\\', "/");
-                    if !links.contains(&formatted) {
-                        links.push(formatted);
-                    }
-                }
-            }
-        }
-        links.sort();
-        links.dedup();
-        links
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let _ = storage.record_access(&sliced.clean_rel_path, now_secs);
+
+        collect_backlinks_from_storage(&storage, &sliced.safe_rel, &sliced.doc.title)
     } else {
         Vec::new()
     };
 
-    let status = doc.lifecycle_status().to_string();
-    let superseded_by = doc.superseded_by();
-    let supersedes = doc.supersedes();
-    let outgoing_links = doc.links.into_iter().map(|l| l.target).collect();
+    let outgoing_links = sliced.doc.links.into_iter().map(|l| l.target).collect();
 
     Ok(NoteDetailReport {
-        relative_path: safe_rel.to_string_lossy().replace('\\', "/"),
-        title: doc.title,
-        hierarchy: doc.hierarchy.to_string(),
+        relative_path: sliced.clean_rel_path,
+        title: sliced.doc.title,
+        hierarchy: sliced.doc.hierarchy.to_string(),
         status,
-        frontmatter: doc.frontmatter,
+        frontmatter: sliced.doc.frontmatter,
         superseded_by,
         supersedes,
         outgoing_links,
         incoming_links,
-        tags: doc.tags,
-        body: doc.body,
+        tags: sliced.doc.tags,
+        body: sliced.body,
     })
+}
+
+/// Strictly read-only note inspection for a global vault (`@global:<rel>[:s-e][#h]`).
+///
+/// Enforces canonical path traversal checks against `global_vault`, reads file lines
+/// directly, pulls backlinks from [`crate::storage::ReadOnlyStorage`], and performs
+/// ZERO cache syncs and ZERO `record_access` writes.
+pub fn inspect_note_detail_ro(
+    global_vault: &Path,
+    locator: &str,
+) -> Result<NoteDetailReport, Box<dyn std::error::Error>> {
+    inspect_note_detail_ro_with_options(global_vault, locator, None, false)
+}
+
+/// Strictly read-only note inspection for a global vault with optional pre-opened
+/// [`crate::storage::ReadOnlyStorage`] and `full_body` override.
+pub fn inspect_note_detail_ro_with_options(
+    global_vault: &Path,
+    locator: &str,
+    global_storage: Option<&k0maru_core::storage::ReadOnlyStorage>,
+    full_body: bool,
+) -> Result<NoteDetailReport, Box<dyn std::error::Error>> {
+    let parsed = parse_locator(locator)?;
+    let sliced = read_and_slice_note(global_vault, &parsed, full_body, "global vault")?;
+
+    let status = sliced.doc.lifecycle_status().to_string();
+    let superseded_by = sliced.doc.superseded_by();
+    let supersedes = sliced.doc.supersedes();
+
+    let owned_ro = if global_storage.is_none() {
+        let cache_path = sliced.canon_vault.join(".k0maru").join("cache.sqlite");
+        if cache_path.is_file() {
+            k0maru_core::storage::ReadOnlyStorage::open(&cache_path).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let incoming_links = match global_storage.or(owned_ro.as_ref()) {
+        Some(ro) => {
+            collect_backlinks_from_storage(ro.storage(), &sliced.safe_rel, &sliced.doc.title)
+        }
+        None => Vec::new(),
+    };
+
+    let outgoing_links = sliced.doc.links.into_iter().map(|l| l.target).collect();
+
+    Ok(NoteDetailReport {
+        relative_path: sliced.clean_rel_path,
+        title: sliced.doc.title,
+        hierarchy: sliced.doc.hierarchy.to_string(),
+        status,
+        frontmatter: sliced.doc.frontmatter,
+        superseded_by,
+        supersedes,
+        outgoing_links,
+        incoming_links,
+        tags: sliced.doc.tags,
+        body: sliced.body,
+    })
+}
+
+fn collect_backlinks_from_storage(
+    storage: &SqliteStorage,
+    safe_rel: &Path,
+    doc_title: &str,
+) -> Vec<String> {
+    let mut links = Vec::new();
+    if let Some(stem) = safe_rel.file_stem().and_then(|s| s.to_str()) {
+        if let Ok(bls) = storage.get_backlinks(stem) {
+            for bl in bls {
+                links.push(bl.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    if !doc_title.is_empty() {
+        if let Ok(bls) = storage.get_backlinks(doc_title) {
+            for bl in bls {
+                let formatted = bl.to_string_lossy().replace('\\', "/");
+                if !links.contains(&formatted) {
+                    links.push(formatted);
+                }
+            }
+        }
+    }
+    links.sort();
+    links.dedup();
+    links
+}
+
+fn slice_file_lines(raw: &str, start_line: u32, end_line: u32) -> String {
+    let lines: Vec<&str> = raw.lines().collect();
+    if lines.is_empty() || start_line == 0 {
+        return String::new();
+    }
+    let start_idx = (start_line as usize).saturating_sub(1);
+    if start_idx >= lines.len() {
+        return String::new();
+    }
+    let end_idx = (end_line as usize).min(lines.len());
+    if start_idx >= end_idx {
+        return String::new();
+    }
+    lines[start_idx..end_idx].join("\n")
 }
 
 #[cfg(test)]

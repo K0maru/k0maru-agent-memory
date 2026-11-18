@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-K0maru-Agent-Memory Phase 9: Multi-Agent Heterogeneous Concurrency Benchmark on Google Colab A100-SXM4-80GB.
+K0maru-Agent-Memory Phase 9: Multi-Agent Heterogeneous Concurrency Benchmark on Cloud GPU VM (NVIDIA A100-SXM4-80GB).
 Harnesses: Nous Research Hermes Agent, OpenClaw Agent, Pi Agent.
 Base Model: Qwen/Qwen2.5-Coder-32B-Instruct.
-Zero-Burn Guard: Automatically releases Colab VM instance upon completion or error.
 """
 
 import os
@@ -22,18 +21,10 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 # ==========================================
-# 0. Zero-Burn Guard for Colab Instance
+# 0. Generic Cleanup Hook
 # ==========================================
-def force_release_colab_instance():
-    print("[GUARD] Initiating Colab runtime teardown to prevent CCU drain...")
-    try:
-        from google.colab import runtime
-        runtime.unassign()
-        print("[GUARD] runtime.unassign() successfully requested.")
-    except ImportError:
-        print("[GUARD] Not running inside Google Colab environment. Exiting cleanly.")
-    except Exception as err:
-        print(f"[GUARD ERROR] runtime.unassign() failed: {err}", file=sys.stderr)
+def cleanup_runtime():
+    print("[CLEANUP] Benchmark run finished; exiting cleanly.")
 
 # ==========================================
 # 1. Environment & Hardware Probing
@@ -174,8 +165,8 @@ def setup_enterprise_vault(vault_path: Path):
         shutil.rmtree(vault_path)
     vault_path.mkdir(parents=True, exist_ok=True)
     
-    # 10_Projects
-    p_dir = vault_path / "10_Projects"
+    # projects
+    p_dir = vault_path / "projects"
     p_dir.mkdir(parents=True, exist_ok=True)
     (p_dir / "payment-settlement-engine.md").write_text("""---
 title: Payment Settlement Engine
@@ -224,8 +215,8 @@ tags:
 3. Idempotent key lock TTL minimum 180 seconds.
 """, encoding="utf-8")
 
-    # 20_Cards
-    c_dir = vault_path / "20_Cards"
+    # decisions
+    c_dir = vault_path / "decisions"
     c_dir.mkdir(parents=True, exist_ok=True)
     (c_dir / "L3_distributed_lock_and_idempotency_invariants.md").write_text("""---
 title: L3 Distributed Lock and Idempotency Invariants
@@ -273,8 +264,8 @@ tags: [architecture, state-machine, invariants]
 If current state is already `SUCCESS`, incoming callback MUST return 200 OK ACK without modifying state or balances.
 """, encoding="utf-8")
 
-    # 00_Logs
-    l_dir = vault_path / "00_Logs"
+    # logs
+    l_dir = vault_path / "logs"
     l_dir.mkdir(parents=True, exist_ok=True)
     (l_dir / "2026-10-08-incident-stripe-double-settlement.md").write_text("""---
 title: Incident Postmortem Stripe Double Settlement
@@ -303,6 +294,8 @@ tags: [postmortem, deadlock, concurrency]
 ## Root Cause
 Unbounded channel buffers and unindexed foreign keys caused lock wait timeouts.
 Workers retried indefinitely without jitter, exhausting connection pool.
+""", encoding="utf-8")
+
     # 25 Cluttered logs that previously monopolized FTS Top 5
     for i in range(1, 26):
         (l_dir / f"2026-10-{i:02d}-distributed-gateway-settlement-phase-5-live-tui-monitor.md").write_text(f"""---
@@ -319,8 +312,8 @@ Investigating [[分布式网关限流与幂等结算系统]] gateway settlement 
     # .k0maru/rules.md
     k_dir = vault_path / ".k0maru"
     k_dir.mkdir(parents=True, exist_ok=True)
-    (k_dir / "rules.md").write_text("""decisions: 20_Cards
-logs: 00_Logs
+    (k_dir / "rules.md").write_text("""decisions: decisions
+logs: logs
 naming_style: slug_only
 """, encoding="utf-8")
 
@@ -348,7 +341,7 @@ def run_benchmark_suite(k0maru_bin: str, model_tag: str) -> Dict[str, Any]:
         "hardware": {
             "device": "NVIDIA A100-SXM4-80GB",
             "vram_gb": 79.25,
-            "host": "Google Colab Ultra"
+            "host": "Cloud GPU VM (NVIDIA A100-SXM4-80GB)"
         },
         "model": {
             "tag": model_tag,
@@ -459,8 +452,8 @@ def run_benchmark_suite(k0maru_bin: str, model_tag: str) -> Dict[str, Any]:
     t_write_total = time.time() - t_write_start
     write_qps = concurrent_writers / t_write_total
 
-    # Verify Files in 20_Cards
-    cards_dir = vault_path / "20_Cards"
+    # Verify Files in decisions
+    cards_dir = vault_path / "decisions"
     matching_files = list(cards_dir.glob("adr-settle-005-concurrent-webhook-lock-fix*.md"))
     print(f"  -> Simultaneous Writers: {concurrent_writers} agents")
     print(f"  -> Total Files Created: {len(matching_files)} / {concurrent_writers} (Zero Data Loss, Anti-Collision)")
@@ -736,7 +729,7 @@ def main():
         traceback.print_exc(file=sys.stderr)
     finally:
         time.sleep(2)
-        force_release_colab_instance()
+        cleanup_runtime()
 
 if __name__ == "__main__":
     main()

@@ -67,22 +67,22 @@ graph TD
 ```
 
 ### 1. L3 Evergreen (Invariants & Architecture Decisions)
-- **Locations**: `20_Cards/`, `docs/adr/`, `concepts/`
+- **Locations**: `decisions/`, `docs/adr/`, `concepts/`
 - **Definition**: High-value, rarely changing rules and architectural decision records (ADRs) that every session must observe.
 - **Example**: `adr-008-distributed-lock.md` (mandates Redis `SET NX EX 30` mutex locks and state machine idempotency guards).
 
 ### 2. L2 Decision Logs (Milestones & Incident Postmortems)
-- **Locations**: `00_Logs/`, `logs/`, `journal/`
+- **Locations**: `logs/`, `journal/`
 - **Definition**: Historical accounts of resolved incidents, sprint iterations, or feature milestones.
 - **Example**: `2026-10-08-incident-retry-storm.md` (documents root-cause analysis and workarounds for webhook retry storms).
 
 ### 3. L1 Resources (External Specifications & API Guides)
-- **Locations**: `30_Resources/`, `specs/`
+- **Locations**: `specs/`, `resources/`
 - **Definition**: Third-party API schemas, vendor specifications, and team conventions.
 - **Example**: `stripe-webhook-v2024-api.md`.
 
 ### 4. L0 Scratch / Dailies (Ephemeral Traces & Slices)
-- **Locations**: `.scratch/`, `.k0maru/refs/`
+- **Locations**: `.k0maru/refs/`
 - **Definition**: Raw stack trace slices and transient scratch notes offloaded from terminal output. Has a short lifespan and can be cleaned or overwritten automatically.
 
 ---

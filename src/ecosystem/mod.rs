@@ -13,6 +13,7 @@ pub enum McpClient {
     Claude,
     Cursor,
     Gemini,
+    Antigravity,
     Windsurf,
     Cline,
     Hermes,
@@ -26,7 +27,8 @@ impl McpClient {
         match self {
             Self::Claude => "Claude Code",
             Self::Cursor => "Cursor",
-            Self::Gemini => "Antigravity / Gemini CLI",
+            Self::Gemini => "Gemini CLI",
+            Self::Antigravity => "Antigravity",
             Self::Windsurf => "Windsurf",
             Self::Cline => "Cline / Roo Code",
             Self::Hermes => "Hermes Agent",
@@ -41,6 +43,7 @@ impl McpClient {
             Self::Claude,
             Self::Cursor,
             Self::Gemini,
+            Self::Antigravity,
             Self::Windsurf,
             Self::Cline,
             Self::Hermes,
@@ -61,20 +64,12 @@ impl McpClient {
         match self {
             Self::Claude => Some(home.join(".claude.json")),
             Self::Cursor => Some(home.join(".cursor").join("mcp.json")),
-            Self::Gemini => {
-                let config_json = home.join(".gemini").join("config").join("mcp_config.json");
-                let antigravity_json = home
-                    .join(".gemini")
+            Self::Gemini => Some(home.join(".gemini").join("settings.json")),
+            Self::Antigravity => Some(
+                home.join(".gemini")
                     .join("antigravity-cli")
-                    .join("mcp_config.json");
-
-                // If antigravity-cli config exists and primary config doesn't, pick antigravity-cli
-                if antigravity_json.exists() && !config_json.exists() {
-                    Some(antigravity_json)
-                } else {
-                    Some(config_json)
-                }
-            }
+                    .join("mcp_config.json"),
+            ),
             Self::Windsurf => Some(
                 home.join(".codeium")
                     .join("windsurf")
@@ -310,7 +305,10 @@ fn check_installed(client: McpClient, config_path: &Path, home: Option<&Path>) -
     match client {
         McpClient::Claude => home.join(".claude.json").exists() || home.join(".claude").exists(),
         McpClient::Cursor => home.join(".cursor").exists(),
-        McpClient::Gemini => home.join(".gemini").exists(),
+        McpClient::Gemini => {
+            home.join(".gemini").join("settings.json").exists() || home.join(".gemini").exists()
+        }
+        McpClient::Antigravity => home.join(".gemini").join("antigravity-cli").exists(),
         McpClient::Windsurf => home.join(".codeium").exists(),
         McpClient::Cline => {
             // Check if any VS Code globalStorage cline extension folder exists

@@ -103,7 +103,7 @@ const jsonLd = {
           name: 'Do I need an existing Obsidian vault to use K0maru Agent Memory?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'No. Running k0maru init automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with standard 00_Meta, 01_AI_Logs, and 02_Architecture directories. If you already use an Obsidian vault, you can seamlessly bind it via k0maru init --vault <path>.',
+            text: 'No. Running k0maru init automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with projects/, decisions/, and logs/ directories plus INDEX.md. If you already use an Obsidian vault, you can seamlessly bind it via k0maru init --vault <path>.',
           },
         },
         {
@@ -129,7 +129,6 @@ export default defineConfig({
   appearance: 'force-dark',
   cleanUrls: true,
   lastUpdated: true,
-  srcExclude: ['agents/**'],
   transformHtml(code) {
     return code
       .replace(/[\u200B\uFE0F]/g, '')

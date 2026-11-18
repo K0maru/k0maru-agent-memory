@@ -67,18 +67,18 @@ def populate_historical_logs(vault_dir: Path):
     Populate 8 historical logs linking to ADR-010 to simulate historical Belief Entrenchment.
     Under standard RRF and graph boost, 8 inbound links strongly bias retrieval toward ADR-010.
     """
-    logs_dir = vault_dir / "01_AI_Logs"
+    logs_dir = vault_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     log_fixtures = [
-        ("2026-08-01-payment-incident.md", "Postmortem on concurrent callback race using [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-08-05-worker-settlement.md", "Worker node settlement lease implementation following [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-08-10-idempotency-check.md", "Idempotency key enforcement using lock pattern from [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-08-15-order-callback.md", "Stripe order callback synchronization reference: [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-08-20-retry-storm.md", "Mitigating settlement retry storms via [[20_Cards/adr-010-legacy-setnx-lock]] lock TTLs."),
-        ("2026-08-25-reconciliation.md", "Batch settlement reconciliation worker anchored to [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-08-28-audit-trail.md", "Financial compliance and audit trail linking to [[20_Cards/adr-010-legacy-setnx-lock]]."),
-        ("2026-09-01-gateway-migration.md", "Payment gateway provider migration retaining [[20_Cards/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-01-payment-incident.md", "Postmortem on concurrent callback race using [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-05-worker-settlement.md", "Worker node settlement lease implementation following [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-10-idempotency-check.md", "Idempotency key enforcement using lock pattern from [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-15-order-callback.md", "Stripe order callback synchronization reference: [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-20-retry-storm.md", "Mitigating settlement retry storms via [[decisions/adr-010-legacy-setnx-lock]] lock TTLs."),
+        ("2026-08-25-reconciliation.md", "Batch settlement reconciliation worker anchored to [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-08-28-audit-trail.md", "Financial compliance and audit trail linking to [[decisions/adr-010-legacy-setnx-lock]]."),
+        ("2026-09-01-gateway-migration.md", "Payment gateway provider migration retaining [[decisions/adr-010-legacy-setnx-lock]]."),
     ]
 
     for filename, note_body in log_fixtures:
@@ -90,7 +90,7 @@ def populate_historical_logs(vault_dir: Path):
             f"---\n\n"
             f"# {filename.replace('.md', '')}\n\n"
             f"{note_body}\n"
-            f"In accordance with [[20_Cards/adr-010-legacy-setnx-lock]], the payment worker callback was configured.\n"
+            f"In accordance with [[decisions/adr-010-legacy-setnx-lock]], the payment worker callback was configured.\n"
         )
         (logs_dir / filename).write_text(content, encoding="utf-8")
 
@@ -107,9 +107,9 @@ def run_control_benchmark(k0maru_bin: str, temp_dir: Path):
 
     vault_dir = repo_dir / "docs" / "wiki"
     vault_dir.mkdir(parents=True, exist_ok=True)
-    cards_dir = vault_dir / "20_Cards"
+    cards_dir = vault_dir / "decisions"
     cards_dir.mkdir(parents=True, exist_ok=True)
-    projects_dir = vault_dir / "10_Projects"
+    projects_dir = vault_dir / "projects"
     projects_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Project note linking to ADR-010
@@ -120,7 +120,7 @@ def run_control_benchmark(k0maru_bin: str, temp_dir: Path):
         "---\n\n"
         "# Payment Settlement Core Service\n\n"
         "## Architecture Decisions\n"
-        "- [[20_Cards/adr-010-legacy-setnx-lock]]\n"
+        "- [[decisions/adr-010-legacy-setnx-lock]]\n"
     )
     (projects_dir / "payment-settlement.md").write_text(project_content, encoding="utf-8")
 
@@ -248,9 +248,9 @@ def run_treatment_benchmark(k0maru_bin: str, temp_dir: Path):
 
     vault_dir = repo_dir / ".k0maru" / "wiki"
     vault_dir.mkdir(parents=True, exist_ok=True)
-    cards_dir = vault_dir / "20_Cards"
+    cards_dir = vault_dir / "decisions"
     cards_dir.mkdir(parents=True, exist_ok=True)
-    projects_dir = vault_dir / "10_Projects"
+    projects_dir = vault_dir / "projects"
     projects_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Project note linking to ADR-010
@@ -261,7 +261,7 @@ def run_treatment_benchmark(k0maru_bin: str, temp_dir: Path):
         "---\n\n"
         "# Payment Settlement Core Service\n\n"
         "## Architecture Decisions\n"
-        "- [[20_Cards/adr-010-legacy-setnx-lock]]\n"
+        "- [[decisions/adr-010-legacy-setnx-lock]]\n"
     )
     (projects_dir / "payment-settlement.md").write_text(project_content, encoding="utf-8")
 
@@ -468,12 +468,12 @@ def main():
             pass
 
     models_data = existing_data.get("models", {
-        "DeepSeek V4.1 Flash (omp native harness)": {
+        "DeepSeek V4.1 Flash (local coding agent harness)": {
             "model_id": "deepseek-v4.1-flash",
             "control_group": control_results,
             "treatment_group": treatment_results,
         },
-        "Qwen2.5-Coder-7B-Instruct (Google Colab NVIDIA L4 24GB + Pi CLI)": {
+        "Qwen2.5-Coder-7B-Instruct (Cloud GPU VM NVIDIA L4-24GB)": {
             "model_id": "qwen2.5-coder:7b-instruct",
             "control_group": control_results,
             "treatment_group": treatment_results,

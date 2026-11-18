@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Template for Colab Project Resolver & Scoped FTS Test.
-Verifies Phase 9.1: First-Class Project Catalog & Multi-Tier Scoped Resolver on Google Colab.
+Template for Project Resolver & Scoped FTS Verification.
+Verifies Phase 9.1: First-Class Project Catalog & Multi-Tier Scoped Resolver on Cloud GPU VM.
 """
 
 import os
@@ -16,25 +16,17 @@ import subprocess
 from pathlib import Path
 
 # ==========================================
-# 0. Zero-Burn Guard for Colab Instance
+# 0. Generic Cleanup Hook
 # ==========================================
-def force_release_colab_instance():
-    print("\n[GUARD] Checking runtime teardown to prevent CCU drain...")
-    try:
-        from google.colab import runtime
-        runtime.unassign()
-        print("[GUARD] runtime.unassign() successfully requested.")
-    except ImportError:
-        print("[GUARD] Running outside Google Colab environment. Clean exit.")
-    except Exception as err:
-        print(f"[GUARD ERROR] runtime.unassign() error: {err}", file=sys.stderr)
+def cleanup_runtime():
+    print("\n[CLEANUP] Verification finished; exiting cleanly.")
 
 # ==========================================
 # 1. Environment & Hardware Probing
 # ==========================================
 def probe_hardware():
     print("=" * 70)
-    print("  COLAB VERIFICATION: FIRST-CLASS PROJECT RESOLVER & SCOPED FTS")
+    print("  VERIFICATION: FIRST-CLASS PROJECT RESOLVER & SCOPED FTS")
     print("=" * 70)
     try:
         import platform
@@ -125,8 +117,8 @@ def setup_adversarial_vault(vault_path: Path):
         shutil.rmtree(vault_path)
     vault_path.mkdir(parents=True, exist_ok=True)
 
-    # 10_Projects
-    p_dir = vault_path / "10_Projects"
+    # projects
+    p_dir = vault_path / "projects"
     p_dir.mkdir(parents=True, exist_ok=True)
     
     # 1. Target Chinese Project with English Slug and Aliases
@@ -157,7 +149,7 @@ tags:
 3. 滑动窗口限流门禁 (Sliding Window Gate): Token Count <= Limit。
 4. 租约锁定期铁律: 至少锁定结算幂等键 180 秒避免重放。
 
-架构设计见 [[20_Cards/分布式租约令牌与自适应限流架构演进]] 与 [[20_Cards/滑动窗口令牌桶与令牌过期数学模型]]。
+架构设计见 [[decisions/分布式租约令牌与自适应限流架构演进]] 与 [[decisions/滑动窗口令牌桶与令牌过期数学模型]]。
 """, encoding="utf-8")
 
     # 2. Second Project to verify separation
@@ -171,8 +163,8 @@ tags: [project, payment]
 Distributed locking and idempotency invariants.
 """, encoding="utf-8")
 
-    # 20_Cards
-    c_dir = vault_path / "20_Cards"
+    # decisions
+    c_dir = vault_path / "decisions"
     c_dir.mkdir(parents=True, exist_ok=True)
     (c_dir / "分布式租约令牌与自适应限流架构演进.md").write_text("""---
 title: 分布式租约令牌与自适应限流架构演进
@@ -193,10 +185,10 @@ tags: [distributed, math-model]
 ## 核心概念
 > 基于滑动时间窗口建模租约令牌消耗速率与过期半衰期。
 """, encoding="utf-8")
-    # 01_AI_Logs / 00_Logs: 30 High-Frequency Cluttered Logs
+    # logs: 30 High-Frequency Cluttered Logs
     # In the old code, these 30 logs with "distributed-gateway-settlement" completely monopolized
     # SQLite FTS5 BM25 top 5, causing project resolution to fail!
-    l_dir = vault_path / "01_AI_Logs"
+    l_dir = vault_path / "logs"
     l_dir.mkdir(parents=True, exist_ok=True)
     for i in range(1, 31):
         (l_dir / f"2026-10-{i:02d}-distributed-gateway-settlement-phase-5-live-tui-monitor.md").write_text(f"""---
@@ -208,7 +200,7 @@ tags: [gateway, settlement, live-monitor]
 # 2026-10-{i:02d}-distributed-gateway-settlement-phase-5-live-tui-monitor
 
 Session log #{i}: distributed gateway settlement live execution.
-Checking [[10_Projects/分布式网关限流与幂等结算系统]] invariants.
+Checking [[projects/分布式网关限流与幂等结算系统]] invariants.
 Detailed execution traces and telemetry dumps:
 distributed gateway settlement distributed gateway settlement distributed gateway settlement.
 """, encoding="utf-8")
@@ -216,8 +208,8 @@ distributed gateway settlement distributed gateway settlement distributed gatewa
     # .k0maru/rules.md
     k_dir = vault_path / ".k0maru"
     k_dir.mkdir(parents=True, exist_ok=True)
-    (k_dir / "rules.md").write_text("""decisions: 20_Cards
-logs: 01_AI_Logs
+    (k_dir / "rules.md").write_text("""decisions: decisions
+logs: logs
 naming_style: slug_only
 """, encoding="utf-8")
 
@@ -227,7 +219,7 @@ naming_style: slug_only
 # 4. Live Verification Suite
 # ==========================================
 def run_resolver_live_tests(k0maru_bin: str) -> bool:
-    vault_path = Path("/tmp/colab_adversarial_vault")
+    vault_path = Path("/tmp/k0maru_adversarial_vault")
     setup_adversarial_vault(vault_path)
     
     # 4.1 Sync Cache
@@ -322,10 +314,10 @@ def run_resolver_live_tests(k0maru_bin: str) -> bool:
 
     print("\n" + "=" * 70)
     if all_passed:
-        print("  🎉 ALL ADVERSARIAL PROJECT RESOLUTION TESTS PASSED ON COLAB!")
+        print("  🎉 ALL ADVERSARIAL PROJECT RESOLUTION TESTS PASSED!")
         print("     Zero log-clutter truncation, 100% slug & alias accuracy.")
     else:
-        print("  ❌ ONE OR MORE TESTS FAILED ON COLAB!")
+        print("  ❌ ONE OR MORE TESTS FAILED!")
     print("=" * 70)
     return all_passed
 
@@ -341,7 +333,7 @@ def main():
         traceback.print_exc()
     finally:
         time.sleep(1)
-        force_release_colab_instance()
+        cleanup_runtime()
     
     sys.exit(0 if success else 1)
 

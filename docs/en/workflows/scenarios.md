@@ -7,7 +7,7 @@ This chapter demonstrates how K0maru-Agent-Memory enforces architectural invaria
 ## Scenario A: Enterprise LLM-Wiki Maintenance (Guarding Distributed Lock & Idempotency Invariants)
 
 ### Business Context
-In financial acquiring services, duplicate webhook deliveries and concurrent retries cause double debits and fund loss. The engineering team established an L3 architecture card in `20_Cards/L3_payment_callback_idempotency_rules.md`:
+In financial acquiring services, duplicate webhook deliveries and concurrent retries cause double debits and fund loss. The engineering team established an L3 architecture card in `decisions/L3_payment_callback_idempotency_rules.md`:
 1. Acquire a Redis distributed mutex lock: `SET lock:payment:callback:{event_id} "1" NX EX 30`;
 2. If lock acquisition fails, return HTTP 429 immediately to trigger payment gateway exponential backoff;
 3. Verify that the order status is `STATUS_PENDING` within a single database transaction. If the order is already processed, return HTTP 200 OK immediately to acknowledge delivery.
@@ -91,7 +91,7 @@ func StripeWebhookHandler(rdb *redis.Client, db *Database) gin.HandlerFunc {
   "related_notes": ["L3_payment_callback_idempotency_rules", "payment-gateway"],
   "content": "..."
 }
-↳ FlushEngine saves to 20_Cards/adr-pay-012-...md and links [[WikiLinks]] automatically
+↳ FlushEngine saves to decisions/adr-pay-012-...md and links [[WikiLinks]] automatically
 ```
 
 By querying K0maru before generating code, the agent avoids typical financial race conditions, such as querying databases before locking or discarding HTTP 429 retry responses.

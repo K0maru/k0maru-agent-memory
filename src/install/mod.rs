@@ -18,6 +18,7 @@ pub enum InstallTarget {
     Claude,
     Cursor,
     Gemini,
+    Antigravity,
     Windsurf,
     Cline,
     Hermes,
@@ -33,6 +34,7 @@ impl InstallTarget {
             Self::Claude => vec![McpClient::Claude],
             Self::Cursor => vec![McpClient::Cursor],
             Self::Gemini => vec![McpClient::Gemini],
+            Self::Antigravity => vec![McpClient::Antigravity],
             Self::Windsurf => vec![McpClient::Windsurf],
             Self::Cline => vec![McpClient::Cline],
             Self::Hermes => vec![McpClient::Hermes],
@@ -50,14 +52,15 @@ impl std::str::FromStr for InstallTarget {
             "all" => Ok(Self::All),
             "claude" | "claude-code" => Ok(Self::Claude),
             "cursor" => Ok(Self::Cursor),
-            "gemini" | "antigravity" => Ok(Self::Gemini),
+            "gemini" | "gemini-cli" => Ok(Self::Gemini),
+            "antigravity" | "agy" => Ok(Self::Antigravity),
             "windsurf" => Ok(Self::Windsurf),
             "cline" | "roo" | "roo-cline" => Ok(Self::Cline),
             "hermes" | "hermes-agent" => Ok(Self::Hermes),
             "openclaw" | "claw" => Ok(Self::OpenClaw),
             "omp" | "oh-my-pi" => Ok(Self::Omp),
             other => Err(format!(
-                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw, omp",
+                "Unknown install target: '{}'. Supported targets: all, claude, cursor, gemini, antigravity, windsurf, cline, hermes, openclaw, omp",
                 other
             )),
         }
@@ -71,6 +74,7 @@ impl std::fmt::Display for InstallTarget {
             Self::Claude => write!(f, "claude"),
             Self::Cursor => write!(f, "cursor"),
             Self::Gemini => write!(f, "gemini"),
+            Self::Antigravity => write!(f, "antigravity"),
             Self::Windsurf => write!(f, "windsurf"),
             Self::Cline => write!(f, "cline"),
             Self::Hermes => write!(f, "hermes"),
@@ -237,25 +241,22 @@ fn ensure_gemini_instructions(config_path: &Path) {
         let mcp_dir = parent.join("mcp").join("k0maru-memory");
         if std::fs::create_dir_all(&mcp_dir).is_ok() {
             let instructions_path = mcp_dir.join("instructions.md");
-            let instructions_content = r#"# K0maru Memory Hub Tool Guidelines & Sensitivity Invariants
+            let instructions_content = r#"# K0maru Memory Hub Tool Guidelines & Retrieval Workflow
 
-`k0maru-memory` mounts the user's permanent local knowledge base (Obsidian Vault / LLM-Wiki).
-It stores research reports, architectural decisions (ADRs), technical feasibility studies, infrastructure configs, project notes, postmortems, and domain knowledge.
+`k0maru-memory` mounts the local knowledge vault (Obsidian Vault / LLM-Wiki / ADR repository).
+It stores docs, architectural decisions (ADRs), runbooks, postmortems, infrastructure configs, and project notes.
 
-## Critical Invariant: Proactive Memory Recall & Progressive Disclosure
-You MUST follow the 3-stage progressive disclosure retrieval pattern:
+## Progressive Disclosure Retrieval Pattern
+Follow the 3-stage progressive disclosure pattern when looking up local project knowledge:
 1. **Stage 1: Fast Recall (`recall_memory`)**:
-   Whenever asked about ANY topic, technology, configuration, or past decision:
-   - **DO NOT** assume the knowledge does not exist.
-   - **DO NOT** answer solely from pre-training without checking `recall_memory`.
-   - **DO NOT** call unrelated external web search before checking `recall_memory`.
-   - **ALWAYS** call `recall_memory(query: "<topic_keyword>")` first to inspect compact K-DSL hits (~50 tokens/hit).
+   When asked about project architecture, configuration, or past decisions:
+   - Call `recall_memory(query: "<topic_keyword>")` to inspect compact K-DSL hits (~50 tokens/hit).
 2. **Stage 2: Chronological Timeline (`timeline_memory`)**:
    When you need chronological context around recent events, engineering logs, or ADR milestones, call `timeline_memory(anchor: "<path_or_date>", window: 10)`.
 3. **Stage 3: Deep Inspection (`inspect_note`)**:
    For notes identified in Stage 1 or Stage 2 that require full context, inbound/outbound links, or invariant rules, call `inspect_note(path: "<relative_path>")` to inspect full frontmatter, relations, and markdown body.
 
-## Additional Invariants
+## Additional Workflows
 1. **Session Bootstrap**:
    - When starting work on a specific project or repo, invoke `get_project_loadout(project_name: "<name>")` to fetch architectural invariants (<300 tokens).
 2. **Knowledge Crystallization**:
@@ -323,7 +324,7 @@ pub fn run_install(
                 std::fs::write(&config_path, &content_with_newline)?;
                 let _ = std::fs::remove_file(&tmp_path);
             }
-            if client == McpClient::Gemini {
+            if client == McpClient::Antigravity {
                 ensure_gemini_instructions(&config_path);
             }
             (true, None)

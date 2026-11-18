@@ -1,6 +1,6 @@
 # AGENT_GUIDE.md — Zero-Human-in-the-Loop Playbook for AI Agents
 
-> 🤖 **For AI Coding Agents (Claude Code, Cursor, Windsurf, omp, Cline, Hermes, OpenClaw, Codex, ChatGPT)**:  
+> 🤖 **For AI Coding Agents (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI, and compatible MCP harnesses)**:  
 > This playbook provides the definitive operational blueprint when an engineer asks:  
 > *"What is K0maru?"*, *"How does this repo work?"*, or *"Bootstrap and use K0maru in my project"*.  
 > Follow these protocols strictly to achieve zero-human-in-the-loop autonomous memory governance.
@@ -47,17 +47,18 @@ k0maru doctor
 `k0maru init --install` automatically generates and installs the following artifacts:
 
 1. **Local Knowledge Wiki (`.k0maru/wiki/`)**:
-   - `10_Projects/<project_slug>.md`: Extracted project blueprint, mission, core components, and operational commands.
-   - `20_Cards/adr-001-repository-guardrails.md`: Initial Living ADR note declaring non-negotiable architectural and security invariants (preventing credential leakage, debug dumps, etc.).
-   - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`: First handover log documenting repository initialization.
+   - `projects/<project_slug>.md`: Extracted project blueprint, mission, core components, and operational commands.
+   - `decisions/adr-001-repository-guardrails.md`: Initial Living ADR note declaring non-negotiable architectural and security invariants (preventing credential leakage, debug dumps, etc.).
+   - `logs/<YYYY-MM-DD>-initial-bootstrap.md`: First handover log documenting repository initialization.
+   - `INDEX.md`: Master Map of Content (MOC) indexing projects, decisions, and logs.
 2. **FastMCP Server Configurations**:
-   - Project-scoped `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor). (Note: To wire global configs for Windsurf, Cline, Gemini CLI, Hermes, and `omp`, run `k0maru install --vault <path>`.)
+   - Project-scoped `.mcp.json` (Claude Code) and `.cursor/mcp.json` (Cursor). (Note: To wire global configs for Windsurf, Cline, Gemini CLI, and additional harness integrations, run `k0maru install --vault <path>`.)
 3. **Claude Code Lifecycle Settings (`.claude/settings.local.json`)**:
    - `SessionStart`: Executes `k0maru loadout "<project>" --diff` to inject context on start.
    - `Stop`: Configures the pre-yield guard hook `k0maru guard check --diff --claude-stop-hook`.
 4. **Git Lifecycle Hooks (`.git/hooks/`)**:
    - `.git/hooks/pre-commit`: Executes `k0maru guard check --diff` (<10ms) before any commit can land.
-   - `.git/hooks/post-commit`: Automatically invokes `k0maru sync` and appends milestone notes to `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
+   - `.git/hooks/post-commit`: Automatically invokes `k0maru sync` and appends milestone notes to `logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
 5. **Disposable Cache Database (`.k0maru/wiki/.k0maru/cache.sqlite`)**:
    - FTS5 full-text index and optional vector index. Can be deleted at any time (`rm .k0maru/wiki/.k0maru/cache.sqlite`); rebuilds automatically in 74ms.
 
@@ -107,7 +108,7 @@ flowchart LR
 ### Phase 5: Post-Commit Synchronization & Crystallization (`.git/hooks/post-commit`)
 - Once committed, the post-commit hook automatically:
   1. Increments cache indices via `k0maru sync` (~11ms).
-  2. If the commit message starts with `feat:`, `fix:`, `refactor:`, `perf:`, or `adr:`, it crystallizes a milestone note into `.k0maru/wiki/01_AI_Logs/YYYY-MM-DD-<slug>.md` documenting the change.
+  2. If the commit message starts with `feat:`, `fix:`, `refactor:`, `perf:`, or `adr:`, it crystallizes a milestone note into `.k0maru/wiki/logs/YYYY-MM-DD-<slug>.md` documenting the change.
 
 ---
 
@@ -183,7 +184,7 @@ Place under a `## Invariants` or `## Non-Negotiable Invariants` header in any Ma
 
 ### Syntax 2: YAML Frontmatter Syntax
 
-Declare directly inside the YAML frontmatter block of any note in `20_Cards/` or `10_Projects/`:
+Declare directly inside the YAML frontmatter block of any ADR note in `decisions/`, `docs/adr/`, or `projects/`:
 
 ```yaml
 ---

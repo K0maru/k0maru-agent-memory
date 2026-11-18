@@ -96,19 +96,34 @@ pub fn parse_frontmatter(content: &str) -> (serde_json::Value, &str) {
     }
 }
 
+struct CodeAndHtmlRanges {
+    code_only: Vec<(usize, usize)>,
+    all: Vec<(usize, usize)>,
+}
+
 /// Identifies byte ranges in `content` that represent code blocks (fenced and indented)
-/// and inline code (`...`), which must be ignored when extracting links and tags.
+/// and inline code (`...`), plus HTML blocks/tags, which must be ignored when extracting links and tags.
 pub fn extract_code_ranges(content: &str) -> Vec<(usize, usize)> {
+    extract_code_and_html_ranges(content).all
+}
+
+/// Returns code-only ranges and combined code/HTML ranges sorted by start byte offset.
+fn extract_code_and_html_ranges(content: &str) -> CodeAndHtmlRanges {
     if !content.contains('`')
         && !content.contains('~')
+        && !content.contains('<')
         && !content.contains("    ")
         && !content.contains('\t')
     {
-        return Vec::new();
+        return CodeAndHtmlRanges {
+            code_only: Vec::new(),
+            all: Vec::new(),
+        };
     }
 
     let parser = Parser::new(content);
-    let mut ranges = Vec::with_capacity(8);
+    let mut code_only = Vec::with_capacity(8);
+    let mut all_ranges = Vec::with_capacity(8);
     let mut code_block_start = None;
     let mut html_block_start = None;
 
@@ -119,29 +134,121 @@ pub fn extract_code_ranges(content: &str) -> Vec<(usize, usize)> {
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(start) = code_block_start.take() {
-                    ranges.push((start, range.end));
+                    code_only.push((start, range.end));
+                    all_ranges.push((start, range.end));
                 }
             }
             Event::Code(_) => {
-                ranges.push((range.start, range.end));
+                code_only.push((range.start, range.end));
+                all_ranges.push((range.start, range.end));
             }
             Event::Start(Tag::HtmlBlock) => {
                 html_block_start = Some(range.start);
             }
             Event::End(TagEnd::HtmlBlock) => {
                 if let Some(start) = html_block_start.take() {
-                    ranges.push((start, range.end));
+                    all_ranges.push((start, range.end));
                 }
             }
             Event::Html(_) => {
-                ranges.push((range.start, range.end));
+                all_ranges.push((range.start, range.end));
             }
             _ => {}
         }
     }
 
-    ranges.sort_unstable_by_key(|&(start, _)| start);
+    code_only.sort_unstable_by_key(|&(start, _)| start);
+    all_ranges.sort_unstable_by_key(|&(start, _)| start);
+    CodeAndHtmlRanges {
+        code_only,
+        all: all_ranges,
+    }
+}
+
+/// Opening marker for k0maru-managed Obsidian backlink blocks.
+pub const BACKLINK_BLOCK_START: &str = "<!-- k0maru:backlinks:start -->";
+/// Closing marker for k0maru-managed Obsidian backlink blocks.
+pub const BACKLINK_BLOCK_END: &str = "<!-- k0maru:backlinks:end -->";
+
+/// Identifies byte ranges inside `<!-- k0maru:backlinks:start --> ... <!-- k0maru:backlinks:end -->`
+/// blocks that are outside fenced/inline code spans.
+pub fn extract_managed_backlink_blocks(content: &str) -> Vec<(usize, usize)> {
+    if !content.contains(BACKLINK_BLOCK_START) {
+        return Vec::new();
+    }
+    let ranges = extract_code_and_html_ranges(content);
+    extract_managed_backlink_ranges(content, &ranges.code_only)
+}
+
+/// Identifies byte ranges inside `<!-- k0maru:backlinks:start --> ... <!-- k0maru:backlinks:end -->`
+/// blocks that are outside `code_only_ranges`, so woven backlinks never feed back into `links` or `tags`.
+pub fn extract_managed_backlink_ranges(
+    content: &str,
+    code_only_ranges: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    if !content.contains(BACKLINK_BLOCK_START) {
+        return Vec::new();
+    }
+
+    let mut ranges = Vec::new();
+    let mut search_from = 0;
+
+    while let Some(rel_start) = content[search_from..].find(BACKLINK_BLOCK_START) {
+        let start = search_from + rel_start;
+        let after_start = start + BACKLINK_BLOCK_START.len();
+
+        if is_in_excluded_range(start, after_start, code_only_ranges) {
+            search_from = after_start;
+            continue;
+        }
+
+        let mut end_search = after_start;
+        let mut found_end = None;
+        while let Some(rel_end) = content[end_search..].find(BACKLINK_BLOCK_END) {
+            let end_start = end_search + rel_end;
+            let end_finish = end_start + BACKLINK_BLOCK_END.len();
+            if !is_in_excluded_range(end_start, end_finish, code_only_ranges) {
+                found_end = Some(end_finish);
+                break;
+            }
+            end_search = end_finish;
+        }
+
+        if let Some(block_end) = found_end {
+            ranges.push((start, block_end));
+            search_from = block_end;
+        } else {
+            // Unclosed start marker: do not swallow the rest of the document.
+            search_from = after_start;
+        }
+    }
+
     ranges
+}
+
+/// Computes merged, sorted excluded byte ranges covering code/HTML spans and managed backlink blocks.
+pub fn extract_excluded_ranges(content: &str) -> Vec<(usize, usize)> {
+    let parsed = extract_code_and_html_ranges(content);
+    let mut ranges = parsed.all;
+    let backlink_ranges = extract_managed_backlink_ranges(content, &parsed.code_only);
+    if !backlink_ranges.is_empty() {
+        ranges.extend(backlink_ranges);
+        ranges.sort_unstable_by_key(|&(start, _)| start);
+    }
+
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    for (s, e) in ranges {
+        if let Some(last) = merged.last_mut() {
+            if s <= last.1 {
+                if e > last.1 {
+                    last.1 = e;
+                }
+                continue;
+            }
+        }
+        merged.push((s, e));
+    }
+    merged
 }
 
 /// Checks if a range `[start, end]` overlaps with any range in `excluded_ranges`.
@@ -158,19 +265,38 @@ fn is_in_excluded_range(start: usize, end: usize, excluded_ranges: &[(usize, usi
     false
 }
 
-/// Extracts bare `[[Card]]` and aliased `[[Card|Alias]]` links into `Vec<WikiLink>`.
-/// Strictly ignores links within code blocks (fenced ``` and inline `).
-pub fn extract_wikilinks(content: &str) -> Vec<WikiLink> {
-    let code_ranges = extract_code_ranges(content);
-    extract_wikilinks_with_ranges(content, &code_ranges)
+/// Returns `true` if a CommonMark link destination points to an external URL or non-vault scheme.
+fn is_external_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.starts_with("//") {
+        return true;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("tel:")
+        || lower.starts_with("data:")
+        || lower.starts_with("javascript:")
+        || lower.starts_with("file://")
 }
 
-/// Extracts bare `[[Card]]` and aliased `[[Card|Alias]]` links using pre-computed code ranges.
+/// Extracts bare `[[Card]]`, aliased `[[Card|Alias]]`, and internal CommonMark `[Alias](target)` links
+/// into `Vec<WikiLink>`.
+/// Strictly ignores links within code blocks (fenced ``` and inline `) and managed backlink blocks,
+/// CommonMark images (`![alt](img)`), and external URL schemes.
+pub fn extract_wikilinks(content: &str) -> Vec<WikiLink> {
+    let excluded_ranges = extract_excluded_ranges(content);
+    extract_wikilinks_with_ranges(content, &excluded_ranges)
+}
+
+/// Extracts WikiLinks and internal CommonMark relative links using pre-computed excluded ranges.
 pub fn extract_wikilinks_with_ranges(
     content: &str,
     code_ranges: &[(usize, usize)],
 ) -> Vec<WikiLink> {
-    let mut links = Vec::with_capacity(8);
+    let mut positioned: Vec<(usize, WikiLink)> = Vec::with_capacity(8);
+    let mut wikilink_spans: Vec<(usize, usize)> = Vec::new();
     let mut search_from = 0;
     let bytes = content.as_bytes();
     let len = bytes.len();
@@ -219,7 +345,8 @@ pub fn extract_wikilinks_with_ranges(
                 };
 
                 if !target.is_empty() {
-                    links.push(WikiLink::new(target, alias, raw_text));
+                    wikilink_spans.push((start, full_end));
+                    positioned.push((start, WikiLink::new(target, alias, raw_text)));
                 }
             }
         } else {
@@ -227,14 +354,81 @@ pub fn extract_wikilinks_with_ranges(
         }
     }
 
-    links
+    if content.contains('[') {
+        let parser = Parser::new(content);
+        let mut image_depth: usize = 0;
+        let mut link_stack: Vec<(usize, String, String)> = Vec::new();
+
+        for (event, range) in parser.into_offset_iter() {
+            match event {
+                Event::Start(Tag::Image { .. }) => {
+                    image_depth += 1;
+                }
+                Event::End(TagEnd::Image) => {
+                    image_depth = image_depth.saturating_sub(1);
+                }
+                Event::Start(Tag::Link { dest_url, .. }) => {
+                    link_stack.push((range.start, dest_url.to_string(), String::new()));
+                }
+                Event::Text(t) | Event::Code(t) => {
+                    if image_depth == 0 {
+                        if let Some((_, _, alias_buf)) = link_stack.last_mut() {
+                            alias_buf.push_str(&t);
+                        }
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    if image_depth == 0 {
+                        if let Some((_, _, alias_buf)) = link_stack.last_mut() {
+                            alias_buf.push(' ');
+                        }
+                    }
+                }
+                Event::End(TagEnd::Link) => {
+                    if let Some((link_start, dest_url, alias_buf)) = link_stack.pop() {
+                        if is_in_excluded_range(link_start, range.end, code_ranges)
+                            || is_external_url(&dest_url)
+                        {
+                            continue;
+                        }
+                        if wikilink_spans
+                            .iter()
+                            .any(|&(ws, we)| link_start < we && range.end > ws)
+                        {
+                            continue;
+                        }
+                        let trimmed_dest = dest_url.trim();
+                        let target = trimmed_dest
+                            .strip_suffix(".md")
+                            .map(str::trim)
+                            .unwrap_or(trimmed_dest);
+                        if target.is_empty() {
+                            continue;
+                        }
+                        let alias_trimmed = alias_buf.trim();
+                        let alias = if alias_trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(alias_trimmed.to_string())
+                        };
+                        let raw_text = &content[link_start..range.end];
+                        positioned.push((link_start, WikiLink::new(target, alias, raw_text)));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    positioned.sort_by_key(|(pos, _)| *pos);
+    positioned.into_iter().map(|(_, link)| link).collect()
 }
 
 /// Extracts `#tag` and `#tag/subtag` structures.
-/// Strictly ignores markdown headers, URL anchors, and tags within code blocks.
+/// Strictly ignores markdown headers, URL anchors, and tags within code or managed backlink blocks.
 pub fn extract_tags(content: &str) -> Vec<String> {
-    let code_ranges = extract_code_ranges(content);
-    extract_tags_with_ranges(content, &code_ranges)
+    let excluded_ranges = extract_excluded_ranges(content);
+    extract_tags_with_ranges(content, &excluded_ranges)
 }
 
 /// Extracts `#tag` and `#tag/subtag` structures using pre-computed code ranges.
@@ -360,9 +554,9 @@ pub fn extract_tags_with_ranges(content: &str, code_ranges: &[(usize, usize)]) -
 
 /// Simultaneously extracts WikiLinks and tags from markdown body in an optimized single AST pass.
 pub fn extract_elements(content: &str) -> (Vec<WikiLink>, Vec<String>) {
-    let code_ranges = extract_code_ranges(content);
+    let excluded_ranges = extract_excluded_ranges(content);
     (
-        extract_wikilinks_with_ranges(content, &code_ranges),
-        extract_tags_with_ranges(content, &code_ranges),
+        extract_wikilinks_with_ranges(content, &excluded_ranges),
+        extract_tags_with_ranges(content, &excluded_ranges),
     )
 }

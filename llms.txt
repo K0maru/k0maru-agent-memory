@@ -15,7 +15,7 @@ K0maru operates as an active, executable architectural governance engine:
 ## Measured Benchmarks (v1.0.0)
 
 - **Diff-Aware Loadout Token Footprint**: Bounded `< 300 tokens` (measured: `168 tokens` for standard projects; `245 tokens` under complex multi-rule diffs).
-- **Supersession Self-Healing**: `100% Pass@1` autonomous remediation in 1 turn across verified models (`DeepSeek V4.1 Flash (omp)`, `Qwen2.5-Coder-7B (Google Colab L4)`, and `Llama-3.1-8B-Instruct (A100)`).
+- **Supersession Self-Healing**: `100% Pass@1` autonomous remediation in 1 turn across verified models (`DeepSeek V4.1 Flash`, `Qwen2.5-Coder-7B (NVIDIA L4-24GB)`, and `Llama-3.1-8B-Instruct (NVIDIA A100-80GB)`).
 - **Session Trajectory Context GC**: `86.58% TRR` (Token Reduction Ratio) on 50-turn conversational logs (`16,830 tokens` compacted to `2,259 tokens` while preserving hot-turn cognitive context).
 - **Symbolic Offloading TRR**: `99.44%` token reduction on massive terminal dumps and compiler stack traces (`cargo test`, `pytest`).
 - **Binary Footprint**:
@@ -25,7 +25,7 @@ K0maru operates as an active, executable architectural governance engine:
 
 ## Zero-Human-in-the-Loop Quickstart for Agents
 
-External coding agents (Claude Code, Cursor, Windsurf, omp, Cline, Hermes, OpenClaw) can bootstrap and govern any repository with zero human intervention:
+External coding agents (Claude Code, Cursor, Codex, Windsurf, Cline, Gemini CLI) can bootstrap and govern any repository with zero human intervention:
 
 ```bash
 # 1. Download and install single binary
@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/ins
 # 2. One-click autonomous bootstrap inside any Git repository
 # (Creates project-scoped .mcp.json for Claude Code and .cursor/mcp.json for Cursor,
 # plus .claude/settings.local.json and .git/hooks/{pre-commit,post-commit};
-# note: `k0maru install --vault <path>` wires global configs for Windsurf, Cline, Gemini CLI, Hermes, and omp)
+# note: `k0maru install --vault <path>` wires global configs for Windsurf, Cline, Gemini CLI, and optional harnesses)
 k0maru init --install
 # 3. Verify installation health and client bindings
 k0maru doctor
@@ -46,7 +46,7 @@ k0maru doctor
 2. **Mid-Session**: Query architectural history and troubleshooting playbooks via `k0maru search "<query>"` or FastMCP `recall_memory`.
 3. **Pre-Yield / Claude Stop-hook (`hooks.Stop`)**: Runs `k0maru guard check --diff --claude-stop-hook`. If violations exist, exits with code 2 to trigger autonomous self-healing before human sees the output.
 4. **Pre-Commit (`.git/hooks/pre-commit`)**: Evaluates staged changes against ADR invariants in `<10ms`, rejecting non-compliant commits.
-5. **Post-Commit (`.git/hooks/post-commit`)**: Incremental `k0maru sync` and automated milestone crystallization in `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
+5. **Post-Commit (`.git/hooks/post-commit`)**: Incremental `k0maru sync` and automated milestone crystallization in `logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
 
 ## Self-Healing Protocol on `[DENY]` Violation
 

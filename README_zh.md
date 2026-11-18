@@ -1,6 +1,6 @@
 [English](README.md) | [简体中文](README_zh.md)
 
-> 🤖 **一句话让 AI 自动接入（Claude Code / Cursor / Windsurf / Cline / `omp`）**：在任意代码仓库中打开你的 AI 编码工具，直接发送这一句话即可全自动完成安装与闭环挂载：
+> 🤖 **一句话让 AI 自动接入（Claude Code / Cursor / Codex / Windsurf / Cline / Gemini CLI）**：在任意代码仓库中打开你的 AI 编码工具，直接发送这一句话即可全自动完成安装与闭环挂载：
 > ```text
 > Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
 > ```
@@ -62,7 +62,7 @@
 
 ### 🛡️ 活体架构守卫与新旧决策取代 A/B 实测看板 (Adversarial Supersession Benchmark)
 
-跨 **本地多智能体 (`omp` + `DeepSeek V4.1 Flash` on Apple Silicon M3 Max)**、**Google Colab NVIDIA L4 + Qwen2.5-Coder-7B + Pi CLI** 与 **可复现基准测试 (`python3 benchmarks/run_supersession_guard_ab.py`)** 在 `payment-settlement` 支付结算系统上完成真实端到端对照实验。测试在分布式锁架构演进中（从旧方案 `ADR-010` 的无作用域裸锁 `redis_setnx_unscoped` 升级为 `ADR-042` 的带栅栏租约锁 `acquire_fenced_lease`），无治理知识库与 K0maru 全闭环治理引擎的表现：
+跨 **本地多智能体（`DeepSeek V4.1 Flash` / 本地编码智能体框架 on Apple Silicon 笔记本 (ARM64)）**、**云端 GPU 虚拟机（NVIDIA L4-24GB + Qwen2.5-Coder-7B）** 与 **可复现基准测试 (`python3 benchmarks/run_supersession_guard_ab.py`)** 在 `payment-settlement` 支付结算系统上完成真实端到端对照实验。测试在分布式锁架构演进中（从旧方案 `ADR-010` 的无作用域裸锁 `redis_setnx_unscoped` 升级为 `ADR-042` 的带栅栏租约锁 `acquire_fenced_lease`），无治理知识库与 K0maru 全闭环治理引擎的表现：
 
 | 评估阶段与核心指标 | 对照组 (无 `--supersedes` 的普通 Markdown Wiki) | 实验组 (`k0maru flush --supersedes` + `guard check --diff`) | 工程治理突破与实测收益 |
 | :--- | :--- | :--- | :--- |
@@ -70,20 +70,20 @@
 | **动态读档背包预算 (`<300-token`)** | 上下文超标膨胀（`>650 tokens`，混入过期废弃规则） | **严格收敛至 245 tokens**（通过 `LoadoutBuilder` 自动注入 `[Guard: forbid ...]` 活跃不变量） | **严格受控认知黄金区**，防止无用历史干扰推理 |
 | **首轮代码实现 (Turn-1 Pass@1)** | 生成带有高危漏洞的裸锁 `redis_setnx_unscoped`（被旧决策投毒） | **100% 首轮一次性通过 (Pass@1)**<br>*直接生成 `acquire_fenced_lease`，0 次守卫违规* | **前置规约传递**：透传新 ADR 约束，在编写前杜绝技术退化 |
 | **提交前守卫拦截 (`guard check`)** | **0 次拦截 (直接漏放)**<br>*危险代码 `redis_setnx_unscoped` 成功提交引入资损隐患* | **<35ms 端到端 100% 物理拦截**（核心探测仅 3.82ms，触发 `[DENY] ban-legacy-setnx`）<br>*若暂存不合规裸锁，毫秒级阻断提交* | **100% 防退化物理阻断**：杜绝架构退化与资损缺陷进入 Git 历史 |
-| **智能体单轮自愈闭环** | 失败（静默引入线上资损风险） | **1 轮内 100% 修复通过**<br>*在 Local `omp` + DeepSeek V4.1 与 CLI 自动化测试中均实现 1-turn 快速自愈* | 错误信息直出修复引导，驱动小模型瞬间写出合规租约代码 |
+| **智能体单轮自愈闭环** | 失败（静默引入线上资损风险） | **1 轮内 100% 修复通过**<br>*在本地 DeepSeek V4.1 Flash 与 CLI 自动化测试中均实现 1-turn 快速自愈* | 错误信息直出修复引导，驱动小模型瞬间写出合规租约代码 |
 > 🔬 **可复现基准测试套件与原始实测数据**：  
 > - 端到端可执行测试脚本：[`benchmarks/run_supersession_guard_ab.py`](benchmarks/run_supersession_guard_ab.py)  
 > - 完整机器可读实测指标 JSON：[`benchmarks/results/supersession_guard_ab_results.json`](benchmarks/results/supersession_guard_ab_results.json)
 
-#### 智能体生态真实闭环适配验证 (Hermes Agent & OpenClaw on Real LLM-Wiki)
+#### 智能体闭环真实知识库评测 (Autonomous Agent Loop Evaluation)
 
-在 Colab 硬件上搭建真实企业级支付网关 LLM-Wiki（含 P0 服务架构、L3 幂等规则卡片与历史资损复盘），驱动 **Llama-3.1-8B-Instruct (A100)** 与 **Qwen2.5-Coder-7B (Colab L4)** 自主运行 Hermes / OpenClaw 多轮函数调用循环，四大核心不变量全部达成（`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`，`Qwen2.5-Coder-7B (Colab L4): 100% Pass@1`）：
+在云端 GPU 虚拟机上搭建真实企业级支付网关 LLM-Wiki（含 P0 服务架构、L3 幂等规则卡片与历史资损复盘），驱动 **Llama-3.1-8B-Instruct (NVIDIA A100-80GB)** 与 **Qwen2.5-Coder-7B (NVIDIA L4-24GB)** 自主运行多轮函数调用循环，四大核心不变量全部达成（`Llama-3.1-8B-Instruct: 100% (4/4 invariants)`，`Qwen2.5-Coder-7B: 100% Pass@1`）：
 
 | 核心不变量检验项 | 期望标准与流程 | 实际执行验证结果 | 状态 |
 | :--- | :--- | :--- | :---: |
 | **1. 编码前预检 (Pre-flight Inspection)** | 编码前主动调用 `loadout` 与 `recall` 获取架构不变量与事故教训 | 自主触发 `get_project_loadout` 与 2 次精准 `recall_memory` | **PASS ✓** |
 | **2. 架构不变量遵从 (Invariant Compliance)** | 代码中必须包含分布式互斥锁与状态机阻断，杜绝资损隐患 | 生成包含 Redis 锁 `SET NX EX 30` 与 `STATUS_PENDING` 检查的 Go 源码 | **PASS ✓** |
-| **3. 会话结晶与自愈 (Self-Healing Flush)** | 交付后通过 `flush_session` 持久化 ADR 决策并编织双向 WikiLinks | 自动规范生成至 `20_Cards/adr-pay-012-...md` (织入 Frontmatter) | **PASS ✓** |
+| **3. 会话结晶与自愈 (Self-Healing Flush)** | 交付后通过 `flush_session` 持久化 ADR 决策并编织双向 WikiLinks | 自动规范生成至 `decisions/adr-pay-012-...md` (织入 Frontmatter) | **PASS ✓** |
 | **4. 即时唤醒验证 (Instant Recall)** | 新结晶笔记在无人工索引重建干预下必须可被瞬间唤醒 | 检索耗时 **0.88 ms**，得分 12.05 首位命中刚落盘的 ADR 卡片 | **PASS ✓** |
 
 > 📖 **查看完整案例逐一拆解、Hermes / OpenClaw 多轮 Trace 与评测数据**：  
@@ -96,7 +96,7 @@
 
 ### 🤖 方案 A（零人工干预）：给你的 AI 编码工具发一句话
 
-无论你在 **Claude Code、Cursor、Windsurf、Cline 还是 `omp`** 中打开一个全新的代码仓库，只需要给 AI 发一句话：
+无论你在 **Claude Code、Cursor、Codex、Windsurf、Cline 还是 Gemini CLI** 中打开一个全新的代码仓库，只需要给 AI 发一句话：
 
 ```text
 Read https://raw.githubusercontent.com/K0maru/k0maru-agent-memory/main/llms.txt (or AGENT_GUIDE.md) and set up k0maru-agent-memory for this repository.
@@ -118,9 +118,10 @@ k0maru init --install
 **`k0maru init --install`（别名 `k0maru bootstrap`）在 1 秒内自动完成的事项：**
 - 🔍 **智能扫描代码库**：自动解析项目 `README.md`、包管理清单（`Cargo.toml`、`package.json`、`pyproject.toml`、`go.mod`）、智能体宪法（`AGENTS.md`、`CLAUDE.md`）与近期 Git 提交历史；
 - 📐 **脚手架生成知识库**：在项目根目录构建 `.k0maru/wiki/` 目录：
-  - `10_Projects/<project_slug>.md`：自动提取项目核心架构、模块边界与工程指南；
-  - `20_Cards/adr-001-repository-guardrails.md`：首张活体 ADR 守卫卡片，内置可执行正则与边界规则（自动阻断敏感密钥泄漏、调试 dump 与违规提交）；
-  - `01_AI_Logs/<YYYY-MM-DD>-initial-bootstrap.md`：根据 Git 提交历史自动生成初始交接日志；
+  - `projects/<project_slug>.md`：自动提取项目核心架构、模块边界与工程指南；
+  - `decisions/adr-001-repository-guardrails.md`：首张活体 ADR 守卫卡片，内置可执行正则与边界规则（自动阻断敏感密钥泄漏、调试 dump 与违规提交）；
+  - `logs/<YYYY-MM-DD>-initial-bootstrap.md`：根据 Git 提交历史自动生成初始交接日志；
+  - `INDEX.md`：知识库总索引（Map of Content），自动关联项目、决策与日志；
 - 🔗 **自动挂载 FastMCP 与全生命周期钩子**：生成项目级 `.mcp.json` 与 `.claude/settings.local.json`（`SessionStart` `<300-token` Diff 自动读档 + `Stop` 交卷前 `exit 2` 自愈守卫），并安装 `.git/hooks/pre-commit`（`<10ms` 代码提交前架构审查）与 `.git/hooks/post-commit`（提交后自动同步索引并记录里程碑）；
 - ⚡ **秒级构建瞬态缓存**：编译生成 `cache.sqlite` 倒排与向量索引，开箱即用支持 `k0maru loadout` 与 `k0maru guard check --diff`！
 
@@ -235,7 +236,7 @@ cargo test 2>&1 | k0maru offload
 k0maru inspect node_54697ed3
 ```
 
-- **99.44% 的 Token 压缩率**：超长编译转储落盘至 `.scratch/refs/` 或 `<vault>/.k0maru/refs/`，绝不污染会话窗口；
+- **99.44% 的 Token 压缩率**：超长编译转储落盘至 `<vault>/.k0maru/refs/`，绝不污染会话窗口；
 - **Mermaid 状态机图直击根因**：状态图直接指出故障流转节点（如 `Iteration1 --> Failure: E0382 borrow after move`），引导大模型一眼看穿根因；
 - **智能体原生 FastMCP 对应工具**：
   - `offload_context`：AI 智能体在执行终端命令产生长日志时主动卸载；
@@ -256,7 +257,7 @@ k0maru search "并发死锁排查最佳实践" --vault ~/wiki --mode hybrid --li
 k0maru search "向量相似度" --vault ~/wiki --embed-model bge-small-zh-v1.5
 ```
 
-- **默认极简单行线协议编码**：默认返回高密度紧凑单行格式，最大限度节约上下文窗口 Token（详见文末 [进阶：多路复用器与 Sidecar 生态](#-进阶多路复用器与-sidecar-生态-tern-omp-与-k-dsl-线协议)）；仅在显式传入 `"full": true` 参数时才输出完整多行 Markdown 原文。
+- **默认极简单行线协议编码**：默认返回高密度紧凑单行格式，最大限度节约上下文窗口 Token（详见文末 [K-DSL 线协议与可选编排器扩展集成](#-k-dsl-线协议与可选编排器扩展集成)）；仅在显式传入 `"full": true` 参数时才输出完整多行 Markdown 原文。
 - **可插拔多模型向量后端**：原生内置 `all-minilm-l6-v2`（384d，默认）、`bge-small-zh-v1.5`（512d）、`bge-base-en-v1.5`（768d）、`paraphrase-multilingual-minilm-l12-v2`（384d）及离线测试专用的 `mock` 引擎；
 - **动态维度自愈迁移**：切换模型或维度时自动无损重建 `sqlite-vec` 虚表，免去手工删库建表烦恼。
 
@@ -305,7 +306,7 @@ k0maru guard install
 
 #### 如何声明架构不变量 (Invariants)
 
-在知识库的 ADR 笔记（`20_Cards/` 或 `10_Projects/`）的 Frontmatter 中添加 `invariants` 字段即可生效：
+在知识库的 ADR 笔记（`decisions/` 或 `docs/adr/`）的 Frontmatter 中添加 `invariants` 字段即可生效：
 
 ```yaml
 ---
@@ -371,7 +372,7 @@ k0maru sync --vault ~/wiki --vector --embed-model bge-small-zh-v1.5
 
 ## 🤖 智能体生态协同与 FastMCP 协议接口总览
 
-挂载 FastMCP 后，K0maru 为通用主流 IDE 与 CLI 智能体客户端（Claude Code、Cursor、Codex、Windsurf、Gemini CLI、Cline、Hermes、OpenClaw）提供全套长期记忆、架构守卫与上下文治理能力：
+挂载 FastMCP 后，K0maru 为主流开源 IDE 与 CLI 智能体客户端（Claude Code、Cursor、Codex、Windsurf、Cline、Gemini CLI，以及可选的扩展编排框架）提供全套长期记忆、架构守卫与上下文治理能力：
 
 | FastMCP 工具名称 | 人类自然语言触发意图示例 | 核心价值与底层动作 |
 | :--- | :--- | :--- |
@@ -396,36 +397,26 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 1. **开局起步自动读档（`SessionStart`）**：Claude Code 或 IDE 钩子自动触发 `k0maru loadout "<project>" --diff`，装配小于 300 Token 的受控认知背包（项目使命、核心 ADR 守卫规则、近期提交日志）；
 2. **交付前自主审查（Claude Code `hooks.Stop`）**：在智能体输出给人类前，自动调用 `k0maru guard check --diff --claude-stop-hook`。若检测到架构违规，返回 POSIX 退出码 2 阻断输出并由智能体进行 1-turn 自主自愈（代码重构或通过 `k0maru flush --supersedes` 取代旧架构）；
 3. **代码提交前置拦截门禁（`.git/hooks/pre-commit`）**：`<10ms` 纯静态 Rust 正则与词法审计，强制拦截违规代码合入 Git 历史；
-4. **提交后自动同步与里程碑结晶（`.git/hooks/post-commit`）**：提交后自动触发 `k0maru sync` 增量刷新索引（~11ms），并在包含 `feat:`、`fix:`、`refactor:`、`perf:`、`adr:` 的提交发生时自动向 `01_AI_Logs/` 结晶结构化里程碑卡片。
+4. **提交后自动同步与里程碑结晶（`.git/hooks/post-commit`）**：提交后自动触发 `k0maru sync` 增量刷新索引（~11ms），并在包含 `feat:`、`fix:`、`refactor:`、`perf:`、`adr:` 的提交发生时自动向 `logs/` 结晶结构化里程碑卡片。
 
-### 🎛️ 进阶：多路复用器与 Sidecar 生态 (Tern, omp 与 K-DSL 线协议)
+### 🎛️ K-DSL 线协议与可选编排器扩展集成
 
-面向特定终端多路复用器、编排框架与超高密度多智能体协作流：
-
-1. **Tern 终端复用器原生插件**：
-   基于 Luau 编写，提供交互式 Cockpit 驾驶舱看板、CLI 命令透镜与 command palette 调色板指令集成：
-   ```bash
-   tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin
-   ```
-
-2. **Oh My Pi (`omp`) 与正交伴生模式 (`k0maru mcp --sidecar`)**：
-   由于 `omp` 原生负责终端流式日志管理与会话压缩，K0maru 提供 `--sidecar` 伴生模式挂载 5 大正交领域记忆工具（`get_project_loadout`、`recall_memory`、`flush_session`、`distill_session_skill`、`guard_check`），主动剔除长日志卸载与 GC 工具，杜绝功能重叠：
-   ```bash
-   # omp 插件市场安装
-   /marketplace add K0maru/k0maru-agent-memory
-   /marketplace install k0maru-memory@k0maru-agent-memory
-   ```
-
-3. **极简紧凑 K-DSL 电报协议 (`!μ:`)**：
+1. **极简紧凑 K-DSL 电报协议 (`!μ:`)**：
    为防多智能体主控上下文爆炸，`recall_memory` 默认返回单行高密度 K-DSL 记忆电报：
    `!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>`（单条截断 ≤140 字符）。
    相较于全量 Markdown 文本，单条载荷立减 **73.16%**（164 字节 / 22 Token vs 611 字节 / 112 Token）。仅在显式传入 `"full": true` 参数时返回多行原文。
 
+2. **可选编排器与终端扩展集成 (Additional Harness Integrations)**：
+   除主流客户端（Claude Code、Cursor、Codex、Windsurf、Cline、Gemini CLI）外，K0maru 还为特定编排框架与终端复用器提供可选扩展：
+   - **正交伴生模式 (`k0maru mcp --sidecar`) 与 `omp`**：提供精简的 5 大正交记忆工具（`get_project_loadout`、`recall_memory`、`flush_session`、`distill_session_skill`、`guard_check`），主动剔除长日志卸载与 GC 工具，避免与宿主自身的流式/压缩流水线重叠（`/marketplace add K0maru/k0maru-agent-memory` -> `/marketplace install k0maru-memory@k0maru-agent-memory`）。
+   - **Tern 终端复用器原生插件**：基于 Luau 的 Cockpit 驾驶舱与 CLI 命令透镜（`tern plugin install github.com/K0maru/k0maru-agent-memory/tern-plugin`）。
+   - **Hermes Agent 与 OpenClaw**：支持通过 `k0maru install` 挂载与 `k0maru distill --target hermes` 导出动态技能。
+
 ---
 
-## 📊 Google Colab A100 真实硬件基准实测看板
+## 📊 云端 GPU（NVIDIA A100-80GB）硬件基准实测看板
 
-在 Google Colab **NVIDIA A100-SXM4-80GB GPU** 专属算力节点上，对 5 款开源基座模型开展了 5 大工业级排障缺陷（Rust `E0382`、Python `InvalidStateError`、TypeScript 鉴权深层解构、Go 死锁、C 悬垂指针双重释放）与 4 大架构不变量的端到端硬核实测：
+在云端 GPU 虚拟机（**NVIDIA A100-SXM4-80GB GPU**）专属算力节点上，对 5 款开源基座模型开展了 5 大工业级排障缺陷（Rust `E0382`、Python `InvalidStateError`、TypeScript 鉴权深层解构、Go 死锁、C 悬垂指针双重释放）与 4 大架构不变量的端到端硬核实测：
 
 ### 1. 五大模型全矩阵评测看板（5-Case 符号化卸载微基准实测，N=5）
 
@@ -437,7 +428,7 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 | **DeepSeek-R1-32B** | 32B 满血推理思维链 | 20.0% (1/5) | **40.0% (2/5)** | 12.01s ➔ **9.19s** | **1.31x** | 5,412 ➔ **989** | **81.7%** |
 | **Google Gemma 2 27B** | 27B 开源基础模型 | 0.0% (0/5) | 0.0% (0/5) | 16.69s ➔ **6.94s** | **2.40x** | 6,356 ➔ **1,134** | **82.2%** |
 
-*注：5 案例符号化长日志卸载微基准实测（N=5 工业缺陷场景，基于 Google Colab NVIDIA A100-80GB Ollama 本地推理）。详尽的单用例耗时对比与四大核心不变量遵从全检报告，请参阅 [docs/COMPARISON_REPORT_zh.md](docs/COMPARISON_REPORT_zh.md)。*
+*注：5 案例符号化长日志卸载微基准实测（N=5 工业缺陷场景，基于云端 GPU 虚拟机 NVIDIA A100-80GB Ollama 本地推理）。详尽的单用例耗时对比与四大核心不变量遵从全检报告，请参阅 [docs/COMPARISON_REPORT_zh.md](docs/COMPARISON_REPORT_zh.md)。*
 
 ### 2. Phase 9 多智能体高并发与异构 Harness 极限压测（A100）
 
@@ -483,7 +474,7 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 | | `--json` | 输出机器可读的 JSON 初始化摘要 |
 | `k0maru install` | `--vault <path>` | 一键将 `k0maru-memory` 挂载至智能体客户端配置文件 |
 | | `--hooks` | 一键安装 `.git/hooks/pre-commit` 架构守卫钩子与 Claude Code 会话自动读档钩子 |
-| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `codex`, `gemini`, `windsurf`, `cline`, `hermes`, `openclaw`, `omp`) |
+| | `--target <client>` | 指定客户端 (`all`, `claude`, `cursor`, `codex`, `windsurf`, `cline`, `gemini`；可选：`hermes`, `openclaw`, `omp`) |
 | | `--dry-run` | 仅预览配置变更差异，不实际写入磁盘 |
 | `k0maru doctor` | `--vault <path>` | 全面体检二进制环境、知识库、缓存索引与生态挂载健康度 |
 | | `--json` | 输出机器可读的结构化诊断报告 |
@@ -523,7 +514,7 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 | | `--json` | 输出结构化 JSON 审计报告 |
 | `k0maru guard install` | `--path <repo_dir>` | 向指定 Git 仓库安装 `.git/hooks/pre-commit` 自动阻断钩子 |
 | `k0maru mcp` | `--vault <path>` | 启动标准 stdio FastMCP 服务，挂载全部 8 大记忆工具 |
-| | `--sidecar` | 启动面向 `omp` 的正交 5 工具伴生模式（剔除日志卸载与 GC） |
+| | `--sidecar` | 启动正交 5 工具伴生模式（剔除日志卸载与 GC 工具） |
 | `k0maru pack export` | `--name <name> --tag <tag> -o <file.pack.json>` | 导出可移植知识包 (.pack.json)，打包笔记与 ADR 规则 |
 | `k0maru pack import` | `<file.pack.json> [--dry-run]` | 将知识包导入目标 LLM-Wiki，自适应目标目录与规约 |
 | `k0maru pack inspect` | `<file.pack.json>` | 预览知识包内容、元数据与目标路径预测 |
@@ -532,9 +523,9 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 
 ## 📊 实测性能基准：认知记忆核心与活体 ADR 守卫 (Empirical Benchmarks)
 
-以下数据基于受 Zero-Burn 守卫（`runtime.unassign()`）保护的 **Google Colab Linux 真实虚拟机**（Intel Xeon @ 2.20GHz, 12.67 GB RAM），并与本地 **Apple M5 Pro Mac** 及 **Linux 工作站 (x86_64)** 进行横向对齐实测：
+以下数据基于 **云端 Linux 虚拟机**（Intel Xeon @ 2.20GHz, 12.67 GB RAM），并与本地 **Apple Silicon 笔记本 (ARM64)** 及 **Linux 工作站 (x86_64)** 进行横向对齐实测：
 
-| 评估维度 (Benchmark Dimension) | 传统基线 (全量 Markdown RAG / 人工 CI) | Google Colab Linux VM | Apple M5 Pro Mac | 核心架构优势与能效表现 |
+| 评估维度 (Benchmark Dimension) | 传统基线 (全量 Markdown RAG / 人工 CI) | 云端 Linux VM | Apple Silicon 笔记本 (ARM64) | 核心架构优势与能效表现 |
 | :--- | :---: | :---: | :---: | :--- |
 | **单条记忆召回载荷** | 611 字节 (112 Tokens) | **164 字节 (22 Tokens)** | **164 字节 (22 Tokens)** | **73.16% Token 压缩**，紧凑 `!μ:` K-DSL 输出 |
 | **知识库增量同步 (`k0maru sync`)** | 500ms ~ 2,000ms | **34.48 ms** | **9.50 ms** | 纯 Rust 极速增量 SQLite 索引与图谱构建 |
@@ -553,8 +544,8 @@ K0maru 专为无人值守的自主智能体工程闭环设计，覆盖完整的�
 
 ## 🛠️ 开发者专属定制与调优 (Customization)
 
-- **知识库规约定制**：在知识库根目录的 `.k0maru/rules.md` 或 `AGENTS.md` 中自由声明分类映射（如 `decisions: docs/adr`, `logs: 01_AI_Logs`）；
-- **活体 ADR 不变量声明**：在任何 `20_Cards/` 的 ADR Frontmatter 中声明 `invariants`，无需额外重启守护进程，实时生效；
+- **知识库规约定制**：在知识库根目录的 `.k0maru/rules.md` 或 `AGENTS.md` 中自由声明分类映射（如 `decisions: docs/adr`, `logs: logs`）；
+- **活体 ADR 不变量声明**：在任何 `decisions/` 或 `docs/adr/` 的 ADR Frontmatter 中声明 `invariants`，无需额外重启守护进程，实时生效；
 - **低资源极简运行**：在轻量 VPS（<1GB 内存）上使用 `--mode bm25`，获得亚毫秒级词法检索，0MB ONNX 内存开销；
 - **日志阈值微调**：通过 `--threshold <N>` 按模型上下文窗口大小自由调整截断阈值。详见 [开发者调优指南](docs/TUNING_AND_DATA_zh.md)。
 

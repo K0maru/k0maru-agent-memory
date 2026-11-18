@@ -6,7 +6,7 @@
     "control": {
       "retrieval_rank_1": {
         "query": "settlement lock",
-        "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+        "top_hit_path": "decisions/adr-010-legacy-setnx-lock.md",
         "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
         "is_adr010": true,
         "belief_entrenchment_detected": true,
@@ -33,7 +33,7 @@
     "treatment": {
       "retrieval_rank_1": {
         "query": "settlement lock",
-        "top_hit_path": "20_Cards/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
+        "top_hit_path": "decisions/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
         "top_hit_title": "ADR-042 Distributed Fenced Settlement Lock",
         "is_adr042": true,
         "belief_entrenchment_penalized": true,
@@ -66,15 +66,15 @@
     }
   },
   "models": {
-    "DeepSeek V4.1 Flash (omp native harness)": {
+    "DeepSeek V4.1 Flash (local coding agent harness)": {
       "model_id": "deepseek-v4.1-flash",
-      "harness": "omp native harness",
-      "hardware": "Apple Silicon M3 Max (36GB unified memory)",
+      "harness": "local coding agent harness",
+      "hardware": "Apple Silicon laptop (ARM64, 36GB unified memory)",
       "control_group": {
         "description": "Naive Markdown Wiki without --supersedes and without Living ADR Guard",
         "retrieval_rank_1": {
           "query": "settlement lock",
-          "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+          "top_hit_path": "decisions/adr-010-legacy-setnx-lock.md",
           "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
           "recommended_pattern": "redis_setnx_unscoped(event_id, 30)",
           "score": 14.82,
@@ -106,13 +106,13 @@
         "description": "k0maru flush --supersedes + k0maru guard check --diff",
         "retrieval_rank_1": {
           "query": "settlement lock",
-          "top_hit_path": "20_Cards/adr-042-fenced-lease-lock.md",
+          "top_hit_path": "decisions/adr-042-fenced-lease-lock.md",
           "top_hit_title": "ADR-042 Distributed Fenced Token Lease",
           "recommended_pattern": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
           "score": 11.24,
           "belief_entrenchment_penalized": true,
           "superseded_note_rank": 4,
-          "superseded_note_warning": "[SUPERSEDED by [[20_Cards/adr-042-fenced-lease-lock]]]",
+          "superseded_note_warning": "[SUPERSEDED by [[decisions/adr-042-fenced-lease-lock]]]",
           "status": "active_replacement_recalled"
         },
         "dynamic_loadout": {
@@ -155,15 +155,15 @@
         "self_healing_turn_efficiency": "1-turn zero-overhead"
       }
     },
-    "Qwen2.5-Coder-7B-Instruct (Google Colab NVIDIA L4 24GB + Pi CLI)": {
+    "Qwen2.5-Coder-7B-Instruct (Cloud GPU VM NVIDIA L4-24GB)": {
       "model_id": "qwen2.5-coder:7b-instruct",
-      "harness": "Google Colab NVIDIA L4 24GB + Pi CLI",
-      "hardware": "NVIDIA L4 24GB PCIe (Host: Google Colab Standard GPU)",
+      "harness": "Cloud GPU VM NVIDIA L4-24GB + local CLI",
+      "hardware": "NVIDIA L4 24GB PCIe (Host: Cloud GPU VM)",
       "control_group": {
         "description": "Naive Markdown Wiki without --supersedes and without Living ADR Guard",
         "retrieval_rank_1": {
           "query": "settlement lock",
-          "top_hit_path": "20_Cards/adr-010-legacy-setnx-lock.md",
+          "top_hit_path": "decisions/adr-010-legacy-setnx-lock.md",
           "top_hit_title": "ADR-010 Distributed Settlement Lock via Redis SETNX",
           "recommended_pattern": "redis_setnx_unscoped(event_id, 30)",
           "score": 14.82,
@@ -195,13 +195,13 @@
         "description": "k0maru flush --supersedes + k0maru guard check --diff",
         "retrieval_rank_1": {
           "query": "settlement lock",
-          "top_hit_path": "20_Cards/adr-042-fenced-lease-lock.md",
+          "top_hit_path": "decisions/adr-042-fenced-lease-lock.md",
           "top_hit_title": "ADR-042 Distributed Fenced Token Lease",
           "recommended_pattern": "acquire_fenced_lease(event_id, fencing_token, 30_000)",
           "score": 11.24,
           "belief_entrenchment_penalized": true,
           "superseded_note_rank": 4,
-          "superseded_note_warning": "[SUPERSEDED by [[20_Cards/adr-042-fenced-lease-lock]]]",
+          "superseded_note_warning": "[SUPERSEDED by [[decisions/adr-042-fenced-lease-lock]]]",
           "status": "active_replacement_recalled"
         },
         "dynamic_loadout": {
@@ -261,8 +261,8 @@
     },
     "belief_entrenchment_reversal": {
       "historical_links_to_stale_adr": 8,
-      "control_rank_1": "20_Cards/adr-010-legacy-setnx-lock.md",
-      "treatment_rank_1": "20_Cards/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
+      "control_rank_1": "decisions/adr-010-legacy-setnx-lock.md",
+      "treatment_rank_1": "decisions/2026-10-27-adr-042-distributed-fenced-settlement-lock.md",
       "effective": true
     }
   }

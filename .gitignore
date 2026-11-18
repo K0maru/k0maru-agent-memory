@@ -26,7 +26,7 @@ __pycache__/
 *.tmp
 tmp/
 
-# Maintainer Internal & Colab Foundry Tooling (Isolated from End Users)
+# Internal & Local Tooling (Excluded from Repository)
 .internal/
 *.ipynb
 
@@ -63,5 +63,5 @@ docs/.vitepress/cache/
 # Agent Workspaces & Multi-Agent Scratch
 .agents/
 
-# Generated Colab Runners
+# Generated Benchmark Runners
 benchmarks/run_colab_*.py

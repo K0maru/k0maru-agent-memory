@@ -131,4 +131,27 @@ pub trait CacheStorage {
     ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
         Ok(Vec::new())
     }
+
+    /// Repairs stale or missing full-text index rows and removes legacy FTS artifacts.
+    fn repair_stale_fts(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
+        Ok(0)
+    }
+
+    /// Repairs stale or missing section index rows up to an optional document budget.
+    fn repair_stale_sections(
+        &mut self,
+        _budget: Option<usize>,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        Ok(0)
+    }
+
+    /// Rebuilds resolved `link_edges` when `link_edges_dirty` is set, returning `true` if rebuilt.
+    fn rebuild_link_edges_if_dirty(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(false)
+    }
+
+    /// Upserts a metadata key-value pair in cache storage, if supported.
+    fn meta_set(&mut self, _key: &str, _value: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
 }

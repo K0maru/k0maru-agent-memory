@@ -10,11 +10,11 @@ K0maru 遵循 BYOM（Bring Your Own Markdown）原则。你可以使用现有的
 
 ```bash
 # 创建一个极简的 LLM-Wiki 演示目录
-mkdir -p ~/mini-wiki/10_Projects ~/mini-wiki/20_Cards
+mkdir -p ~/mini-wiki/projects ~/mini-wiki/decisions
 cd ~/mini-wiki
 
 # 编写项目的核心架构不变量卡片
-cat << 'EOF' > 20_Cards/adr-001-idempotency.md
+cat << 'EOF' > decisions/adr-001-idempotency.md
 # ADR-001: 支付回调幂等性防重规约
 
 在处理任何第三方 Webhook 支付回调时，系统必须严格遵守以下两条架构铁律：
@@ -23,7 +23,7 @@ cat << 'EOF' > 20_Cards/adr-001-idempotency.md
 EOF
 
 # 编写项目的目标愿景文件
-cat << 'EOF' > 10_Projects/payment-gateway.md
+cat << 'EOF' > projects/payment-gateway.md
 # Project: Payment Gateway Core
 
 本服务负责处理所有跨国收单与退款逻辑。
@@ -59,7 +59,7 @@ k0maru loadout payment-gateway --vault ~/mini-wiki --copy
 
 ```markdown
 # Context Loadout: Payment Gateway Core
-- Root: `10_Projects/payment-gateway.md`
+- Root: `projects/payment-gateway.md`
 - Core Stack: Go 1.22, Redis 7, PostgreSQL 16
 
 ## L3 Invariants & Decisions:
@@ -128,7 +128,7 @@ K0maru 启动 RRF（Reciprocal Rank Fusion，倒数排名融合 $k=60$）引擎�
 
 ```text
 Rank 1 [Score: 0.0325] (BM25: #1, Vector: #1, GraphBoost: +0.05)
-Path:  20_Cards/adr-001-idempotency.md
+Path:  decisions/adr-001-idempotency.md
 Title: ADR-001: 支付回调幂等性防重规约
 Snippet: ...系统必须严格遵守以下两条架构铁律：1. 必须基于 SET lock:payment:{event_id} "1" NX EX 30 抢占 Redis 分布式互斥锁...
 ```
@@ -152,7 +152,7 @@ k0maru flush \
 
 ### 瞬态自愈检验（Instant Recall Verification）：
 执行 `flush` 后，K0maru 的结晶引擎（FlushEngine）会自动：
-1. 识别知识库的目录结构规范，将文件写入对应目录（如 `20_Cards/` 或 `docs/adr/`）；
+1. 识别知识库的目录结构规范，将文件写入对应目录（如 `decisions/` 或 `docs/adr/`）；
 2. 自动编织 YAML Frontmatter 头部与 `[[WikiLinks]]` 双向图谱；
 3. **5 毫秒内触发底层 SQLite 增量同步**。
 

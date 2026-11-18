@@ -85,7 +85,7 @@ Fetches the project vision, core technology stack, and active L3 Living ADR inva
 ### Return Format (Markdown)
 ```markdown
 # Context Loadout: Payment Gateway Core
-- Root: `10_Projects/payment-gateway.md`
+- Root: `projects/payment-gateway.md`
 - Core Stack: Go 1.22, Redis 7, PostgreSQL 16
 
 ## L3 Invariants & Decisions:
@@ -145,8 +145,8 @@ Searches the knowledge base using Reciprocal Rank Fusion ($k=60$) combining SQLi
 
 ### Return Format (Compact K-DSL Wire Entry)
 ```text
-!μ:L3|20_Cards/adr-001-idempotency.md|score:0.082|links:3/5 § Acquire Redis mutex via SET lock:payment:{id} NX EX 30; verify STATUS_PENDING.
-!μ:L2|30_Logs/2026-10-08-stripe-storm.md|score:0.041|links:1/2 § Resolved Stripe webhook retry storm cascading failure.
+!μ:L3|decisions/adr-001-idempotency.md|score:0.082|links:3/5 § Acquire Redis mutex via SET lock:payment:{id} NX EX 30; verify STATUS_PENDING.
+!μ:L2|logs/2026-10-08-stripe-storm.md|score:0.041|links:1/2 § Resolved Stripe webhook retry storm cascading failure.
 ```
 
 ---
@@ -208,7 +208,7 @@ Audits a Git diff or code change against active Living ADR invariants discovered
 ❌ Living ADR Guard Failure: 1 violation detected (<6ms)
 - [ADR-008-QuerySafety] Line 1: 'SELECT * FROM users' violates invariant 'deny: SELECT * FROM'.
   Remediation: Specify explicit columns to prevent schema leaks and unindexed full scans.
-  Reference: [[20_Cards/adr-008-sql-best-practices.md]]
+  Reference: [[decisions/adr-008-sql-best-practices.md]]
 ```
 
 ---

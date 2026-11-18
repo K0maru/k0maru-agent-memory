@@ -297,9 +297,9 @@ impl ContextGcEngine {
             let _ = std::fs::create_dir_all(dir);
             let _ = std::fs::write(dir.join(format!("{}.log", node_id)), content);
         } else {
-            let scratch_refs = Path::new(".scratch/refs");
-            if scratch_refs.is_dir() {
-                let _ = std::fs::write(scratch_refs.join(format!("{}.log", node_id)), content);
+            let default_refs = Path::new(".k0maru/refs");
+            if default_refs.is_dir() {
+                let _ = std::fs::write(default_refs.join(format!("{}.log", node_id)), content);
             }
         }
     }

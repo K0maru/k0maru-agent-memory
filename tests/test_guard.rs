@@ -94,9 +94,24 @@ new file mode 100644
     );
 
     let content_text = res["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(res["result"]["isError"], true);
     assert!(content_text.contains("ADR-SETTLE-001"));
     assert!(content_text.contains("execWithoutLock"));
-    assert!(content_text.contains("\"is_passed\": false"));
+    assert!(content_text.contains("[AGENT_SELF_HEAL_PROTOCOL]"));
+    assert!(content_text.contains("flush_session{"));
+
+    let res_json = server.handle_tool_call(
+        json!(2),
+        &json!({
+            "name": "guard_check",
+            "arguments": {
+                "diff": dirty_diff,
+                "json": true
+            }
+        }),
+    );
+    let json_content_text = res_json["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(json_content_text.contains("\"is_passed\": false"));
 }
 
 #[test]
@@ -1073,10 +1088,13 @@ fn test_guard_post_commit_hook_flushes_conventional_commit_log() {
     commit_all(root, "feat(ledger): add idempotent transfer", Some(bin_dir));
 
     let mut logs: Vec<std::path::PathBuf> = Vec::new();
-    for entry in fs::read_dir(&vault).unwrap().flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
-            logs.push(path);
+    let logs_dir = vault.join("logs");
+    if logs_dir.is_dir() {
+        for entry in fs::read_dir(&logs_dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+                logs.push(path);
+            }
         }
     }
     assert!(

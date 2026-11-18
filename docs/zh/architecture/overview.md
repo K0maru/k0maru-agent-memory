@@ -67,22 +67,22 @@ graph TD
 ```
 
 ### 1. L3 Evergreen（常青卡片与架构不变量）
-- **存放位置**：`20_Cards/`、`docs/adr/`、`concepts/`
+- **存放位置**：`decisions/`、`docs/adr/`、`concepts/`
 - **定义**：高价值、极少变更、全局必须遵守的架构铁律与技术决策记录（ADR）。
 - **示例**：`adr-008-distributed-lock.md`（定义 Redis `SET NX EX 30` 互斥锁规范与状态机防重不变量）。
 
 ### 2. L2 Decision Logs（任务日志与事故复盘）
-- **存放位置**：`00_Logs/`、`logs/`、`journal/`
+- **存放位置**：`logs/`、`journal/`
 - **定义**：记录特定迭代、特定工单或紧急故障排查的完整上下文与根因结论。
 - **示例**：`2026-10-08-incident-retry-storm.md`（记录 Stripe 重试风暴复盘与规避措施）。
 
 ### 3. L1 Resources（外部技术资源与契约）
-- **存放位置**：`30_Resources/`、`specs/`
+- **存放位置**：`specs/`、`resources/`
 - **定义**：外部依赖库的使用指南、第三方 API 接口定义以及团队统一开发规约。
 - **示例**：`stripe-webhook-v2024-api.md`。
 
 ### 4. L0 Scratch / Dailies（瞬态调试碎片）
-- **存放位置**：`.scratch/`、`.k0maru/refs/`
+- **存放位置**：`.k0maru/refs/`
 - **定义**：被 `offload` 卸载的千行原始终端日志切片与临时草稿，生命周期极短，随时由系统自动清理或覆盖。
 
 ---
