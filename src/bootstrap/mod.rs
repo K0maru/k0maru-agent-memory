@@ -418,7 +418,7 @@ date: "{date}"
 status: active
 category: decision
 tags:
-  - type/card
+  - type/decision
   - adr
   - guardrails
 invariants:
@@ -471,7 +471,7 @@ k0maru guard check --diff
 title: Initial Repository Bootstrap
 date: "{date}"
 tags:
-  - type/ai-log
+  - type/log
   - bootstrap
 project: "[[projects/{slug}]]"
 ---
@@ -500,9 +500,61 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         created_files.push(log_path);
     }
 
+    // 3b. Import / link existing repository ADRs (`docs/adr/`, `adr/`, `docs/decisions/`)
+    let mut imported_adr_links: Vec<String> = Vec::new();
+    let canon_repo = repo_path.canonicalize().ok();
+    let canon_vault = vault_path.canonicalize().ok();
+    if canon_repo != canon_vault {
+        for adr_rel_dir in ["docs/adr", "adr", "docs/decisions"] {
+            let adr_dir = repo_path.join(adr_rel_dir);
+            if !adr_dir.is_dir() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(&adr_dir) {
+                let mut md_files: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.is_file()
+                            && p.extension()
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                    })
+                    .collect();
+                md_files.sort();
+                for src_path in md_files {
+                    let Some(file_name) = src_path.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let lower_name = file_name.to_ascii_lowercase();
+                    if lower_name == "readme.md" || lower_name == "index.md" {
+                        continue;
+                    }
+                    let Some(stem) = src_path.file_stem().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let dest_path = decisions_dir.join(file_name);
+                    if !dest_path.exists() {
+                        if let Ok(raw_adr) = fs::read_to_string(&src_path) {
+                            let rel_src = format!("{}/{}", adr_rel_dir, file_name);
+                            let mirrored = inject_repo_adr_source(&raw_adr, &rel_src);
+                            fs::write(&dest_path, mirrored)?;
+                            created_files.push(dest_path);
+                            imported_adr_links.push(format!("- [[decisions/{}]]", stem));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 4. INDEX.md (LLM-Wiki Map of Content MOC)
     let index_path = vault_path.join("INDEX.md");
     if !index_path.exists() {
+        let extra_adr_section = if imported_adr_links.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", imported_adr_links.join("\n"))
+        };
         let index_content = format!(
             r#"---
 title: "Map of Content"
@@ -518,13 +570,14 @@ tags:
 - [[projects/{slug}]]
 
 ## Decisions & Guardrails
-- [[decisions/adr-001-repository-guardrails]]
+- [[decisions/adr-001-repository-guardrails]]{extra_adrs}
 
 ## Recent Logs
 - [[logs/{date}-initial-bootstrap]]
 "#,
             date = today,
             slug = project_slug,
+            extra_adrs = extra_adr_section,
         );
         fs::write(&index_path, index_content)?;
         created_files.push(index_path);
@@ -543,14 +596,14 @@ tags:
         if vault_path.starts_with(&repo_path) {
             fs::write(
                 vault_path.join(".gitignore"),
-                ".k0maru/\nlogs/*auto-commit-*.md\n01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
+                ".k0maru/\nlogs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
             )?;
         }
         let top_k0maru = repo_path.join(".k0maru");
         if top_k0maru.is_dir() {
             fs::write(
                 top_k0maru.join(".gitignore"),
-                "**/cache.sqlite*\n**/models/\n**/refs/\n**/logs/*auto-commit-*.md\n**/01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
+                "**/cache.sqlite*\n**/models/\n**/refs/\n**/logs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
             )?;
         }
     }
@@ -682,4 +735,23 @@ pub fn format_bootstrap_report(report: &BootstrapReport) -> String {
     out.push_str("   • Guard Sentinel:    k0maru guard check --diff\n");
     out.push_str("   • Full Diagnostics:  k0maru doctor\n");
     out
+}
+
+fn inject_repo_adr_source(raw_adr: &str, rel_src: &str) -> String {
+    let trimmed = raw_adr.strip_prefix('\u{feff}').unwrap_or(raw_adr);
+    if let Some(rest) = trimmed.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---") {
+            let fm = &rest[..end];
+            let body = &rest[end + 4..];
+            if fm.contains("source_repo_adr:") {
+                return trimmed.to_string();
+            }
+            return format!("---\n{}\nsource_repo_adr: \"{}\"\n---{}", fm, rel_src, body);
+        }
+    }
+    format!(
+        "---\nsource_repo_adr: \"{}\"\ncategory: decision\ntags:\n  - type/decision\n  - adr\n---\n\n{}",
+        rel_src,
+        trimmed.trim_start()
+    )
 }

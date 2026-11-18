@@ -106,8 +106,8 @@ pub struct ConventionRules {
 ### 规约探测优先级链
 1. **声明式规约（Explicit Config）**：优先读取知识库根目录下 `.k0maru/rules.md` 或 `AGENTS.md` / `CONVENTIONS.md` 中的映射声明；
 2. **拓扑特征探测（Directory Heuristic）**：
-   - 探测是否存在 `10_Projects/`、`20_Cards/`、`00_Logs/`（标准 Johnny Decimal / Obsidian 架构）；
-   - 探测是否存在 `docs/adr/`、`decisions/`、`journal/` 等扁平架构；
+   - 探测标准 LLM-Wiki 与工程 ADR 架构（`projects/`、`decisions/`、`docs/adr/`、`logs/`、`journal/`）；
+   - 自动兼容 PARA 体系（`projects/`、`cards/`、`logs/`）与 Johnny.Decimal（`10_Projects/`、`20_Cards/`、`01_AI_Logs/`）布局。
 3. **命名风格推断**：自动分析既有文件的命名特征，智能对齐 `YYYY-MM-DD-title.md` 或纯 `title.md` 命名风格。
 
 ---

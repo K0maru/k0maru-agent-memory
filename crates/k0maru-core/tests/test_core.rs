@@ -234,6 +234,7 @@ mod guard_core {
             content_hash: "hash".to_string(),
             mtime: 1000,
             body: "# Mandatory Distributed Lock\n".to_string(),
+            body_line_offset: 0,
         };
 
         let rules = extract_rules_from_document(&doc);
@@ -265,6 +266,7 @@ mod guard_core {
             content_hash: "hash".to_string(),
             mtime: 1000,
             body: String::new(),
+            body_line_offset: 0,
         };
 
         let rules = extract_rules_from_document(&doc);

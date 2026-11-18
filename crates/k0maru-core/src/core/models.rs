@@ -111,6 +111,9 @@ pub struct Document {
     pub mtime: u64,
     /// Raw document body without frontmatter
     pub body: String,
+    /// Zero-based line offset where `body` starts in the original file (0 if no frontmatter).
+    #[serde(default)]
+    pub body_line_offset: usize,
 }
 impl Document {
     /// Determines the lifecycle status of this document based on frontmatter,
@@ -241,6 +244,21 @@ impl Document {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
     }
+
+    /// Returns `true` if frontmatter excludes this document from indexing (`index: false` /
+    /// `index: "false"`) or marks it as an Excalidraw canvas note (`excalidraw-plugin` key).
+    pub fn is_index_excluded(&self) -> bool {
+        if let Some(index_val) = self.frontmatter.get("index") {
+            match index_val {
+                serde_json::Value::Bool(false) => return true,
+                serde_json::Value::String(s) if s.trim().eq_ignore_ascii_case("false") => {
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        self.frontmatter.get("excalidraw-plugin").is_some()
+    }
 }
 
 fn extract_string_or_array(val: Option<&serde_json::Value>) -> Vec<String> {
@@ -270,6 +288,8 @@ pub struct SyncStats {
     pub modified: usize,
     pub deleted: usize,
     pub unchanged: usize,
+    #[serde(default)]
+    pub excluded: usize,
     pub duration_ms: u128,
 }
 
@@ -279,7 +299,7 @@ impl SyncStats {
     }
 
     pub fn total_processed(&self) -> usize {
-        self.added + self.modified + self.deleted + self.unchanged
+        self.added + self.modified + self.deleted + self.unchanged + self.excluded
     }
 }
 
@@ -308,6 +328,7 @@ mod tests {
             content_hash: "hash".to_string(),
             mtime: 0,
             body: "# Header\nSome text".to_string(),
+            body_line_offset: 0,
         };
 
         // Default is active

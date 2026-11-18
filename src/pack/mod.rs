@@ -13,11 +13,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::GenericWikiAdapter;
+use crate::adapters::{open_vault_adapter, GenericWikiAdapter};
 use crate::convention::{generate_filename, slugify, ConventionSniffer, FlushRequest};
-use crate::{
-    Document, IncrementalScanner, ObsidianAdapter, SqliteStorage, VaultAdapter, VectorSyncEngine,
-};
+use crate::{Document, IncrementalScanner, SqliteStorage, VaultAdapter, VectorSyncEngine};
 use k0maru_core::guard::{
     extract_rules_from_document, extract_rules_from_vault, GuardRule, RuleCondition,
 };
@@ -927,10 +925,6 @@ fn sync_vault_cache(vault_path: &Path) -> Result<(), Box<dyn std::error::Error>>
     }
 
     let mut storage = SqliteStorage::open(&cache_path)?;
-    let is_obsidian = vault_path.join("10_Projects").is_dir()
-        || vault_path.join(".obsidian").exists()
-        || vault_path.join("20_Cards").is_dir();
-
     let has_vectors = storage.has_vectors().unwrap_or(false);
     let embedder = if has_vectors {
         let model_cache = vault_path.join(".k0maru").join("models");
@@ -939,23 +933,12 @@ fn sync_vault_cache(vault_path: &Path) -> Result<(), Box<dyn std::error::Error>>
         None
     };
 
-    if is_obsidian {
-        let adapter = ObsidianAdapter::new(vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(false)?;
-        if has_vectors {
-            if let Some(embedder) = &embedder {
-                let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**embedder);
-            }
-        }
-    } else {
-        let adapter = GenericWikiAdapter::new(vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        scanner.sync(false)?;
-        if has_vectors {
-            if let Some(embedder) = &embedder {
-                let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**embedder);
-            }
+    let adapter = open_vault_adapter(vault_path);
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    scanner.sync(false)?;
+    if has_vectors {
+        if let Some(embedder) = &embedder {
+            let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**embedder);
         }
     }
 
@@ -998,7 +981,7 @@ fn is_ephemeral(path: &Path) -> bool {
         let segment = component.as_os_str().to_string_lossy().to_lowercase();
         matches!(
             segment.as_str(),
-            "00_daily" | "daily" | "templates" | "_templates" | "99_system"
+            "00_daily" | "daily" | "templates" | "_templates" | "_pack_meta" | "99_system"
         )
     })
 }

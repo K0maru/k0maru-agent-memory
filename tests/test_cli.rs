@@ -134,3 +134,111 @@ fn test_install_omp_injects_sidecar_flag() {
     assert_eq!(report2.outcomes.len(), 1);
     assert!(report2.outcomes[0].already_configured);
 }
+
+#[test]
+fn test_cli_sync_vector_sections_and_search_locator_surfaces() {
+    let temp_dir = tempdir().expect("tempdir");
+    let vault = temp_dir.path();
+    fs::create_dir_all(vault.join("20_Cards")).unwrap();
+    fs::write(
+        vault.join("20_Cards/Settlement.md"),
+        "\
+---
+title: Settlement Protocol
+hierarchy: L3Evergreen
+---
+# Settlement Protocol
+
+## Overview
+General routing summary.
+
+## Quorum Failover
+Quorum failover transfers ledger epochs safely across shards.
+",
+    )
+    .unwrap();
+
+    // 1. `k0maru sync --vector --json` emits top-level "sections" without changing "vector" keys
+    let out_json = Command::cargo_bin("k0maru")
+        .unwrap()
+        .env("K0MARU_FORCE_MOCK_EMBED", "1")
+        .args([
+            "sync",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--vector",
+            "--embed-model",
+            "mock",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let sync_val: serde_json::Value = serde_json::from_slice(&out_json).unwrap();
+    assert_eq!(sync_val["vector"]["embedded_count"], 1);
+    assert!(sync_val["sections"]["embedded"].as_u64().unwrap() >= 2);
+    assert_eq!(sync_val["sections"]["pending"], 0);
+
+    // 2. Human output on subsequent `sync --vector` includes `| Sections (embedded:`
+    Command::cargo_bin("k0maru")
+        .unwrap()
+        .env("K0MARU_FORCE_MOCK_EMBED", "1")
+        .args([
+            "sync",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--vector",
+            "--embed-model",
+            "mock",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "| Sections (embedded: 0, pending: 0)",
+        ));
+
+    // 3. `k0maru search` human output renders locator
+    Command::cargo_bin("k0maru")
+        .unwrap()
+        .args([
+            "search",
+            "Quorum failover ledger epochs",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--mode",
+            "bm25",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("20_Cards/Settlement.md:"))
+        .stdout(predicate::str::contains("#Quorum Failover)"));
+
+    // 4. `k0maru search --json-stream` includes `"locator"` in `search_hit`
+    let stream_out = Command::cargo_bin("k0maru")
+        .unwrap()
+        .args([
+            "search",
+            "Quorum failover ledger epochs",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--mode",
+            "bm25",
+            "--json-stream",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stream_str = String::from_utf8(stream_out).unwrap();
+    let hit_line = stream_str
+        .lines()
+        .find(|l| l.contains("\"search_hit\""))
+        .expect("search_hit NDJSON line");
+    let hit_val: serde_json::Value = serde_json::from_str(hit_line).unwrap();
+    let locator = hit_val["data"]["locator"].as_str().unwrap();
+    assert!(locator.starts_with("20_Cards/Settlement.md:"));
+    assert!(locator.ends_with("#Quorum Failover"));
+}

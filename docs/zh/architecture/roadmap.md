@@ -52,7 +52,7 @@ timeline
 - **Phase 5（v0.4.2）**：交付基于 Axum 与 `rust-embed` 的嵌入式开发者极客驾驶舱 WebUI，内置检索调试台、图拓扑分析、Mermaid 日志回溯与双语国际化支持。
 - **Phase 6（v0.5.0）**：发布 `k0maru install`（5 大主流智能体客户端一键挂载）与 `k0maru doctor`（环境与缓存全面健康诊断探针矩阵）。
 - **Phase 7（v0.6.0）**：发布 `ConventionSniffer` 自适应嗅探异构知识库拓扑，以及 `FlushEngine` 经验原子落盘防碰撞自愈机制。
-- **Phase 8（v0.8.0）**：在 Google Colab NVIDIA A100-SXM4-80GB 上完成工业级排障基准实测，验证 Qwen2.5-32B-Instruct（100% Pass@1）、DeepSeek-R1-32B（延迟缩短 48.2%）与 DeepSeek-Coder-V2（1.05s 亚秒决策）。
+- **Phase 8（v0.8.0）**：在云端 GPU 虚拟机（NVIDIA A100-SXM4-80GB）上完成工业级排障基准实测，验证 Qwen2.5-32B-Instruct（100% Pass@1）、DeepSeek-R1-32B（延迟缩短 48.2%）与 DeepSeek-Coder-V2（1.05s 亚秒决策）。
 - **Phase 8.5（v0.8.2）**：交付 5 大专栏 11 个章节的中英双语 VitePress 官方技术文档站与自动化部署流水线。
 
 ---

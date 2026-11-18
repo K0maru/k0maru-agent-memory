@@ -10,11 +10,11 @@ K0maru operates on any directory containing standard Markdown files. You can poi
 
 ```bash
 # Create a sample LLM-Wiki directory structure
-mkdir -p ~/mini-wiki/10_Projects ~/mini-wiki/20_Cards
+mkdir -p ~/mini-wiki/projects ~/mini-wiki/decisions
 cd ~/mini-wiki
 
 # Create an architectural decision record (L3 Evergreen invariant)
-cat << 'EOF' > 20_Cards/adr-001-idempotency.md
+cat << 'EOF' > decisions/adr-001-idempotency.md
 # ADR-001: Payment Callback Idempotency Guard
 
 When processing third-party webhook payment callbacks, services must enforce two invariants:
@@ -23,7 +23,7 @@ When processing third-party webhook payment callbacks, services must enforce two
 EOF
 
 # Create a project specification note
-cat << 'EOF' > 10_Projects/payment-gateway.md
+cat << 'EOF' > projects/payment-gateway.md
 # Project: Payment Gateway Core
 
 Handles international acquiring and refund workflows.
@@ -59,7 +59,7 @@ The copied Markdown snippet provides a structured bootstrap summary:
 
 ```markdown
 # Context Loadout: Payment Gateway Core
-- Root: `10_Projects/payment-gateway.md`
+- Root: `projects/payment-gateway.md`
 - Core Stack: Go 1.22, Redis 7, PostgreSQL 16
 
 ## L3 Invariants & Decisions:
@@ -127,7 +127,7 @@ K0maru invokes Reciprocal Rank Fusion ($k=60$) to merge BM25 lexical keyword sco
 
 ```text
 Rank 1 [Score: 0.0325] (BM25: #1, Vector: #1, GraphBoost: +0.05)
-Path:  20_Cards/adr-001-idempotency.md
+Path:  decisions/adr-001-idempotency.md
 Title: ADR-001: Payment Callback Idempotency Guard
 Snippet: ...services must enforce two invariants: 1. Acquire a Redis distributed mutex lock via SET lock:payment:{event_id} "1" NX EX 30...
 ```
@@ -151,7 +151,7 @@ k0maru flush \
 
 ### Instant Recall Verification:
 K0maru's crystallization engine (`FlushEngine`):
-1. Detects your vault topology and writes the note into the appropriate directory (`20_Cards/` or `decisions/`);
+1. Detects your vault topology and writes the note into the appropriate directory (`decisions/` or `docs/adr/`);
 2. Injects YAML frontmatter and formats `[[WikiLinks]]` back-links;
 3. **Synchronizes the SQLite cache incrementally in under 5 ms**.
 

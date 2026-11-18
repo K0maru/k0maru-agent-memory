@@ -2,7 +2,7 @@
   "hardware": {
     "device": "NVIDIA A100-SXM4-80GB",
     "vram_gb": 79.25,
-    "host": "Google Colab Ultra"
+    "host": "Cloud GPU VM (NVIDIA A100-SXM4-80GB)"
   },
   "part1_defect_matrix": {
     "Qwen2.5-Coder-32B": {

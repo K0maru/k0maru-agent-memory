@@ -50,7 +50,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -61,7 +61,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [4] ___________________________
@@ -114,7 +114,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -125,7 +125,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [9] ___________________________
@@ -178,7 +178,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -189,7 +189,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [14] ___________________________
@@ -242,7 +242,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -253,7 +253,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [19] ___________________________
@@ -306,7 +306,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -317,7 +317,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [24] ___________________________
@@ -370,7 +370,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -381,7 +381,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [29] ___________________________
@@ -434,7 +434,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -445,7 +445,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [34] ___________________________
@@ -498,7 +498,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -509,7 +509,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [39] ___________________________
@@ -562,7 +562,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -573,7 +573,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [44] ___________________________
@@ -626,7 +626,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -637,7 +637,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [49] ___________________________
@@ -690,7 +690,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found
@@ -701,7 +701,7 @@ tests/integration/test_vault_sync.py:315: in test_vault_sync_concurrent_file_mod
 E   AssertionError: Expected 25 synced cards, got 19
 E   assert 19 == 25
 ----------------------------- Captured stderr call -----------------------------
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'
 Worker thread 3 encountered race condition during atomic rename.
 
 ___________________________ test_markdown_parser_wikilink_aliases [54] ___________________________
@@ -754,7 +754,7 @@ tests/integration/test_mcp_server.py:210: in test_mcp_inspect_node_missing_refer
     res = client.call_tool("inspect_log_node", {"node_id": "node_invalid_9999"})
 src/mcp/client.py:45: in call_tool
     raise ToolExecutionError(res["error"]["message"])
-E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs
+E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs
 ----------------------------- Captured log call --------------------------------
 2026-09-30 14:10:02 [INFO] FastMCP stdio server listening
 2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found

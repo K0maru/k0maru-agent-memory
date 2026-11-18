@@ -239,7 +239,7 @@ def generate_pytest_log(target_lines=800):
             "    res = client.call_tool(\"inspect_log_node\", {\"node_id\": \"node_invalid_9999\"})\n"
             "src/mcp/client.py:45: in call_tool\n"
             "    raise ToolExecutionError(res[\"error\"][\"message\"])\n"
-            "E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .scratch/refs\n"
+            "E   src.mcp.exceptions.ToolExecutionError: Log node 'node_invalid_9999' not found in .k0maru/refs\n"
             "----------------------------- Captured log call --------------------------------\n"
             "2026-09-30 14:10:02 [INFO] FastMCP stdio server listening\n"
             "2026-09-30 14:10:02 [ERROR] MCP tool inspect_log_node failed: node_invalid_9999 not found"
@@ -251,7 +251,7 @@ def generate_pytest_log(target_lines=800):
             "E   AssertionError: Expected 25 synced cards, got 19\n"
             "E   assert 19 == 25\n"
             "----------------------------- Captured stderr call -----------------------------\n"
-            "FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/20_Cards/ActiveTask.md.tmp.1284'\n"
+            "FileNotFoundError: [Errno 2] No such file or directory: '/tmp/test_vault/decisions/ActiveTask.md.tmp.1284'\n"
             "Worker thread 3 encountered race condition during atomic rename."
         ),
         (

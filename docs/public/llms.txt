@@ -36,7 +36,7 @@ k0maru doctor
 2. **Mid-Session Exploration**: Query architectural history and troubleshooting playbooks via `k0maru search "<query>"` or FastMCP `recall_memory`.
 3. **Pre-Yield / Claude Stop-hook (`hooks.Stop`)**: Runs `k0maru guard check --diff --claude-stop-hook`. If violations exist, exits with code 2 to trigger autonomous self-healing before human sees the output.
 4. **Pre-Commit (`.git/hooks/pre-commit`)**: Evaluates staged changes against ADR invariants in `<10ms`, rejecting non-compliant commits.
-5. **Post-Commit (`.git/hooks/post-commit`)**: Incremental `k0maru sync` and automated milestone crystallization in `01_AI_Logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
+5. **Post-Commit (`.git/hooks/post-commit`)**: Incremental `k0maru sync` and automated milestone crystallization in `logs/` for `feat:`, `fix:`, `refactor:`, `perf:`, and `adr:` commits.
 
 ### Self-Healing Protocol on `[DENY]` Violation
 

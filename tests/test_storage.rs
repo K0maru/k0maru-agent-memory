@@ -29,6 +29,7 @@ fn create_sample_document(
         content_hash: format!("hash_{}", path),
         mtime: 1774843200,
         body: body.to_string(),
+        body_line_offset: 0,
     }
 }
 

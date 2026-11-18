@@ -1,13 +1,13 @@
 # NVIDIA A100 实测看板与 Token 经济学
 
-为了打破纯理论推演与实际工业生产之间的隔阂，我们在标准 Google Colab Pro 算力环境中，独占调配了 **NVIDIA A100-SXM4-80GB GPU**（80 GB 显存、167 GB 宿主机内存），对业界主流开源代码与推理大模型进行了离线本地权重的全闭环排障实测。
+为了打破纯理论推演与实际工业生产之间的隔阂，我们在 **云端 GPU 虚拟机（NVIDIA A100-SXM4-80GB GPU**，80 GB 显存、167 GB 宿主机内存）环境中，对业界主流开源代码与推理大模型进行了离线本地权重的全闭环排障实测。
 
 ---
 
 ## 🖥️ 硬件运行环境与实测规范
 
 ```text
-算力节点：Google Colab Pro 独占实例
+算力节点：云端 GPU 虚拟机（NVIDIA A100-SXM4-80GB 独占实例）
 加速显卡：NVIDIA A100-SXM4-80GB (显存 80 GB HBM2e, 带宽 2,039 GB/s)
 驱动版本：NVIDIA Driver 580.82.07, CUDA 13.0
 主机规格：Intel Xeon CPU @ 2.20GHz (12 vCPU), 167 GiB RAM, 194 GiB NVMe SSD

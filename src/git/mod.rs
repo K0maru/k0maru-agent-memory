@@ -5,9 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+use k0maru_core::storage::migrate::META_GIT_TIME_HEAD;
+use k0maru_core::storage::SqliteStorage;
 
 /// Status of a modified file detected in the Git index or working tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,6 +460,373 @@ pub fn parse_diff_stream<R: BufRead>(
     }
 
     Ok(files)
+}
+
+const GIT_WALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Result of running the `sync --git [--git-pull]` pre-scan workflow.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitSyncOutcome {
+    pub preflight_ok: bool,
+    pub pulled: bool,
+    pub git_times_updated: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Validated Git work-tree context for a vault directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitPreflight {
+    /// Vault path relative to repository top-level (`""` when vault is the repo root).
+    pub vault_rel: String,
+}
+
+/// Runs a `git` subprocess in `vault` with hook-env hygiene, non-interactive stdio,
+/// and a hard 30-second wall-clock timeout.
+pub fn run_git_command(vault: &Path, args: &[&str]) -> Result<Output, String> {
+    run_git_command_with_timeout(vault, args, GIT_WALL_TIMEOUT)
+}
+
+/// Runs a `git` subprocess with a configurable wall-clock timeout.
+pub fn run_git_command_with_timeout(
+    vault: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(vault)
+        .arg("-c")
+        .arg("core.quotepath=off")
+        .arg("--no-optional-locks")
+        .args(args)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to spawn git: {e}"))?;
+
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(ref mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
+                    return Err(format!(
+                        "git command timed out after {}s: git {}",
+                        timeout.as_secs(),
+                        args.join(" ")
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_handle.join();
+                let _ = stderr_handle.join();
+                return Err(format!("failed waiting for git process: {e}"));
+            }
+        }
+    };
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+/// Validates that `vault` is inside a Git working tree with no in-progress merge, rebase, or cherry-pick.
+pub fn git_preflight(vault: &Path) -> Result<GitPreflight, String> {
+    let inside = run_git_command(vault, &["rev-parse", "--is-inside-work-tree"])?;
+    if !inside.status.success() || String::from_utf8_lossy(&inside.stdout).trim() != "true" {
+        return Err("vault is not inside a git working tree".to_string());
+    }
+
+    let toplevel_out = run_git_command(vault, &["rev-parse", "--show-toplevel"])?;
+    if !toplevel_out.status.success() {
+        return Err("failed to resolve git repository toplevel".to_string());
+    }
+    let toplevel_raw = String::from_utf8_lossy(&toplevel_out.stdout)
+        .trim()
+        .to_string();
+    let canon_top = std::fs::canonicalize(&toplevel_raw)
+        .map_err(|e| format!("failed to canonicalize git toplevel: {e}"))?;
+    let canon_vault = std::fs::canonicalize(vault)
+        .map_err(|e| format!("failed to canonicalize vault path: {e}"))?;
+
+    let rel = canon_vault
+        .strip_prefix(&canon_top)
+        .map_err(|_| "vault path does not reside inside git work tree".to_string())?;
+    let vault_rel = rel.to_string_lossy().replace('\\', "/");
+
+    for marker in [
+        "MERGE_HEAD",
+        "REBASE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+    ] {
+        let gp_out = run_git_command(vault, &["rev-parse", "--git-path", marker])?;
+        if gp_out.status.success() {
+            let gp_raw = String::from_utf8_lossy(&gp_out.stdout).trim().to_string();
+            if !gp_raw.is_empty() {
+                let p = Path::new(&gp_raw);
+                let abs = if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    canon_vault.join(p)
+                };
+                if abs.exists() {
+                    return Err(format!("git operation in progress ({marker})"));
+                }
+            }
+        }
+    }
+
+    Ok(GitPreflight { vault_rel })
+}
+
+/// Returns `true` if `rel_path` (relative to `vault`) has uncommitted Git changes or is untracked.
+///
+/// Returns `Ok(false)` when `vault` is not inside a Git working tree.
+pub fn is_path_dirty(vault: &Path, rel_path: &str) -> Result<bool, String> {
+    let inside = run_git_command(vault, &["rev-parse", "--is-inside-work-tree"])?;
+    if !inside.status.success() || String::from_utf8_lossy(&inside.stdout).trim() != "true" {
+        return Ok(false);
+    }
+
+    let status_out = run_git_command(vault, &["status", "--porcelain", "--", rel_path])?;
+    if !status_out.status.success() {
+        let stderr = String::from_utf8_lossy(&status_out.stderr);
+        return Err(format!("git status failed: {}", stderr.trim()));
+    }
+
+    Ok(!String::from_utf8_lossy(&status_out.stdout)
+        .trim()
+        .is_empty())
+}
+
+/// Parses NUL-delimited `git log --no-renames --format=%x1e%ct --name-only -z` output
+/// into `(vault_relative_path, last_commit_unix_secs)` pairs.
+pub fn parse_git_log_times(bytes: &[u8], vault_rel: &str) -> Vec<(String, i64)> {
+    let prefix = if vault_rel.is_empty() {
+        String::new()
+    } else {
+        format!("{}/", vault_rel.trim_end_matches('/'))
+    };
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut times: Vec<(String, i64)> = Vec::new();
+
+    for record in bytes.split(|&b| b == 0x1e) {
+        if record.is_empty() {
+            continue;
+        }
+        let mut parts = record.split(|&b| b == 0);
+        let Some(ts_bytes) = parts.next() else {
+            continue;
+        };
+        let Ok(commit_ts) = String::from_utf8_lossy(ts_bytes).trim().parse::<i64>() else {
+            continue;
+        };
+
+        for path_bytes in parts {
+            let raw_path = String::from_utf8_lossy(path_bytes);
+            let trimmed = raw_path.trim_start_matches(['\n', '\r']);
+            if trimmed.is_empty() {
+                continue;
+            }
+            let normalized = trimmed.replace('\\', "/");
+            let rel_path = if prefix.is_empty() {
+                normalized.as_str()
+            } else if let Some(stripped) = normalized.strip_prefix(&prefix) {
+                stripped
+            } else {
+                continue;
+            };
+
+            if rel_path.is_empty()
+                || !Path::new(rel_path)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+            {
+                continue;
+            }
+
+            if seen.insert(rel_path.to_string()) {
+                times.push((rel_path.to_string(), commit_ts));
+            }
+        }
+    }
+
+    times
+}
+
+/// Runs Git preflight, optional `--ff-only` pull, and `doc_git_time` ingestion before incremental sync.
+///
+/// Never returns an error: any Git failure emits a warning and falls back to plain incremental sync.
+pub fn sync_git_pre_scan(vault: &Path, storage: &mut SqliteStorage, pull: bool) -> GitSyncOutcome {
+    let mut outcome = GitSyncOutcome::default();
+
+    let preflight = match git_preflight(vault) {
+        Ok(pf) => pf,
+        Err(reason) => {
+            let msg = format!("git preflight failed ({reason}); falling back to plain sync");
+            eprintln!("[k0maru] warning: {msg}");
+            outcome.warnings.push(msg);
+            return outcome;
+        }
+    };
+    outcome.preflight_ok = true;
+
+    if pull {
+        let mut pull_allowed = true;
+
+        match run_git_command(vault, &["symbolic-ref", "-q", "HEAD"]) {
+            Ok(out) if out.status.success() => {}
+            _ => {
+                pull_allowed = false;
+                let msg = "skipping --git-pull: HEAD is detached".to_string();
+                eprintln!("[k0maru] warning: {msg}");
+                outcome.warnings.push(msg);
+            }
+        }
+
+        if pull_allowed {
+            match run_git_command(vault, &["status", "--porcelain", "--untracked-files=no"]) {
+                Ok(out)
+                    if out.status.success()
+                        && String::from_utf8_lossy(&out.stdout).trim().is_empty() => {}
+                Ok(out) if out.status.success() => {
+                    pull_allowed = false;
+                    let msg = "skipping --git-pull: working tree has tracked changes".to_string();
+                    eprintln!("[k0maru] warning: {msg}");
+                    outcome.warnings.push(msg);
+                }
+                _ => {
+                    pull_allowed = false;
+                    let msg =
+                        "skipping --git-pull: failed to check working tree status".to_string();
+                    eprintln!("[k0maru] warning: {msg}");
+                    outcome.warnings.push(msg);
+                }
+            }
+        }
+
+        if pull_allowed {
+            match run_git_command(vault, &["rev-parse", "--abbrev-ref", "@{u}"]) {
+                Ok(out) if out.status.success() => {}
+                _ => {
+                    pull_allowed = false;
+                    let msg =
+                        "skipping --git-pull: no upstream tracking branch configured".to_string();
+                    eprintln!("[k0maru] warning: {msg}");
+                    outcome.warnings.push(msg);
+                }
+            }
+        }
+
+        if pull_allowed {
+            match run_git_command(vault, &["pull", "--ff-only", "--no-rebase"]) {
+                Ok(out) if out.status.success() => {
+                    outcome.pulled = true;
+                }
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    let msg = format!("git pull --ff-only failed ({stderr}); continuing sync");
+                    eprintln!("[k0maru] warning: {msg}");
+                    outcome.warnings.push(msg);
+                }
+                Err(err) => {
+                    let msg = format!("git pull --ff-only failed ({err}); continuing sync");
+                    eprintln!("[k0maru] warning: {msg}");
+                    outcome.warnings.push(msg);
+                }
+            }
+        }
+    }
+
+    let head = match run_git_command(vault, &["rev-parse", "--verify", "HEAD"]) {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        _ => return outcome,
+    };
+
+    if head.is_empty() {
+        return outcome;
+    }
+
+    if let Ok(Some(prev_head)) = storage.meta_get(META_GIT_TIME_HEAD) {
+        if prev_head == head {
+            return outcome;
+        }
+    }
+
+    match run_git_command(
+        vault,
+        &[
+            "log",
+            "--no-renames",
+            "--format=%x1e%ct",
+            "--name-only",
+            "-z",
+            "--",
+            ".",
+        ],
+    ) {
+        Ok(out) if out.status.success() => {
+            let times = parse_git_log_times(&out.stdout, &preflight.vault_rel);
+            if let Err(err) = storage.set_git_times(&times, &head) {
+                let msg = format!("failed to persist git commit times: {err}");
+                eprintln!("[k0maru] warning: {msg}");
+                outcome.warnings.push(msg);
+            } else {
+                outcome.git_times_updated = true;
+            }
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let msg = format!("git log failed ({stderr}); skipping git time fill");
+            eprintln!("[k0maru] warning: {msg}");
+            outcome.warnings.push(msg);
+        }
+        Err(err) => {
+            let msg = format!("git log failed ({err}); skipping git time fill");
+            eprintln!("[k0maru] warning: {msg}");
+            outcome.warnings.push(msg);
+        }
+    }
+
+    outcome
 }
 
 #[cfg(test)]

@@ -7,7 +7,7 @@
 ## 场景 A：企业级 LLM-Wiki 维护（守护分布式锁与状态机防重不变量）
 
 ### 业务背景
-在金融收单服务中，重复出款或重复回调极易导致严重资损事故。团队在知识库中沉淀了核心 L3 规约 `20_Cards/L3_payment_callback_idempotency_rules.md`：
+在金融收单服务中，重复出款或重复回调极易导致严重资损事故。团队在知识库中沉淀了核心 L3 规约 `decisions/L3_payment_callback_idempotency_rules.md`：
 1. 必须通过 Redis 抢占分布式互斥锁：`SET lock:payment:callback:{event_id} "1" NX EX 30`；
 2. 抢锁失败立即返回 HTTP 429 触发网关指数退避；
 3. 状态机在单数据库事务内校验当前状态为 `STATUS_PENDING`；若非 PENDING 则直接返回 200 OK，防止重复扣款。
@@ -91,7 +91,7 @@ func StripeWebhookHandler(rdb *redis.Client, db *Database) gin.HandlerFunc {
   "related_notes": ["L3_payment_callback_idempotency_rules", "payment-gateway"],
   "content": "..."
 }
-↳ FlushEngine 自动落盘至 20_Cards/adr-pay-012-...md，并自动与 L3 规则织入双链
+↳ FlushEngine 自动落盘至 decisions/adr-pay-012-...md，并自动与 L3 规则织入双链
 ```
 
 通过这一流程，模型摆脱了在未受约束状态下容易写出「先查数据库再抢锁」或者「忽略 429 竞争重试」等典型资损漏洞的代码。

@@ -9,10 +9,12 @@
 pub mod adapters;
 pub mod core;
 pub mod gc;
+pub mod graph;
 pub mod guard;
 pub mod parser;
 pub mod scanner;
 pub mod storage;
+pub mod text;
 pub mod vector;
 
 // Direct submodule aliases for ergonomic access
@@ -37,14 +39,14 @@ pub use parser::{extract_elements, extract_tags, extract_wikilinks, parse_frontm
 
 // Storage
 pub use storage::{
-    ensure_sqlite_vec_registered, HybridSearchEngine, SearchMode, SearchResult, SqliteStorage,
-    VECTOR_DIMENSIONS,
+    ensure_sqlite_vec_registered, vector_scope_enabled, HybridSearchEngine, SearchMode,
+    SearchResult, SectionLocator, SqliteStorage, VECTOR_DIMENSIONS,
 };
 
 // Scanner
 pub use scanner::{
-    parse_content_hash, DirtySets, IncrementalScanner, VectorSyncEngine, VectorSyncStats,
-    DEFAULT_BATCH_SIZE,
+    parse_content_hash, DirtySets, IncrementalScanner, SectionVectorStats, VectorSyncEngine,
+    VectorSyncStats, DEFAULT_BATCH_SIZE,
 };
 
 // Vector

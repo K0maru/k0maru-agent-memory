@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::adapters::open_vault_adapter;
 use crate::convention::{
     generate_filename, synthesize_markdown, ConventionSniffer, FlushRequest, FlushResult,
     NoteCategory, VaultConvention,
@@ -66,10 +66,17 @@ impl FlushEngine {
         &self,
         mut request: FlushRequest,
     ) -> Result<FlushResult, Box<dyn std::error::Error + Send + Sync>> {
-        // 0. Normalize the request: expand shell-escaped newlines in
-        //    `--content`, drop blank supersede entries and canonicalize the
-        //    `card` category alias.
+        // 0. Normalize and validate the request: expand shell-escaped newlines in
+        //    `--content`, drop blank supersede entries, reject unknown categories,
+        //    and canonicalize the `card` category alias.
         request.content = normalize_flush_content(&request.content);
+        if NoteCategory::parse_strict(&request.category).is_none() {
+            return Err(format!(
+                "Invalid category '{}'. Valid categories: decision, card, concept, log, project, skill",
+                request.category.trim()
+            )
+            .into());
+        }
         request.category = normalize_category(&request.category, &request.content);
         request.supersedes = request
             .supersedes
@@ -164,6 +171,7 @@ impl FlushEngine {
                         content_preview: content,
                         dry_run: request.dry_run,
                         superseded_files,
+                        sync_warning: None,
                     });
                 }
             }
@@ -193,6 +201,7 @@ impl FlushEngine {
                             content_preview: content,
                             dry_run: request.dry_run,
                             superseded_files,
+                            sync_warning: None,
                         });
                     }
                 }
@@ -228,6 +237,7 @@ impl FlushEngine {
                 content_preview: content,
                 dry_run: true,
                 superseded_files: Vec::new(),
+                sync_warning: None,
             });
         }
 
@@ -242,43 +252,47 @@ impl FlushEngine {
         // 8b. Mark superseded notes before cache sync
         let superseded_files = Self::apply_resolved_supersedes(&resolved_supersedes, &rel_path)?;
 
-        // 9. Auto-sync cache if SQLite cache exists
+        // 9. Auto-sync cache if SQLite cache exists (surface errors as sync_warning rather than swallowing)
+        let mut sync_warning = None;
         let cache_path = self.vault_root.join(".k0maru").join("cache.sqlite");
         if cache_path.exists() {
-            if let Ok(mut storage) = SqliteStorage::open(&cache_path) {
-                let is_obsidian = self.vault_root.join("10_Projects").is_dir()
-                    || self.vault_root.join(".obsidian").exists()
-                    || self.vault_root.join("20_Cards").is_dir();
-
-                let has_vectors = storage.has_vectors().unwrap_or(false);
-                let embedder = if has_vectors {
-                    let model_cache = if self.vault_root.join(".k0maru").join("models").exists() {
-                        Some(self.vault_root.join(".k0maru").join("models"))
+            match SqliteStorage::open(&cache_path) {
+                Ok(mut storage) => {
+                    let adapter = open_vault_adapter(&self.vault_root);
+                    let has_vectors = storage.has_vectors().unwrap_or(false);
+                    let embedder = if has_vectors {
+                        let model_cache = if self.vault_root.join(".k0maru").join("models").exists()
+                        {
+                            Some(self.vault_root.join(".k0maru").join("models"))
+                        } else {
+                            None
+                        };
+                        crate::vector::default_embedding_engine(model_cache).ok()
                     } else {
                         None
                     };
-                    crate::vector::default_embedding_engine(model_cache).ok()
-                } else {
-                    None
-                };
-                if is_obsidian {
-                    let adapter = ObsidianAdapter::new(&self.vault_root);
                     let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-                    let _ = scanner.sync(false);
-                    if has_vectors {
+                    if let Err(e) = scanner.sync(false) {
+                        sync_warning = Some(format!(
+                            "note written to disk, but cache sync failed: {}",
+                            e
+                        ));
+                    } else if has_vectors {
                         if let Some(ref emb) = embedder {
-                            let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+                            if let Err(e) = VectorSyncEngine::sync(scanner.storage_mut(), &**emb) {
+                                sync_warning = Some(format!(
+                                    "note written to disk, but cache sync failed: {}",
+                                    e
+                                ));
+                            }
                         }
                     }
-                } else {
-                    let adapter = GenericWikiAdapter::new(&self.vault_root);
-                    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-                    let _ = scanner.sync(false);
-                    if has_vectors {
-                        if let Some(ref emb) = embedder {
-                            let _ = VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
-                        }
-                    }
+                }
+                Err(e) => {
+                    sync_warning = Some(format!(
+                        "note written to disk, but cache sync failed: {}",
+                        e
+                    ));
                 }
             }
         }
@@ -292,6 +306,7 @@ impl FlushEngine {
             content_preview: content,
             dry_run: false,
             superseded_files,
+            sync_warning,
         })
     }
 
@@ -377,7 +392,11 @@ fn normalize_category(category: &str, content: &str) -> String {
         }
         "adr" | "adrs" | "decisions" => "decision".to_string(),
         "concepts" | "wiki" => "concept".to_string(),
-        "logs" | "journal" | "daily" => "log".to_string(),
+        "logs" | "journal" | "daily" | "records" => "log".to_string(),
+        "projects" => "project".to_string(),
+        "skills" | "playbook" | "playbooks" | "recipe" | "recipes" | "troubleshooting" => {
+            "skill".to_string()
+        }
         other => other.to_string(),
     }
 }

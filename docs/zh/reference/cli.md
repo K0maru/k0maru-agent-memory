@@ -288,7 +288,7 @@ k0maru sync [OPTIONS]
 #### 参数说明
 - `-t, --threshold <N>`：触发日志截断的行数阈值（默认：`50` 行）；
 - `--task-id <ID>`：可选的任务标识符前缀；
-- `-r, --refs-dir <PATH>`：指定离线日志切片的持久化目录（默认：`.scratch/refs` 或 `<vault>/.k0maru/refs`）；
+- `-r, --refs-dir <PATH>`：指定离线日志切片的持久化目录（默认：`<vault>/.k0maru/refs`）；
 - `--json-stream`：以单行 NDJSON 流式输出。
 
 ---

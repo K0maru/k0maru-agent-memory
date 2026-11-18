@@ -359,6 +359,7 @@ pub struct LoadoutBuilder<'a, A: VaultAdapter, S: CacheStorage> {
     pub(crate) adapter: &'a A,
     pub(crate) storage: &'a S,
     pub(crate) embedder: Option<Arc<dyn EmbeddingEngine>>,
+    pub(crate) global_storage: Option<&'a k0maru_core::storage::ReadOnlyStorage>,
 }
 
 impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
@@ -368,6 +369,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             adapter,
             storage,
             embedder: None,
+            global_storage: None,
         }
     }
 
@@ -377,26 +379,83 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         self
     }
 
-    /// Detects whether this vault follows the Johnny.Decimal topology (`00_Daily/`).
-    ///
-    /// Generic open-source Git vaults have no `00_Daily/` folder, so loadouts must
-    /// emit protocol-agnostic English governance rules instead of the hardcoded
-    /// Johnny.Decimal protocol.
-    fn has_daily_notes_dir(&self) -> bool {
-        if self.adapter.read_document(Path::new("00_Daily")).is_ok() {
-            return true;
+    /// Attaches a read-only global vault storage handle for surfacing global L3 invariants.
+    pub fn with_global(mut self, global: &'a k0maru_core::storage::ReadOnlyStorage) -> Self {
+        self.global_storage = Some(global);
+        self
+    }
+
+    /// Queries the read-only global vault for up to 3 active L3 invariants matching `query`.
+    fn collect_global_invariants(&self, query: &str, project_stem: &str) -> Vec<String> {
+        let Some(global_ro) = self.global_storage else {
+            return Vec::new();
+        };
+
+        let search_query = if query.trim().is_empty() {
+            project_stem
+        } else {
+            query.trim()
+        };
+        if search_query.is_empty() {
+            return Vec::new();
         }
 
-        self.adapter
-            .scan_files()
-            .map(|files| {
-                files.iter().any(|path| {
-                    path.to_string_lossy()
-                        .replace('\\', "/")
-                        .starts_with("00_Daily")
-                })
-            })
-            .unwrap_or(false)
+        let docs =
+            match global_ro
+                .storage()
+                .search_scoped_fts(search_query, None, Some("L3Evergreen"), 10)
+            {
+                Ok(docs) => docs,
+                Err(_) => return Vec::new(),
+            };
+
+        let mut lines = Vec::new();
+        for doc in docs {
+            if !doc.is_active() {
+                continue;
+            }
+            let rel = doc.path.to_string_lossy().replace('\\', "/");
+            let raw_summary = extract_guard_aware_concept(&doc)
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| doc.title.clone());
+            let summary = clean_and_truncate_concept(&raw_summary);
+            lines.push(format!("- @global:{}: {}", rel, summary));
+            if lines.len() >= 3 {
+                break;
+            }
+        }
+        lines
+    }
+
+    /// Appends up to 3 `"Global invariants"` lines strictly while `estimate_tokens <= 300`.
+    fn append_global_invariants(
+        &self,
+        markdown: String,
+        query: &str,
+        project_stem: &str,
+    ) -> String {
+        let global_lines = self.collect_global_invariants(query, project_stem);
+        if global_lines.is_empty() {
+            return markdown;
+        }
+
+        let mut candidate_block = format!("{}\n\n## Global invariants", markdown);
+        let mut added = false;
+        for line in global_lines {
+            let next = format!("{}\n{}", candidate_block, line);
+            if estimate_tokens(&next) <= 300 {
+                candidate_block = next;
+                added = true;
+            } else {
+                break;
+            }
+        }
+
+        if added {
+            candidate_block
+        } else {
+            markdown
+        }
     }
 
     /// Discovers candidate project file paths in the vault.
@@ -434,9 +493,33 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             return Ok(project_files);
         }
 
-        // 2. If no 10_Projects/, scan for notes with project tag or frontmatter status
+        // 2. If no dedicated projects folder exists, only include notes explicitly
+        //    tagged as a project (do NOT mislabel decisions, logs, or docs pages).
         let mut fallback_projects = Vec::new();
         for path in &all_files {
+            let norm = path.to_string_lossy().replace('\\', "/").to_lowercase();
+            let in_non_project_dir = norm.split('/').any(|seg| {
+                matches!(
+                    seg,
+                    "decisions"
+                        | "adr"
+                        | "docs"
+                        | "logs"
+                        | "journal"
+                        | "records"
+                        | "concepts"
+                        | "notes"
+                        | "cards"
+                        | "20_cards"
+                        | "01_ai_logs"
+                        | "00_daily"
+                        | "daily"
+                )
+            });
+            if in_non_project_dir {
+                continue;
+            }
+
             let stem = path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -447,22 +530,17 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             }
 
             if let Ok(doc) = self.adapter.read_document(path) {
-                let has_project_tag = doc.tags.iter().any(|t| t.to_lowercase() == "project");
-                let has_status = doc.frontmatter.get("status").is_some();
-                if has_project_tag || has_status {
-                    fallback_projects.push(path.clone());
-                }
-            }
-        }
-
-        if fallback_projects.is_empty() {
-            for path in &all_files {
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default();
-                let stem_lower = stem.to_lowercase();
-                if stem_lower != "readme" && stem_lower != "index" && stem_lower != "template" {
+                let has_project_tag = doc.tags.iter().any(|t| {
+                    let tl = t.trim_start_matches('#').to_lowercase();
+                    tl == "project" || tl == "type/project"
+                });
+                let is_project_category = doc
+                    .frontmatter
+                    .get("category")
+                    .or_else(|| doc.frontmatter.get("type"))
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| s.eq_ignore_ascii_case("project"));
+                if has_project_tag || is_project_category {
                     fallback_projects.push(path.clone());
                 }
             }
@@ -470,6 +548,193 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
 
         fallback_projects.sort();
         Ok(fallback_projects)
+    }
+
+    /// Lists available project names, or top-level directories/note stems when no project cards exist.
+    pub fn list_available_topics(&self) -> Vec<String> {
+        if let Ok(projects) = self.list_projects() {
+            if !projects.is_empty() {
+                return projects.into_iter().map(|p| p.name).collect();
+            }
+        }
+        let mut topics: Vec<String> = Vec::new();
+        if let Ok(files) = self.adapter.scan_files() {
+            for p in files {
+                let norm = p.to_string_lossy().replace('\\', "/");
+                if let Some((top, _)) = norm.split_once('/') {
+                    let top_s = top.to_string();
+                    if !topics.contains(&top_s) {
+                        topics.push(top_s);
+                    }
+                } else if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                    let lower = stem.to_lowercase();
+                    if lower != "index" && lower != "readme" && !topics.contains(&stem.to_string())
+                    {
+                        topics.push(stem.to_string());
+                    }
+                }
+            }
+        }
+        topics.sort();
+        topics.truncate(12);
+        topics
+    }
+
+    /// Synthesizes a compact (`<= 300` tokens) Vault Overview Loadout when no project name is given
+    /// or when the vault is a flat wiki / documentation corpus without project cards.
+    pub fn build_vault_overview(
+        &self,
+        modified_files: Option<&[ModifiedFile]>,
+    ) -> Result<LoadoutResult, Box<dyn std::error::Error>> {
+        let all_files = self.adapter.scan_files()?;
+        let total_notes = all_files.len();
+
+        let mut l3_cards: Vec<L3CardSummary> = Vec::new();
+        let mut l2_logs: Vec<L2LogSummary> = Vec::new();
+        let mut l3_candidates: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut l2_candidates: Vec<(String, String)> = Vec::new();
+
+        for rel_path in &all_files {
+            let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+            let stem = rel_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("note")
+                .to_string();
+            let stem_lower = stem.to_lowercase();
+            if stem_lower == "index" || stem_lower == "readme" {
+                continue;
+            }
+            if let Ok(doc) = self.adapter.read_document(rel_path) {
+                if !doc.is_active() {
+                    continue;
+                }
+                match doc.hierarchy {
+                    HierarchyLevel::L3Evergreen => {
+                        let concept = extract_card_concept(&doc.body);
+                        l3_candidates.push((stem, rel_str, concept));
+                    }
+                    HierarchyLevel::L2Log => {
+                        l2_candidates.push((stem, rel_str));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // If diff files were provided, boost matching L3 cards first
+        if let Some(mods) = modified_files {
+            let mut kws = Vec::new();
+            for m in mods {
+                kws.extend(m.extract_keywords());
+            }
+            l3_candidates.sort_by(|a, b| {
+                let sa = score_card_relevance(&a.0, &a.1, a.2.as_deref(), &kws, false);
+                let sb = score_card_relevance(&b.0, &b.1, b.2.as_deref(), &kws, false);
+                sb.partial_cmp(&sa)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.1.cmp(&b.1))
+            });
+        } else {
+            l3_candidates.sort_by(|a, b| a.1.cmp(&b.1));
+        }
+
+        l2_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (name, path, concept) in l3_candidates.into_iter().take(4) {
+            l3_cards.push(L3CardSummary {
+                name,
+                path,
+                concept,
+            });
+        }
+        for (name, path) in l2_candidates.into_iter().take(3) {
+            l2_logs.push(L2LogSummary { name, path });
+        }
+
+        let topics = self.list_available_topics();
+        let diff_note = modified_files
+            .filter(|m| !m.is_empty())
+            .map(|m| format!(" ({} changed file(s))", m.len()))
+            .unwrap_or_default();
+
+        let assemble = |cards: &[L3CardSummary],
+                        logs: &[L2LogSummary],
+                        topics: &[String]|
+         -> String {
+            let mut lines = Vec::new();
+            lines.push("# 🎒 Vault Overview Loadout".to_string());
+            lines.push(format!(
+                "> **Vault Scope**: {} notes indexed{}",
+                total_notes, diff_note
+            ));
+            if !topics.is_empty() {
+                let shown: Vec<&str> = topics.iter().take(6).map(|s| s.as_str()).collect();
+                lines.push(format!("> **Topics**: {}", shown.join(", ")));
+            }
+            lines.push(String::new());
+            lines.push("## 🧠 Active Knowledge & Constraints (L3)".to_string());
+            if cards.is_empty() {
+                lines.push("- *(No active L3 decisions/cards indexed yet)*".to_string());
+            } else {
+                for card in cards {
+                    let target = card
+                        .path
+                        .replace('\\', "/")
+                        .trim_end_matches(".md")
+                        .to_string();
+                    if let Some(concept) = &card.concept {
+                        lines.push(format!("- **[[{}]]**: {}", target, concept));
+                    } else {
+                        lines.push(format!("- **[[{}]]**", target));
+                    }
+                }
+            }
+            lines.push(String::new());
+            lines.push("## 📝 Recent Context & Decisions (L2)".to_string());
+            if logs.is_empty() {
+                lines.push("- *(No recent L2 logs)*".to_string());
+            } else {
+                for log in logs {
+                    let target = log
+                        .path
+                        .replace('\\', "/")
+                        .trim_end_matches(".md")
+                        .to_string();
+                    lines.push(format!("- [[{}]]", target));
+                }
+            }
+            lines.push(String::new());
+            lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
+            lines.push(
+                "1. Call `guard_check` before committing; use `flush_session` (`supersedes`) when replacing decisions."
+                    .to_string(),
+            );
+            lines.join("\n")
+        };
+
+        let mut markdown = assemble(&l3_cards, &l2_logs, &topics);
+        while estimate_tokens(&markdown) > 260 && !l2_logs.is_empty() {
+            l2_logs.pop();
+            markdown = assemble(&l3_cards, &l2_logs, &topics);
+        }
+        while estimate_tokens(&markdown) > 260 && !l3_cards.is_empty() {
+            l3_cards.pop();
+            markdown = assemble(&l3_cards, &l2_logs, &topics);
+        }
+
+        markdown = self.append_global_invariants(markdown, "", "vault");
+        let estimated_tokens = estimate_tokens(&markdown);
+
+        Ok(LoadoutResult {
+            project_name: "vault".to_string(),
+            project_path: String::new(),
+            scope: format!("{} notes indexed", total_notes),
+            l3_cards,
+            l2_logs,
+            estimated_tokens,
+            markdown,
+        })
     }
 
     /// Lists all projects discovered in the vault.
@@ -1216,7 +1481,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         }
 
         // Assemble markdown
-        let has_daily_notes = self.has_daily_notes_dir();
         let mut lines = Vec::new();
         lines.push(format!("# 🎒 Agent Task Loadout: {}", project_stem));
         lines.push(format!("> **Project Scope**: {}", scope));
@@ -1226,16 +1490,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             lines.push("- *(No linked L3 architecture cards yet)*".to_string());
         } else {
             for card in &l3_cards {
-                let norm_path = card.path.replace('\\', "/");
-                let link_target = if norm_path.contains("20_Cards/") {
-                    format!("20_Cards/{}", card.name)
-                } else if norm_path.contains("decisions/") {
-                    format!("decisions/{}", card.name)
-                } else if norm_path.contains("cards/") {
-                    format!("cards/{}", card.name)
-                } else {
-                    card.name.clone()
-                };
+                let link_target = format_card_wikilink(&card.path, &card.name);
                 if let Some(concept) = &card.concept {
                     lines.push(format!("- **[[{}]]**: {}", link_target, concept));
                 } else {
@@ -1250,44 +1505,19 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             lines.push("- *(No recent L2 engineering logs)*".to_string());
         } else {
             for log in &l2_logs {
-                let norm_path = log.path.replace('\\', "/");
-                let link_target = if norm_path.contains("01_AI_Logs/") {
-                    format!("01_AI_Logs/{}", log.name)
-                } else if norm_path.contains("logs/") {
-                    format!("logs/{}", log.name)
-                } else if norm_path.contains("journal/") {
-                    format!("journal/{}", log.name)
-                } else {
-                    log.name.clone()
-                };
+                let link_target = format_log_wikilink(&log.path, &log.name);
                 lines.push(format!("- [[{}]]", link_target));
             }
         }
 
         lines.push(String::new());
-        if has_daily_notes {
-            lines.push("## 🛡️ Operating Rules (LLM-Wiki Protocol)".to_string());
-            lines.push(
-                "1. **WikiLinks First**: Use bare native WikiLinks `[[...]]`; never wrap them in backticks."
-                    .to_string(),
-            );
-            lines.push(
-                "2. **Symbolic Offloading**: Write outputs longer than 50 lines to external logs under `01_AI_Logs/` or `logs/`; keep only the Mermaid map in the main context."
-                    .to_string(),
-            );
-            lines.push(
-                "3. **Discuss Before Persisting**: Confirm major changes first; never pollute daily scratchpads or the persistent cards tree."
-                    .to_string(),
-            );
-        } else {
-            lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
-            lines.push(
-                "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
-                    .to_string(),
-            );
-        }
+        lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
+        lines.push(
+            "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
+                .to_string(),
+        );
 
-        let markdown = lines.join("\n");
+        let markdown = self.append_global_invariants(lines.join("\n"), query, &project_stem);
         let estimated_tokens = estimate_tokens(&markdown);
 
         Ok(Some(LoadoutResult {
@@ -1324,8 +1554,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         if scope.chars().count() > 100 {
             scope = format!("{}...", scope.chars().take(97).collect::<String>());
         }
-
-        let has_daily_notes = self.has_daily_notes_dir();
 
         // 1. Extract keywords and changed modules from modified files (excluding internal .k0maru/ artifacts)
         let code_modified_files: Vec<&ModifiedFile> = modified_files
@@ -1598,7 +1826,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &test_cards,
                 &l2_logs,
-                has_daily_notes,
             );
 
             if estimate_tokens(&test_md) <= max_token_budget {
@@ -1612,7 +1839,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     &shortened_scope,
                     &test_cards,
                     &l2_logs,
-                    has_daily_notes,
                 );
                 if estimate_tokens(&test_shortened_md) <= max_token_budget {
                     scope = format!("{}...", shortened_scope);
@@ -1632,7 +1858,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             &scope,
             &selected_cards,
             &l2_logs,
-            has_daily_notes,
         );
         let mut final_tokens = estimate_tokens(&final_markdown);
 
@@ -1644,7 +1869,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &selected_cards,
                 &l2_logs,
-                has_daily_notes,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1657,7 +1881,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &selected_cards,
                 &l2_logs,
-                has_daily_notes,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1670,7 +1893,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &selected_cards,
                 &l2_logs,
-                has_daily_notes,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1683,7 +1905,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &selected_cards,
                 &l2_logs,
-                has_daily_notes,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1696,7 +1917,6 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 &scope,
                 &selected_cards,
                 &l2_logs,
-                has_daily_notes,
             );
             final_tokens = estimate_tokens(&final_markdown);
         }
@@ -1715,6 +1935,9 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             }
             final_tokens = estimate_tokens(&final_markdown);
         }
+
+        final_markdown = self.append_global_invariants(final_markdown, query, &project_stem);
+        final_tokens = estimate_tokens(&final_markdown);
 
         Ok(Some(LoadoutResult {
             project_name: project_stem,
@@ -1780,13 +2003,40 @@ fn score_card_relevance(
     score
 }
 
+fn format_card_wikilink(path: &str, name: &str) -> String {
+    let norm_path = path.replace('\\', "/");
+    for prefix in [
+        "20_Cards/",
+        "decisions/",
+        "cards/",
+        "docs/adr/",
+        "adr/",
+        "concepts/",
+        "notes/",
+    ] {
+        if norm_path.contains(prefix) {
+            return format!("{}{}", prefix, name);
+        }
+    }
+    name.to_string()
+}
+
+fn format_log_wikilink(path: &str, name: &str) -> String {
+    let norm_path = path.replace('\\', "/");
+    for prefix in ["01_AI_Logs/", "logs/", "journal/", "records/"] {
+        if norm_path.contains(prefix) {
+            return format!("{}{}", prefix, name);
+        }
+    }
+    name.to_string()
+}
+
 fn assemble_diff_loadout_markdown(
     project_stem: &str,
     active_changes: &str,
     scope: &str,
     cards: &[L3CardSummary],
     l2_logs: &[L2LogSummary],
-    has_daily_notes: bool,
 ) -> String {
     let mut lines = Vec::new();
     lines.push(format!(
@@ -1805,16 +2055,7 @@ fn assemble_diff_loadout_markdown(
         );
     } else {
         for card in cards {
-            let norm_path = card.path.replace('\\', "/");
-            let link_target = if norm_path.contains("20_Cards/") {
-                format!("20_Cards/{}", card.name)
-            } else if norm_path.contains("decisions/") {
-                format!("decisions/{}", card.name)
-            } else if norm_path.contains("cards/") {
-                format!("cards/{}", card.name)
-            } else {
-                card.name.clone()
-            };
+            let link_target = format_card_wikilink(&card.path, &card.name);
             if let Some(concept) = &card.concept {
                 lines.push(format!("- **[[{}]]**: {}", link_target, concept));
             } else {
@@ -1829,42 +2070,17 @@ fn assemble_diff_loadout_markdown(
         lines.push("- *(No recent L2 engineering logs)*".to_string());
     } else {
         for log in l2_logs {
-            let norm_path = log.path.replace('\\', "/");
-            let link_target = if norm_path.contains("01_AI_Logs/") {
-                format!("01_AI_Logs/{}", log.name)
-            } else if norm_path.contains("logs/") {
-                format!("logs/{}", log.name)
-            } else if norm_path.contains("journal/") {
-                format!("journal/{}", log.name)
-            } else {
-                log.name.clone()
-            };
+            let link_target = format_log_wikilink(&log.path, &log.name);
             lines.push(format!("- [[{}]]", link_target));
         }
     }
 
     lines.push(String::new());
-    if has_daily_notes {
-        lines.push("## 🛡️ Operating Rules (LLM-Wiki Protocol)".to_string());
-        lines.push(
-            "1. **WikiLinks First**: Use bare native WikiLinks `[[...]]`; never wrap them in backticks."
-                .to_string(),
-        );
-        lines.push(
-            "2. **Symbolic Offloading**: Write outputs longer than 50 lines to external logs under `01_AI_Logs/`; keep only the Mermaid map in the main context."
-                .to_string(),
-        );
-        lines.push(
-            "3. **Discuss Before Persisting**: Confirm major changes first; never pollute `00_Daily` or the flat `20_Cards/` tree."
-                .to_string(),
-        );
-    } else {
-        lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
-        lines.push(
-            "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
-                .to_string(),
-        );
-    }
+    lines.push("## 🛡️ Agent Autonomous Protocol (Zero-Human-in-the-Loop)".to_string());
+    lines.push(
+        "1. Run `k0maru guard check --diff` before committing; use `k0maru flush --supersedes <old-adr>` when replacing decisions."
+            .to_string(),
+    );
 
     lines.join("\n")
 }

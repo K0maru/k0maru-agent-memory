@@ -63,6 +63,10 @@ pub struct GuardCheckArgs {
     #[arg(long)]
     pub strict: bool,
 
+    /// Optional read-only global vault path for federated Living ADR rules
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
+
     /// Specific file paths to check directly
     #[arg(value_name = "FILES")]
     pub files: Vec<PathBuf>,
@@ -407,6 +411,43 @@ pub fn resolve_guard_rules_with_repo(
         }
     }
 
+    // 2a. Also scan standard repository ADR directories (`docs/adr`, `adr`, `docs/decisions`)
+    //     so `guard check --diff` enforces repo ADRs out of the box even when `vault_path` is
+    //     `.k0maru/wiki` or another directory.
+    if let Some(root) = repo_root {
+        let canon_vault = vault_path.canonicalize().ok();
+        let canon_root = root.canonicalize().ok();
+        if canon_vault != canon_root {
+            let repo_adapter = GenericWikiAdapter::new(root);
+            for adr_rel_dir in ["docs/adr", "adr", "docs/decisions"] {
+                let adr_abs = root.join(adr_rel_dir);
+                if !adr_abs.is_dir() || adr_abs.canonicalize().ok() == canon_vault {
+                    continue;
+                }
+                let sub_adapter = GenericWikiAdapter::new(&adr_abs);
+                if let Ok(sub_files) = sub_adapter.scan_files() {
+                    for sub_rel in sub_files {
+                        let repo_rel = Path::new(adr_rel_dir).join(&sub_rel);
+                        let doc = match repo_adapter.read_document(&repo_rel) {
+                            Ok(doc) => doc,
+                            Err(_) => continue,
+                        };
+                        let path_lower =
+                            repo_rel.to_string_lossy().replace('\\', "/").to_lowercase();
+                        let segments: Vec<&str> = path_lower.split('/').collect();
+                        let doc_projects = extract_doc_project_slugs(&doc, &segments, &repo_rel);
+                        for project in &doc_projects {
+                            all_vault_projects.insert(project.clone());
+                        }
+                        if !scanned.iter().any(|(p, _, _)| p == &repo_rel) {
+                            scanned.push((repo_rel, doc, doc_projects));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 2b. Project isolation. `--project` (or the repository the check runs in)
     // selects exactly one slug: `beta` never matches `payment-beta-legacy`, and
     // a `project: alpha` card never leaks into the `beta` repository. Notes
@@ -448,6 +489,66 @@ pub fn resolve_guard_rules_with_repo(
     }
 
     Ok(rules)
+}
+
+/// Identifies a rule/violation originating from the read-only global vault.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GlobalRuleOrigin {
+    pub id: String,
+    pub title: String,
+    pub source_note: String,
+    pub remediation: String,
+}
+
+impl GlobalRuleOrigin {
+    /// Builds an origin key from a [`GuardRule`].
+    pub fn from_rule(rule: &GuardRule) -> Self {
+        Self {
+            id: rule.id.clone(),
+            title: rule.title.clone(),
+            source_note: rule.source_note.clone(),
+            remediation: rule.remediation.clone(),
+        }
+    }
+
+    /// Builds an origin key from a [`k0maru_core::guard::models::GuardViolation`].
+    pub fn from_violation(v: &k0maru_core::guard::models::GuardViolation) -> Self {
+        Self {
+            id: v.rule_id.clone(),
+            title: v.rule_title.clone(),
+            source_note: v.source_note.clone(),
+            remediation: v.remediation.clone(),
+        }
+    }
+}
+
+/// Resolves primary guard rules first, then merges global vault rules (file reads only),
+/// deduplicating on `(id, condition)` so primary rules override matching global ones.
+pub fn resolve_guard_rules_with_global(
+    vault_path: &Path,
+    project_filter: Option<&str>,
+    repo_root: Option<&Path>,
+    global_vault: Option<&Path>,
+) -> Result<(Vec<GuardRule>, HashSet<GlobalRuleOrigin>), Box<dyn std::error::Error>> {
+    let mut rules = resolve_guard_rules_with_repo(vault_path, project_filter, repo_root)?;
+    let mut seen: HashSet<(String, String)> = rules
+        .iter()
+        .map(|r| (r.id.clone(), format!("{:?}", r.condition)))
+        .collect();
+    let mut global_origins = HashSet::new();
+
+    if let Some(global_path) = global_vault {
+        if let Ok(global_rules) = resolve_guard_rules_with_repo(global_path, project_filter, None) {
+            for rule in global_rules {
+                if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                    global_origins.insert(GlobalRuleOrigin::from_rule(&rule));
+                    rules.push(rule);
+                }
+            }
+        }
+    }
+
+    Ok((rules, global_origins))
 }
 
 /// Normalizes a wiki-link / path reference from `superseded_by` or `supersedes`
@@ -571,6 +672,7 @@ fn document_from_content(path: &Path, content: &str) -> crate::Document {
         content_hash: String::new(),
         mtime: 0,
         body: body.to_string(),
+        body_line_offset: 0,
     }
 }
 
@@ -941,6 +1043,16 @@ pub fn run_guard_check(
     args: GuardCheckArgs,
     vault_path: &Path,
 ) -> Result<GuardReport, Box<dyn std::error::Error>> {
+    let (report, _) = run_guard_check_with_global(args, vault_path)?;
+    Ok(report)
+}
+
+/// Executes `k0maru guard check` with optional federated global vault rules,
+/// returning the report and the set of global-origin rule keys.
+pub fn run_guard_check_with_global(
+    args: GuardCheckArgs,
+    vault_path: &Path,
+) -> Result<(GuardReport, HashSet<GlobalRuleOrigin>), Box<dyn std::error::Error>> {
     let wall_start = std::time::Instant::now();
 
     // Stop-hook payloads arrive as JSON on stdin, never as a unified diff.
@@ -958,19 +1070,28 @@ pub fn run_guard_check(
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
             if value.get("stop_hook_active").and_then(|v| v.as_bool()) == Some(true) {
                 // Already continuing because of this hook: exit 0 silently.
-                return Ok(GuardReport::new(0, 0, Vec::new(), 0));
+                return Ok((GuardReport::new(0, 0, Vec::new(), 0), HashSet::new()));
             }
         }
     }
 
     if !vault_path.exists() && args.claude_stop_hook {
         // An uninitialized repository must never trap the agent.
-        return Ok(GuardReport::new(0, 0, Vec::new(), 0));
+        return Ok((GuardReport::new(0, 0, Vec::new(), 0), HashSet::new()));
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let root = resolve_repo_root(&cwd);
-    let rules = resolve_guard_rules_with_repo(vault_path, args.project.as_deref(), Some(&root))?;
+    let resolved_global = k0maru_core::storage::federated::resolve_global_vault(
+        args.global_vault.as_deref(),
+        vault_path,
+    );
+    let (rules, global_origins) = resolve_guard_rules_with_global(
+        vault_path,
+        args.project.as_deref(),
+        Some(&root),
+        resolved_global.as_deref(),
+    )?;
 
     // A repository with its own `.k0maru/guard.toml` / `.k0maru/rules` is fully
     // functional without a `.k0maru/wiki/` vault.
@@ -1022,28 +1143,34 @@ pub fn run_guard_check(
 
     if args.claude_stop_hook {
         if report.is_passed {
-            return Ok(report);
+            return Ok((report, global_origins));
         }
         // Exit code 2 is Claude Code's blocking hook contract: stderr is fed
         // straight back to the agent as the reason the turn cannot end.
-        eprintln!("{}", format_guard_report(&report));
+        eprintln!(
+            "{}",
+            format_guard_report_with_options(&report, &global_origins, Some(vault_path), false)
+        );
         std::process::exit(2);
     }
 
     if !report.is_passed && !args.json {
-        // `format_guard_report` already appends `[AGENT_SELF_HEAL_PROTOCOL]`,
+        // `format_guard_report_with_options` already appends `[AGENT_SELF_HEAL_PROTOCOL]`,
         // so mirror it on stderr only for piped consumers (tests / CI). An
         // interactive terminal or Git hook sees it once.
-        println!("{}", format_guard_report(&report));
+        println!(
+            "{}",
+            format_guard_report_with_options(&report, &global_origins, Some(vault_path), false)
+        );
         if !std::io::stderr().is_terminal() {
-            if let Some(protocol) = self_heal_protocol(&report) {
+            if let Some(protocol) = self_heal_protocol_for_vault(&report, Some(vault_path)) {
                 eprintln!("{}", protocol);
             }
         }
         std::process::exit(1);
     }
 
-    Ok(report)
+    Ok((report, global_origins))
 }
 
 /// Resolves the directory Git actually executes hooks from, honoring
@@ -1407,6 +1534,25 @@ fn install_post_commit_hook(
 
 /// Formats a GuardReport into a human-readable terminal presentation.
 pub fn format_guard_report(report: &GuardReport) -> String {
+    format_guard_report_with_global(report, &HashSet::new())
+}
+
+/// Formats a GuardReport into a human-readable terminal presentation,
+/// tagging rule IDs originating from the global vault with `[global]`.
+pub fn format_guard_report_with_global(
+    report: &GuardReport,
+    global_origins: &HashSet<GlobalRuleOrigin>,
+) -> String {
+    format_guard_report_with_options(report, global_origins, None, false)
+}
+
+/// Formats a GuardReport with explicit vault path and MCP/CLI remediation formatting.
+pub fn format_guard_report_with_options(
+    report: &GuardReport,
+    global_origins: &HashSet<GlobalRuleOrigin>,
+    vault_path: Option<&Path>,
+    mcp_mode: bool,
+) -> String {
     let mut out = String::new();
 
     let deny_count = report
@@ -1457,7 +1603,15 @@ pub fn format_guard_report(report: &GuardReport) -> String {
             RuleSeverity::Deny => "[DENY]",
             RuleSeverity::Warn => "[WARN]",
         };
-        out.push_str(&format!("{} {}: {}\n", sev_tag, v.rule_id, v.rule_title));
+        let scope_tag = if global_origins.contains(&GlobalRuleOrigin::from_violation(v)) {
+            " [global]"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "{} {}{}: {}\n",
+            sev_tag, v.rule_id, scope_tag, v.rule_title
+        ));
 
         if let Some(line) = v.line_number {
             out.push_str(&format!("  File: {}:{}\n", v.file_path, line));
@@ -1487,7 +1641,12 @@ pub fn format_guard_report(report: &GuardReport) -> String {
         ));
     }
 
-    if let Some(protocol) = self_heal_protocol(report) {
+    let protocol_opt = if mcp_mode {
+        self_heal_protocol_mcp(report)
+    } else {
+        self_heal_protocol_for_vault(report, vault_path)
+    };
+    if let Some(protocol) = protocol_opt {
         out.push('\n');
         out.push_str(&protocol);
     }
@@ -1495,32 +1654,63 @@ pub fn format_guard_report(report: &GuardReport) -> String {
     out
 }
 
-/// Builds the copy-pasteable recovery protocol appended to a failing report.
-///
-/// Both the human CLI and the Claude Code `Stop` hook surface this block, so an
-/// agent can either fix the code or legitimately replace the ADR in a single
-/// commit instead of disabling the check (`--no-verify`).
-pub fn self_heal_protocol(report: &GuardReport) -> Option<String> {
-    if report.is_passed {
-        return None;
-    }
-
-    let source_note = report
+fn first_failing_source_note(report: &GuardReport) -> String {
+    report
         .violations
         .iter()
         .find(|violation| violation.severity == RuleSeverity::Deny)
         .or_else(|| report.violations.first())
         .map(|violation| violation.source_note.clone())
         .filter(|note| !note.trim().is_empty())
-        .unwrap_or_else(|| "<SOURCE_NOTE>".to_string());
+        .unwrap_or_else(|| "<SOURCE_NOTE>".to_string())
+}
+
+/// Builds the copy-pasteable CLI recovery protocol appended to a failing report.
+pub fn self_heal_protocol(report: &GuardReport) -> Option<String> {
+    self_heal_protocol_for_vault(report, None)
+}
+
+/// Builds the CLI recovery protocol referencing the actual `vault_path` when known.
+pub fn self_heal_protocol_for_vault(
+    report: &GuardReport,
+    vault_path: Option<&Path>,
+) -> Option<String> {
+    if report.is_passed {
+        return None;
+    }
+
+    let source_note = first_failing_source_note(report);
+    let stage_hint = match vault_path {
+        Some(vp) => format!("git add {}", vp.display()),
+        None => "git add <vault-path>".to_string(),
+    };
 
     Some(format!(
         r#"[AGENT_SELF_HEAL_PROTOCOL]
 1. Fix the code: Refactor the violating line(s) to satisfy the Remedy above, then re-run `k0maru guard check --diff`.
 2. Legitimate Architecture Replacement (ONLY if the user asked to replace this ADR):
    k0maru flush --category decision --title "ADR-New: <Title>" --supersedes "{source_note}" --content $'## Non-Negotiable Invariants\n- [<new-rule-id>] (deny) [src/**/*] forbidden: "<pattern>" | remediation: "<remedy>"'
-   Then stage the updated vault (`git add .k0maru/wiki`) in the same commit. Never use `--no-verify`.
+   Then stage the updated vault (`{stage_hint}`) in the same commit. Never use `--no-verify`.
 "#,
+        source_note = source_note,
+        stage_hint = stage_hint
+    ))
+}
+
+/// Builds the MCP-native tool-call recovery protocol appended to a failing MCP `guard_check` report.
+pub fn self_heal_protocol_mcp(report: &GuardReport) -> Option<String> {
+    if report.is_passed {
+        return None;
+    }
+
+    let source_note = first_failing_source_note(report);
+
+    Some(format!(
+        r###"[AGENT_SELF_HEAL_PROTOCOL]
+1. Fix the code: Refactor the violating line(s) to satisfy the Remedy above, then call guard_check{{}}.
+2. Legitimate Architecture Replacement (ONLY if the user asked to replace this ADR):
+   Call flush_session{{category:"decision", title:"ADR-New: <Title>", supersedes:["{source_note}"], content:"## Non-Negotiable Invariants\n- [<new-rule-id>] (deny) [src/**/*] forbidden: \"<pattern>\" | remediation: \"<remedy>\""}} then guard_check{{}}.
+"###,
         source_note = source_note
     ))
 }

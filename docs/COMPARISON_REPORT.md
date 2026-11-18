@@ -98,13 +98,13 @@ Measured on a standard developer workstation (Apple Silicon, macOS 14+, SSD):
 
 ---
 
-## Part 5: Empirical Colab A100 Hardware Benchmark (Full Multi-Model & Heterogeneous Concurrency Matrix)
+## Part 5: Empirical Cloud GPU (NVIDIA A100-80GB) Hardware Benchmark (Full Multi-Model & Heterogeneous Concurrency Matrix)
 
-To bridge the gap between theoretical calculations and real-world engineering outcomes, we conducted live empirical evaluations on an **NVIDIA A100-SXM4-80GB GPU** (80GB VRAM, 167GB RAM) in a clean Google Colab environment.
+To bridge the gap between theoretical calculations and real-world engineering outcomes, we conducted live empirical evaluations on an **NVIDIA A100-SXM4-80GB GPU** (80GB VRAM, 167GB RAM) in a clean Cloud GPU VM environment.
 
 ### 1. Experimental Setup & Hardware Specifications
 
-- **Compute Node**: Google Colab Dedicated A100 Instance (NVIDIA A100-SXM4-80GB, PyTorch 2.11+cu130, CUDA 13.0).
+- **Compute Node**: Cloud GPU VM (NVIDIA A100-SXM4-80GB, PyTorch 2.11+cu130, CUDA 13.0).
 - **Host Memory & Disk**: 167 GiB RAM, 194 GiB high-speed NVMe scratch storage.
 - **Inference Server**: Ollama daemon (native CUDA v13 backend, 256k context window).
 - **Evaluated Models**:
@@ -191,7 +191,7 @@ Tested end-to-end across three distinct autonomous agent architectures:
   - `DeepSeek-V4.1-Flash`: 552B parameter MoE architecture (~280 GB in 4-bit quantization).
   - `GLM-5.2`: 753B parameter MoE architecture (~380 GB in 4-bit quantization).
 - **Infrastructure Requirements**:
-  - Running weights of 500B+ models locally exceeds the capacity of single-GPU workstations and single-node Colab instances (80GB VRAM). They require an 8x A100/H100 multi-node GPU cluster (640GB+ aggregate VRAM) or official cloud API endpoints.
+  - Running weights of 500B+ models locally exceeds the capacity of single-GPU workstations and single-node Cloud GPU VMs (80GB VRAM). They require an 8x A100/H100 multi-node GPU cluster (640GB+ aggregate VRAM) or official cloud API endpoints.
   - Future evaluations will extend this benchmark harness to these frontier weights via official API keys.
 
 ---

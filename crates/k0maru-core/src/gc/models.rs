@@ -119,7 +119,7 @@ pub struct GcOptions {
     #[serde(default = "default_smart_zone_min_ratio")]
     pub smart_zone_min_ratio: f64,
 
-    /// Optional directory to persist raw offloaded logs (defaults to `.scratch/refs`).
+    /// Optional directory to persist raw offloaded logs (defaults to `.k0maru/refs`).
     #[serde(default)]
     pub refs_dir: Option<PathBuf>,
 }

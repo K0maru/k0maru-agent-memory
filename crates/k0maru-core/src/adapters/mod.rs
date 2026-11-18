@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 
 use crate::core::models::{Document, HierarchyLevel};
 
-/// Internal helper to scan Markdown files using `walkdir`, excluding hidden folders and files.
+/// Internal helper to scan Markdown files using `walkdir`, applying [`crate::scanner::ScanFilter`]
+/// and excluding hidden folders and files (while keeping `.k0maru/packs/` reachable unless excluded).
 pub(crate) fn scan_markdown_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let filter = crate::scanner::ScanFilter::from_vault_root(root);
     let mut paths = Vec::new();
     let walker = walkdir::WalkDir::new(root)
         .follow_links(false)
@@ -29,11 +31,25 @@ pub(crate) fn scan_markdown_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn s
             {
                 return false;
             }
+            if let Ok(rel_path) = entry.path().strip_prefix(root) {
+                if filter.is_excluded(rel_path, entry.file_type().is_dir()) {
+                    return false;
+                }
+            }
             true
         });
 
     for entry in walker {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(err) => {
+                eprintln!(
+                    "[k0maru] warning: skipping unreadable entry during scan: {}",
+                    err
+                );
+                continue;
+            }
+        };
         if entry.file_type().is_file() {
             let file_name = entry.file_name().to_string_lossy();
             if file_name.starts_with('.') {
@@ -50,9 +66,9 @@ pub(crate) fn scan_markdown_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn s
     }
 
     // The primary walk intentionally skips hidden directories, so pack-provided
-    // markdown under `.k0maru/packs/` must be indexed explicitly.
+    // markdown under `.k0maru/packs/` must be indexed explicitly unless `.k0maruignore` excludes it.
     let packs_root = root.join(".k0maru").join("packs");
-    if packs_root.is_dir() {
+    if packs_root.is_dir() && !filter.is_excluded(Path::new(".k0maru/packs"), true) {
         let pack_walker = walkdir::WalkDir::new(&packs_root)
             .follow_links(false)
             .into_iter()
@@ -60,11 +76,28 @@ pub(crate) fn scan_markdown_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn s
                 if entry.depth() == 0 {
                     return true;
                 }
-                !entry.file_name().to_string_lossy().starts_with('.')
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    return false;
+                }
+                if let Ok(rel_path) = entry.path().strip_prefix(root) {
+                    if filter.is_excluded(rel_path, entry.file_type().is_dir()) {
+                        return false;
+                    }
+                }
+                true
             });
 
         for entry in pack_walker {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!(
+                        "[k0maru] warning: skipping unreadable pack entry during scan: {}",
+                        err
+                    );
+                    continue;
+                }
+            };
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -174,19 +207,112 @@ pub(crate) fn parse_hierarchy_override(frontmatter: &serde_json::Value) -> Optio
     None
 }
 
-/// Returns true if any standard structured vault or LLM-Wiki directory exists under `vault_path`.
+/// Canonical vault directory topology detected at a vault root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultLayout {
+    /// Structured knowledge base or ADR repository (neutral LLM-Wiki, `docs/adr`, `.obsidian`, or JD compat).
+    Structured,
+    /// Flat or uncategorized Markdown corpus (e.g. Karpathy-style flat wiki or generic CommonMark docs).
+    Generic,
+}
+
+const STRUCTURED_DIR_MARKERS: &[&str] = &[
+    ".obsidian",
+    "projects",
+    "decisions",
+    "cards",
+    "logs",
+    "concepts",
+    "adr",
+    "docs/adr",
+    "docs/decisions",
+    "10_Projects",
+    "20_Cards",
+    "01_AI_Logs",
+];
+
+/// Performs a case-insensitive check for `INDEX.md` / `index.md` at `vault_root`
+/// so case-sensitive filesystems (Linux) match case-insensitive behavior (macOS/Windows).
+pub fn find_index_markdown(vault_root: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(vault_root).ok()?;
+    let mut fallback = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.eq_ignore_ascii_case("index.md") && entry.path().is_file() {
+            if name_str == "INDEX.md" {
+                return Some(entry.path());
+            }
+            if fallback.is_none() {
+                fallback = Some(entry.path());
+            }
+        }
+    }
+    fallback
+}
+
+/// Returns `true` if `INDEX.md` or `index.md` (any ASCII case) exists as a file at `vault_root`.
+pub fn has_index_markdown(vault_root: &Path) -> bool {
+    find_index_markdown(vault_root).is_some()
+}
+
+/// Single canonical layout detector for vault roots across all CLI, MCP, UI, and library callers.
+pub fn detect_layout(vault_root: &Path) -> VaultLayout {
+    if STRUCTURED_DIR_MARKERS
+        .iter()
+        .any(|marker| vault_root.join(marker).is_dir())
+    {
+        VaultLayout::Structured
+    } else {
+        VaultLayout::Generic
+    }
+}
+
+/// Returns `true` if any standard structured vault or ADR directory exists under `vault_path`.
 pub fn is_structured_vault(vault_path: &Path) -> bool {
-    const CANDIDATES: &[&str] = &[
-        ".obsidian",
-        "projects",
-        "decisions",
-        "cards",
-        "logs",
-        "10_Projects",
-        "20_Cards",
-        "01_AI_Logs",
-    ];
-    CANDIDATES.iter().any(|c| vault_path.join(c).is_dir())
+    detect_layout(vault_path) == VaultLayout::Structured
+}
+
+/// Opens the canonical [`VaultAdapter`] for `vault_root` based on [`detect_layout`].
+pub fn open_vault_adapter(vault_root: &Path) -> Box<dyn crate::core::traits::VaultAdapter> {
+    match detect_layout(vault_root) {
+        VaultLayout::Structured => Box::new(ObsidianAdapter::new(vault_root)),
+        VaultLayout::Generic => Box::new(GenericWikiAdapter::new(vault_root)),
+    }
+}
+
+impl crate::core::traits::VaultAdapter for Box<dyn crate::core::traits::VaultAdapter> {
+    fn scan_files(&self) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        (**self).scan_files()
+    }
+
+    fn read_document(&self, relative_path: &Path) -> Result<Document, Box<dyn std::error::Error>> {
+        (**self).read_document(relative_path)
+    }
+
+    fn write_card(
+        &self,
+        title: &str,
+        content: &str,
+        hierarchy: HierarchyLevel,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        (**self).write_card(title, content, hierarchy)
+    }
+
+    fn root_path(&self) -> Option<&Path> {
+        (**self).root_path()
+    }
+
+    fn file_mtime(&self, relative_path: &Path) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+        (**self).file_mtime(relative_path)
+    }
+
+    fn compute_content_hash(
+        &self,
+        relative_path: &Path,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        (**self).compute_content_hash(relative_path)
+    }
 }
 
 /// Resolves the LLM-Wiki hierarchy level for a document according to Karpathy-style and
@@ -241,19 +367,15 @@ pub fn determine_llm_wiki_hierarchy(
         }
     }
 
-    // 3. Inspect directory components of relative_path
+    // 3. Inspect directory components of relative_path from innermost parent outward
+    // so specific leaf categories (e.g. `logs/` inside `wiki/`) take precedence over
+    // outer container directories (`wiki/`, `projects/`, `docs/`).
     if let Some(parent) = relative_path.parent() {
         if !parent.as_os_str().is_empty() {
             let segments: Vec<String> = parent
                 .components()
                 .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
                 .collect();
-
-            let has_segment = |candidates: &[&str]| {
-                segments
-                    .iter()
-                    .any(|seg| candidates.contains(&seg.as_str()))
-            };
 
             const EVERGREEN_DIRS: &[&str] = &[
                 "20_cards",
@@ -300,14 +422,20 @@ pub fn determine_llm_wiki_hierarchy(
                 "docs",
             ];
 
-            if has_segment(EVERGREEN_DIRS) {
-                return HierarchyLevel::L3Evergreen;
-            } else if has_segment(LOG_DIRS) {
-                return HierarchyLevel::L2Log;
-            } else if has_segment(EPHEMERAL_DIRS) {
-                return HierarchyLevel::L0Ephemeral;
-            } else if has_segment(RESOURCE_DIRS) {
-                return HierarchyLevel::L1Resource;
+            for seg in segments.iter().rev() {
+                let s = seg.as_str();
+                if EPHEMERAL_DIRS.contains(&s) {
+                    return HierarchyLevel::L0Ephemeral;
+                }
+                if LOG_DIRS.contains(&s) {
+                    return HierarchyLevel::L2Log;
+                }
+                if EVERGREEN_DIRS.contains(&s) {
+                    return HierarchyLevel::L3Evergreen;
+                }
+                if RESOURCE_DIRS.contains(&s) {
+                    return HierarchyLevel::L1Resource;
+                }
             }
         }
     }
@@ -408,6 +536,21 @@ pub(crate) fn resolve_unique_path(dir: &Path, title: &str) -> (PathBuf, String) 
     }
 }
 
+/// Computes the zero-based line offset where `body` starts inside `content`.
+fn compute_body_line_offset(content: &str, body: &str) -> usize {
+    let content_start = content.as_ptr() as usize;
+    let content_end = content_start + content.len();
+    let body_start = body.as_ptr() as usize;
+    if body_start < content_start || body_start > content_end {
+        return 0;
+    }
+    let byte_offset = body_start - content_start;
+    content[..byte_offset]
+        .bytes()
+        .filter(|&b| b == b'\n')
+        .count()
+}
+
 /// Shared document reading and parsing implementation parameterized by a hierarchy resolver.
 pub(crate) fn read_document_impl<F>(
     root: &Path,
@@ -439,6 +582,7 @@ where
     let content_hash = format!("{:016x}", hash_num);
 
     let (frontmatter, body) = crate::parser::parse_frontmatter(&content);
+    let body_line_offset = compute_body_line_offset(&content, body);
     let (links, body_tags) = crate::parser::extract_elements(body);
     let tags = extract_tags_combined(&frontmatter, body_tags);
     let title = extract_title(body, &frontmatter, &rel_path);
@@ -454,6 +598,7 @@ where
         content_hash,
         mtime,
         body: body.to_string(),
+        body_line_offset,
     })
 }
 

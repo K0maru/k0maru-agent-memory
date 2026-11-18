@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-11-18
+
+### 🚀 What's Changed
+
+- **Unified Schema v3, Symmetric CJK Bigrams & Scan Hygiene**:
+  - Added versioned SQLite migration ladder (`PRAGMA user_version = 3`) with `contentless_delete=1` FTS5 (`fts_documents`, `fts_sections`), preserving existing `document_vectors` and `documents.id`;
+  - Added symmetric CJK bigram indexing (`segment_for_index`) and tiered `Strict -> AllTokens -> AnyTokens` FTS5 query fallback;
+  - Honored `.gitignore`, `.ignore`, and `.k0maruignore` during incremental vault scans via `ignore::WalkBuilder`.
+- **AST Section-Level Indexing & Line-Range Recall**:
+  - Split Markdown documents by H1–H3 headings via `pulldown-cmark` (`k0maru_core::parser::sections`), reusing unchanged section IDs by `text_hash`;
+  - Added budgeted section vector backfill (`sync_sections`), `embed_model` provenance gating, and `path:start-end#Heading` locators wired through CLI `search`, MCP `recall_memory`, and `inspect_note` line slicing.
+- **1-Hop Graph Expansion, Tiered Time Decay, `garden` & `sync --git`**:
+  - Upgraded `HybridSearchEngine` with relative in-pool graph boost ($\gamma \cdot S_{\max}$), max-over-parents 1-hop proportional expansion, tiered L0/L2 time decay, and 60s-debounced `doc_access` reinforcement;
+  - Added `k0maru garden [--weave]` for orphan/broken-link/duplicate auditing (vector cosine + MinHash-LSH Jaccard) and idempotent managed-backlink weaving excluded from graph feedback;
+  - Added `k0maru sync --git [--git-pull]` for last-commit timestamp ingestion and safe fast-forward-only pulls with strict `GIT_DIR` env hygiene.
+- **Read-Only Federated `--global-vault` & Atomic Session Handoff**:
+  - Added `--global-vault` / `K0MARU_GLOBAL_VAULT` (`K0MARU_NO_GLOBAL=1` kill switch) across `search`, `mcp`, `loadout`, `guard check`, `hook`, and `doctor`, backed strictly by `ReadOnlyStorage` (`SQLITE_OPEN_READ_ONLY`), `content_hash` dedup, `@global:` locators, `[global]` guard tags, and zero writes to the global vault;
+  - Added zero-LLM atomic typed session handoffs (`k0maru handoff {create, claim, show, list, prune}`, MCP `handoff_session`, and non-claiming `hook session-start` hint) using atomic filesystem `rename` with exit code `3` on race loss.
+
+---
+
 ## [1.0.0] - 2026-10-27
 
 ### 🚀 What's Changed
@@ -91,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Driven **`Qwen3.8-27B`** through an autonomous Hermes / OpenClaw function calling loop with **100% verification across all 4 core invariants**:
     1. Pre-flight memory inspection (`get_project_loadout` + 2x `recall_memory`);
     2. Invariant-compliant Go code generation with Redis mutex (`SET NX EX 30`) and `STATUS_PENDING` state machine guard;
-    3. Self-healing decision crystallization via `flush_session` into `20_Cards/adr-pay-012-...md`;
+    3. Self-healing decision crystallization via `flush_session` into `decisions/adr-pay-012-...md`;
     4. Instant self-healing recall in **0.88 ms** with a top score of **12.05** (Rank #1 hit).
 - **Trace-to-Skill & Hermes Dynamic Skill Protocol**:
   - Added `k0maru distill` CLI command and FastMCP `distill_session_skill` tool;

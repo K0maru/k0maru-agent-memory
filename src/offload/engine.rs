@@ -38,7 +38,7 @@ impl Default for OffloadEngine {
         Self {
             threshold: 50,
             task_id: None,
-            refs_dir: PathBuf::from(".scratch/refs"),
+            refs_dir: PathBuf::from(".k0maru/refs"),
         }
     }
 }

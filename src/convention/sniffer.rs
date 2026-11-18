@@ -28,7 +28,8 @@ impl ConventionSniffer {
         let mut rule_source = None;
         let mut template = None;
 
-        // 1. Probe for explicit rules files
+        // 1. Probe for explicit rules files (scan all present files so .k0maru/rules.md
+        //    takes precedence over generic repository AGENTS.md/CLAUDE.md prose).
         let rule_files = [
             "AGENTS.md",
             "CLAUDE.md",
@@ -40,12 +41,16 @@ impl ConventionSniffer {
         for candidate in rule_files {
             let rule_path = canonical_root.join(candidate);
             if rule_path.is_file() {
-                has_explicit_rules = true;
-                rule_source = Some(rule_path.clone());
                 if let Ok(content) = fs::read_to_string(&rule_path) {
-                    parse_explicit_rules(&content, &mut target_subdirs);
+                    let before_len = target_subdirs.len();
+                    parse_explicit_rules(&content, &canonical_root, &mut target_subdirs);
+                    if target_subdirs.len() > before_len || candidate == ".k0maru/rules.md" {
+                        has_explicit_rules = true;
+                        rule_source = Some(rule_path);
+                    } else if rule_source.is_none() {
+                        rule_source = Some(rule_path);
+                    }
                 }
-                break;
             }
         }
 
@@ -141,14 +146,34 @@ pub fn generate_filename(title: &str, style: &NamingStyle, date: Option<NaiveDat
     }
 }
 
+/// Validate that a routing token is a single-token safe relative path (`^[A-Za-z0-9._/-]{1,64}$`,
+/// no whitespace, no `:`, no prose).
+fn is_valid_routing_token(val: &str) -> bool {
+    let len = val.len();
+    if len == 0 || len > 64 {
+        return false;
+    }
+    if val == "." || val == ".." || val.starts_with('/') {
+        return false;
+    }
+    val.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'-'))
+}
+
 /// Validate that a relative path does not escape root (no `..` components, not absolute).
 fn is_safe_subpath(path_str: &str) -> bool {
+    if !is_valid_routing_token(path_str) {
+        return false;
+    }
     let p = Path::new(path_str);
     if p.is_absolute() {
         return false;
     }
     for comp in p.components() {
-        if comp == Component::ParentDir {
+        if matches!(
+            comp,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) | Component::CurDir
+        ) {
             return false;
         }
     }
@@ -156,10 +181,51 @@ fn is_safe_subpath(path_str: &str) -> bool {
 }
 
 /// Parse explicit directory routing rules from markdown/text.
-fn parse_explicit_rules(content: &str, target_subdirs: &mut HashMap<String, PathBuf>) {
+///
+/// Arbitrary `- Key: prose...` bullets in `AGENTS.md` / `CLAUDE.md` are ignored.
+/// Routing overrides are accepted ONLY inside an explicit fenced ` ```k0maru ` or
+/// `<!-- k0maru:conventions -->` block, OR as a single-token safe relative path
+/// (`^[A-Za-z0-9._/-]{1,64}$`) whose directory already exists under `vault_root`.
+fn parse_explicit_rules(
+    content: &str,
+    vault_root: &Path,
+    target_subdirs: &mut HashMap<String, PathBuf>,
+) {
+    let mut in_k0maru_fence = false;
+    let mut in_other_fence = false;
+    let mut in_html_block = false;
+
     for line in content.lines() {
         let trimmed = line.trim();
-        // Skip comments or non-rule lines
+
+        if trimmed.starts_with("```") {
+            let lang = trimmed.trim_start_matches('`').trim().to_ascii_lowercase();
+            if in_k0maru_fence {
+                in_k0maru_fence = false;
+            } else if in_other_fence {
+                in_other_fence = false;
+            } else if lang == "k0maru" || lang == "k0maru:conventions" {
+                in_k0maru_fence = true;
+            } else {
+                in_other_fence = true;
+            }
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case("<!-- k0maru:conventions -->") {
+            in_html_block = true;
+            continue;
+        }
+        if trimmed.eq_ignore_ascii_case("<!-- /k0maru:conventions -->") {
+            in_html_block = false;
+            continue;
+        }
+
+        if in_other_fence {
+            continue;
+        }
+
+        let explicit_block = in_k0maru_fence || in_html_block;
         let clean = trimmed.trim_start_matches(['-', '*', ' ']);
         if let Some((raw_key, raw_val)) = clean.split_once(':') {
             let key = raw_key.trim().trim_matches(['*', '_', '`']).to_lowercase();
@@ -172,8 +238,14 @@ fn parse_explicit_rules(content: &str, target_subdirs: &mut HashMap<String, Path
                 continue;
             }
 
+            // Outside explicit k0maru blocks, only honor paths whose directory
+            // already exists on disk under `vault_root`.
+            if !explicit_block && !vault_root.join(val).is_dir() {
+                continue;
+            }
+
             match key.as_str() {
-                "decision" | "decisions" | "adr" => {
+                "decision" | "decisions" | "adr" | "adrs" => {
                     target_subdirs.insert("decision".to_string(), PathBuf::from(val));
                 }
                 "log" | "logs" | "journal" | "daily" | "records" => {
@@ -181,6 +253,12 @@ fn parse_explicit_rules(content: &str, target_subdirs: &mut HashMap<String, Path
                 }
                 "concept" | "concepts" | "wiki" | "card" | "cards" => {
                     target_subdirs.insert("concept".to_string(), PathBuf::from(val));
+                }
+                "project" | "projects" => {
+                    target_subdirs.insert("project".to_string(), PathBuf::from(val));
+                }
+                "skill" | "skills" => {
+                    target_subdirs.insert("skill".to_string(), PathBuf::from(val));
                 }
                 _ => {}
             }
@@ -237,6 +315,7 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
             "decisions",
             "adr",
             "docs/adr",
+            "docs/decisions",
             "architecture",
             "20_Cards",
             "cards",
@@ -250,7 +329,7 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
         }
         target_subdirs.insert(
             "decision".to_string(),
-            found.unwrap_or_else(|| PathBuf::from("")),
+            found.unwrap_or_else(|| PathBuf::from("decisions")),
         );
     }
 
@@ -273,11 +352,11 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
         }
         target_subdirs.insert(
             "log".to_string(),
-            found.unwrap_or_else(|| PathBuf::from("")),
+            found.unwrap_or_else(|| PathBuf::from("logs")),
         );
     }
 
-    // Concept candidates
+    // Concept candidates (falls back to `decisions` rather than vault root)
     if !target_subdirs.contains_key("concept") {
         let concept_candidates = ["concepts", "cards", "wiki", "notes", "20_Cards"];
         let mut found = None;
@@ -289,7 +368,28 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
         }
         target_subdirs.insert(
             "concept".to_string(),
-            found.unwrap_or_else(|| PathBuf::from("")),
+            found.unwrap_or_else(|| {
+                target_subdirs
+                    .get("decision")
+                    .cloned()
+                    .unwrap_or_else(|| PathBuf::from("decisions"))
+            }),
+        );
+    }
+
+    // Project candidates
+    if !target_subdirs.contains_key("project") {
+        let project_candidates = ["projects", "10_Projects", "1_Projects"];
+        let mut found = None;
+        for cand in project_candidates {
+            if vault_root.join(cand).is_dir() {
+                found = Some(PathBuf::from(cand));
+                break;
+            }
+        }
+        target_subdirs.insert(
+            "project".to_string(),
+            found.unwrap_or_else(|| PathBuf::from("projects")),
         );
     }
 
@@ -312,14 +412,9 @@ fn probe_category_topology(vault_root: &Path, target_subdirs: &mut HashMap<Strin
         }
         target_subdirs.insert(
             "skill".to_string(),
-            found.unwrap_or_else(|| PathBuf::from("")),
+            found.unwrap_or_else(|| PathBuf::from("skills")),
         );
     }
-
-    // Generic defaults to vault root
-    target_subdirs
-        .entry("generic".to_string())
-        .or_insert_with(|| PathBuf::from(""));
 }
 
 /// Inspect sampled markdown files to infer naming convention and YAML frontmatter presence.

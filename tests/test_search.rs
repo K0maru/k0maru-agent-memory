@@ -32,6 +32,7 @@ fn make_doc(
         content_hash: format!("hash-{}", path),
         mtime: 1000,
         body: body.to_string(),
+        body_line_offset: 0,
     }
 }
 
@@ -105,13 +106,13 @@ fn test_vector_sync_incremental_and_pruning() {
     assert_eq!(vec_stats2.skipped_count, 2);
     assert_eq!(vec_stats2.embedded_count, 0);
 
-    // Deletion pruning
+    // Deletion pruning (vectors are purged synchronously in delete_document during sync)
     fs::remove_file(vault_root.join("NoteB.md")).unwrap();
-    let (sync_stats3, vec_stats3) = scanner
+    let (sync_stats3, _vec_stats3) = scanner
         .sync_vault_with_vector(vault_root, Some(embedder))
         .expect("sync3");
     assert_eq!(sync_stats3.deleted, 1);
-    assert_eq!(vec_stats3.deleted_count, 1);
+    assert_eq!(storage.vector_count().unwrap(), 1);
 }
 
 #[test]

@@ -80,7 +80,7 @@ Always use Redlock. See [[20_Cards/Distributed_Systems|Distributed Systems]] for
     let import_res = import_pack(&pack, &import_opts).expect("import_pack should succeed");
     assert_eq!(import_res.imported_notes.len(), 1);
 
-    // Verify imported note lands directly in the root of the flat wiki (no 20_Cards/ created)
+    // Verify imported note lands cleanly in decisions/ (no 20_Cards/ created, never pollutes vault root)
     assert!(
         !flat_wiki.path().join("20_Cards").exists(),
         "20_Cards directory must NOT be created in flat wiki"
@@ -95,8 +95,8 @@ Always use Redlock. See [[20_Cards/Distributed_Systems|Distributed Systems]] for
     );
     assert_eq!(
         imported_item.relative_path.parent(),
-        Some(Path::new("")),
-        "imported note relative path parent must be empty root"
+        Some(Path::new("decisions")),
+        "imported decision note must default to decisions/"
     );
 
     // Verify rule REDIS-001 is active in the flat wiki

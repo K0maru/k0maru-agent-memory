@@ -261,7 +261,7 @@ k0maru pack <COMMAND> [OPTIONS]
 
 #### 1. `k0maru pack export`
 
-扫描源知识库，提取笔记及其关联的 Living ADR 规则，自动剥离特定目录前缀的 `[[WikiLinks]]`（例如 `[[20_Cards/Foo|Bar]]` $\to$ `[[Foo|Bar]]`），并打包为结构化 JSON 文件。
+扫描源知识库，提取笔记及其关联的 Living ADR 规则，自动剥离特定目录前缀的 `[[WikiLinks]]`（例如 `[[decisions/Foo|Bar]]` $\to$ `[[Foo|Bar]]`），并打包为结构化 JSON 文件。
 
 ```bash
 k0maru pack export --name <NAME> [OPTIONS]

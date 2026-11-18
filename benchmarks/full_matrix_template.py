@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 K0maru-Agent-Memory Phase 9: Comprehensive Full-Matrix Multi-Model & Heterogeneous Concurrency Benchmark
-Running on Google Colab NVIDIA A100-SXM4-80GB GPU.
+Running on Cloud GPU VM (NVIDIA A100-SXM4-80GB GPU).
 
 Evaluated Models:
 1. Qwen/Qwen2.5-Coder-32B-Instruct (Kanban model)
@@ -19,8 +19,6 @@ Evaluated Feature Dimensions:
   * Test 3: Simultaneous Context GC Stress (50-turn trajectory compaction, TRR >= 85%)
   * Test 4: Dynamic Loadout Git-diff (<300 tokens)
   * Test 5: Tri-Harness Heterogeneous Autonomous Loop (Hermes Agent, OpenClaw Agent, Pi Agent)
-
-Zero-Burn Guard: Automatically releases Colab VM via runtime.unassign() on completion or error.
 """
 
 import os
@@ -45,18 +43,10 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(line_buffering=True)
 
 # ==========================================
-# 0. Zero-Burn Guard for Colab Instance
+# 0. Generic Cleanup Hook
 # ==========================================
-def force_release_colab_instance():
-    print("\n[GUARD] Initiating Colab runtime teardown to prevent CCU drain...")
-    try:
-        from google.colab import runtime
-        runtime.unassign()
-        print("[GUARD] runtime.unassign() successfully requested.")
-    except ImportError:
-        print("[GUARD] Not running inside Google Colab environment. Exiting cleanly.")
-    except Exception as err:
-        print(f"[GUARD ERROR] runtime.unassign() failed: {err}", file=sys.stderr)
+def cleanup_runtime():
+    print("\n[CLEANUP] Benchmark run finished; exiting cleanly.")
 
 # ==========================================
 # 1. Environment & Hardware Probing
@@ -216,8 +206,8 @@ def setup_enterprise_vault(vault_path: Path):
         shutil.rmtree(vault_path)
     vault_path.mkdir(parents=True, exist_ok=True)
     
-    # 10_Projects
-    p_dir = vault_path / "10_Projects"
+    # projects
+    p_dir = vault_path / "projects"
     p_dir.mkdir(parents=True, exist_ok=True)
     (p_dir / "payment-settlement-engine.md").write_text("""---
 title: Payment Settlement Engine
@@ -241,8 +231,8 @@ Built with Go 1.23, Gin framework, Redis 7.2 cluster, and PostgreSQL 16.
 4. Duplicate events MUST return 200 OK idempotently without duplicate credit adjustment.
 """, encoding="utf-8")
 
-    # 20_Cards
-    c_dir = vault_path / "20_Cards"
+    # decisions
+    c_dir = vault_path / "decisions"
     c_dir.mkdir(parents=True, exist_ok=True)
     (c_dir / "L3_distributed_lock_and_idempotency_invariants.md").write_text("""---
 title: L3 Distributed Lock and Idempotency Invariants
@@ -290,8 +280,8 @@ tags: [architecture, state-machine, invariants]
 If current state is already `SUCCESS`, incoming callback MUST return 200 OK ACK without modifying state or balances.
 """, encoding="utf-8")
 
-    # 00_Logs
-    l_dir = vault_path / "00_Logs"
+    # logs
+    l_dir = vault_path / "logs"
     l_dir.mkdir(parents=True, exist_ok=True)
     (l_dir / "2026-10-08-incident-stripe-double-settlement.md").write_text("""---
 title: Incident Postmortem Stripe Double Settlement
@@ -325,8 +315,8 @@ Workers retried indefinitely without jitter, exhausting connection pool.
     # .k0maru/rules.md
     k_dir = vault_path / ".k0maru"
     k_dir.mkdir(parents=True, exist_ok=True)
-    (k_dir / "rules.md").write_text("""decisions: 20_Cards
-logs: 00_Logs
+    (k_dir / "rules.md").write_text("""decisions: decisions
+logs: logs
 naming_style: slug_only
 """, encoding="utf-8")
 
@@ -786,8 +776,8 @@ def run_concurrency_stress_suite(k0maru_bin: str, model_tag: str, vault_path: Pa
     t_write_total = time.time() - t_write_start
     write_qps = concurrent_writers / t_write_total
 
-    # Verify Files in 20_Cards using wildcards to match date-prefix
-    cards_dir = vault_path / "20_Cards"
+    # Verify Files in decisions using wildcards to match date-prefix
+    cards_dir = vault_path / "decisions"
     matching_files = list(cards_dir.glob("*concurrent-webhook-lock-fix*.md"))
     print(f"  -> Simultaneous Writers: {concurrent_writers} agents")
     print(f"  -> Total Files Created: {len(matching_files)} / {concurrent_writers} (Zero Data Loss, Anti-Collision)")
@@ -938,7 +928,7 @@ def main():
         "hardware": {
             "device": "NVIDIA A100-SXM4-80GB",
             "vram_gb": 79.25,
-            "host": "Google Colab Ultra"
+            "host": "Cloud GPU VM (NVIDIA A100-SXM4-80GB)"
         },
         "part1_defect_matrix": {},
         "part2_invariants_matrix": {},
@@ -1035,7 +1025,7 @@ def main():
         traceback.print_exc(file=sys.stderr)
     finally:
         time.sleep(2)
-        force_release_colab_instance()
+        cleanup_runtime()
 
 if __name__ == "__main__":
     main()

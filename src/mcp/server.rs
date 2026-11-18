@@ -13,25 +13,82 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::adapters::open_vault_adapter;
 use crate::core::models::HierarchyLevel;
 use crate::core::traits::CacheStorage;
 use crate::loadout::LoadoutBuilder;
 use crate::offload::{inspect_node, OffloadEngine};
 use crate::scanner::IncrementalScanner;
-use crate::storage::hybrid::{HybridSearchEngine, SearchMode};
-use crate::storage::SqliteStorage;
+use crate::storage::hybrid::SearchMode;
+use crate::storage::sqlite::LiveDbHealth;
+use crate::storage::{
+    resolve_global_vault, FederatedSearch, ReadOnlyStorage, SqliteStorage, CURRENT_SCHEMA_VERSION,
+};
 use crate::vector::{resolve_embedding_engine, EmbeddingEngine};
 use k0maru_core::gc::{ContextGcEngine, GcOptions, SessionTrajectory};
+
+/// Tool-surface profile exposed by [`McpServer`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum McpProfile {
+    /// Full 11-tool MCP surface (default).
+    #[default]
+    Full,
+    /// Orthogonal 8-tool sidecar surface (omits offload_context, inspect_log_node, gc_session_context).
+    Sidecar,
+    /// Ultra-compact 5-tool surface (<2.2 KB tools/list) optimized for 7B-14B consumer models.
+    Minimal,
+}
+
+impl std::str::FromStr for McpProfile {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "full" => Ok(Self::Full),
+            "sidecar" => Ok(Self::Sidecar),
+            "minimal" => Ok(Self::Minimal),
+            other => Err(format!(
+                "Invalid MCP profile '{}'. Supported profiles: full, sidecar, minimal",
+                other
+            )),
+        }
+    }
+}
+
+enum StorageLease<'a> {
+    Cached(&'a mut SqliteStorage),
+}
+
+impl std::ops::Deref for StorageLease<'_> {
+    type Target = SqliteStorage;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Cached(s) => s,
+        }
+    }
+}
+
+impl std::ops::DerefMut for StorageLease<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Cached(s) => s,
+        }
+    }
+}
 
 /// FastMCP stdio server running on top of JSON-RPC 2.0.
 pub struct McpServer {
     vault_path: PathBuf,
     refs_dir: PathBuf,
     storage: Option<SqliteStorage>,
+    global_vault_flag: Option<PathBuf>,
+    global_storage: Option<(PathBuf, ReadOnlyStorage)>,
+    global_init_attempted: bool,
     embedder: Option<Arc<dyn EmbeddingEngine>>,
     embed_model_name: Option<String>,
     sidecar: bool,
+    profile: McpProfile,
 }
 
 impl McpServer {
@@ -48,11 +105,7 @@ impl McpServer {
     /// vector-enabled vault is queried.
     pub fn new_with_model(vault_path: impl Into<PathBuf>, embed_model: Option<&str>) -> Self {
         let vault_path = vault_path.into();
-        let refs_dir = if vault_path.join(".k0maru").join("refs").exists() {
-            vault_path.join(".k0maru").join("refs")
-        } else {
-            vault_path.join(".scratch").join("refs")
-        };
+        let refs_dir = vault_path.join(".k0maru").join("refs");
 
         let embedder = if embed_model == Some("mock") {
             resolve_embedding_engine(Some("mock"), None).ok()
@@ -64,21 +117,64 @@ impl McpServer {
             vault_path,
             refs_dir,
             storage: None,
+            global_vault_flag: None,
+            global_storage: None,
+            global_init_attempted: false,
             embedder,
             embed_model_name: embed_model.map(|s| s.to_string()),
             sidecar: false,
+            profile: McpProfile::Full,
         }
     }
 
-    /// Enables or disables orthogonal sidecar mode (exposes only 5 core tools in tools/list).
-    pub fn with_sidecar(mut self, sidecar: bool) -> Self {
-        self.sidecar = sidecar;
+    /// Configures an optional read-only global vault path (lazily opened on first federated tool call).
+    pub fn with_global_vault(mut self, global_vault: Option<PathBuf>) -> Self {
+        self.global_vault_flag = global_vault;
+        self.global_storage = None;
+        self.global_init_attempted = false;
         self
     }
 
-    /// Returns whether sidecar mode is enabled.
+    fn ensure_global_storage(&mut self) -> Option<&(PathBuf, ReadOnlyStorage)> {
+        if !self.global_init_attempted {
+            self.global_init_attempted = true;
+            if let Some(global_path) =
+                resolve_global_vault(self.global_vault_flag.as_deref(), &self.vault_path)
+            {
+                if let Some(ro) = crate::open_global_storage_with_warning(&global_path) {
+                    self.global_storage = Some((global_path, ro));
+                }
+            }
+        }
+        self.global_storage.as_ref()
+    }
+
+    /// Enables or disables orthogonal sidecar mode (exposes 8 core tools in tools/list).
+    pub fn with_sidecar(mut self, sidecar: bool) -> Self {
+        self.sidecar = sidecar;
+        self.profile = if sidecar {
+            McpProfile::Sidecar
+        } else {
+            McpProfile::Full
+        };
+        self
+    }
+
+    /// Configures the exposed tool-surface profile (`full`, `sidecar`, `minimal`).
+    pub fn with_profile(mut self, profile: McpProfile) -> Self {
+        self.profile = profile;
+        self.sidecar = profile != McpProfile::Full;
+        self
+    }
+
+    /// Returns whether sidecar mode (or minimal profile) is enabled.
     pub fn is_sidecar(&self) -> bool {
         self.sidecar
+    }
+
+    /// Returns the active MCP tool-surface profile.
+    pub fn profile(&self) -> McpProfile {
+        self.profile
     }
 
     /// Sets custom refs directory for offloaded logs.
@@ -113,17 +209,25 @@ impl McpServer {
         self
     }
 
-    fn ensure_embedder(&mut self) -> Option<Arc<dyn EmbeddingEngine>> {
-        if self.embedder.is_none() {
-            let model_cache = if self.vault_path.join(".k0maru").join("models").exists() {
-                Some(self.vault_path.join(".k0maru").join("models"))
+    fn resolve_or_init_embedder(
+        embedder: &mut Option<Arc<dyn EmbeddingEngine>>,
+        vault_path: &Path,
+        embed_model_name: Option<&str>,
+    ) -> Option<Arc<dyn EmbeddingEngine>> {
+        if embedder.is_none() {
+            let model_cache = if vault_path.join(".k0maru").join("models").exists() {
+                Some(vault_path.join(".k0maru").join("models"))
             } else {
                 None
             };
-            self.embedder =
-                resolve_embedding_engine(self.embed_model_name.as_deref(), model_cache).ok();
+            *embedder = resolve_embedding_engine(embed_model_name, model_cache).ok();
         }
-        self.embedder.clone()
+        embedder.clone()
+    }
+
+    /// Returns `true` if a persistent (or explicitly injected) storage handle is cached.
+    pub fn has_cached_storage(&self) -> bool {
+        self.storage.is_some()
     }
 
     /// Returns the target vault root directory.
@@ -136,36 +240,110 @@ impl McpServer {
         &self.refs_dir
     }
 
-    fn is_obsidian(&self) -> bool {
-        self.vault_path.join("10_Projects").is_dir()
-            || self.vault_path.join(".obsidian").exists()
-            || self.vault_path.join("20_Cards").is_dir()
-            || self.vault_path.join("projects").is_dir()
-            || self.vault_path.join("decisions").is_dir()
-            || self.vault_path.join("logs").is_dir()
+    fn schema_mismatch_message(version: Option<i32>) -> String {
+        match version {
+            Some(v) => format!(
+                "SQLite cache schema mismatch or upgraded by a newer k0maru binary (v{} > supported v{}). Restart the MCP server or run k0maru sync --force.",
+                v, CURRENT_SCHEMA_VERSION
+            ),
+            None => format!(
+                "SQLite cache schema mismatch or upgraded by a newer k0maru binary (supported v{}). Restart the MCP server or run k0maru sync --force.",
+                CURRENT_SCHEMA_VERSION
+            ),
+        }
     }
 
-    fn get_or_init_storage(&mut self) -> Result<&mut SqliteStorage, Box<dyn std::error::Error>> {
-        if self.storage.is_none() {
-            let cache_dir = self.vault_path.join(".k0maru");
-            let cache_path = cache_dir.join("cache.sqlite");
-            let storage = match SqliteStorage::open(&cache_path) {
-                Ok(s) => s,
-                Err(_) => SqliteStorage::in_memory()?,
-            };
-            self.storage = Some(storage);
+    fn format_open_cache_error(err: &dyn std::fmt::Display) -> String {
+        let msg = err.to_string();
+        if let Some(rest) = msg.split("schema version ").nth(1) {
+            if let Some(ver_str) = rest.split_whitespace().next() {
+                if let Ok(v) = ver_str.parse::<i32>() {
+                    return Self::schema_mismatch_message(Some(v));
+                }
+            }
         }
-        Ok(self.storage.as_mut().unwrap())
+        if msg.contains("schema version")
+            || msg.contains("no such table")
+            || msg.contains("malformed")
+        {
+            return Self::schema_mismatch_message(None);
+        }
+        format!(
+            "Failed to open SQLite cache database: {}. Restart the MCP server or run k0maru sync --force.",
+            msg
+        )
+    }
+
+    fn acquire_storage_from<'a>(
+        cached: &'a mut Option<SqliteStorage>,
+        vault_path: &Path,
+    ) -> Result<StorageLease<'a>, Box<dyn std::error::Error>> {
+        let cache_dir = vault_path.join(".k0maru");
+        let cache_path = cache_dir.join("cache.sqlite");
+
+        if cached.is_some() {
+            let health = cached.as_ref().unwrap().check_live_health(&cache_path);
+            match health {
+                Ok(LiveDbHealth::Healthy) => {
+                    return Ok(StorageLease::Cached(cached.as_mut().unwrap()));
+                }
+                Ok(LiveDbHealth::ReplacedOnDisk) => {
+                    // Transparently drop stale handle and reopen below (handles doctor --compact / sync --force)
+                    *cached = None;
+                }
+                Ok(LiveDbHealth::SchemaTooNew(v)) => {
+                    *cached = None;
+                    return Err(Self::schema_mismatch_message(Some(v)).into());
+                }
+                Ok(LiveDbHealth::CorruptedSchema) => {
+                    *cached = None;
+                    return Err(Self::schema_mismatch_message(None).into());
+                }
+                Err(e) => {
+                    *cached = None;
+                    return Err(Self::format_open_cache_error(&e).into());
+                }
+            }
+        }
+
+        let first_err = match SqliteStorage::open_rw(&cache_path) {
+            Ok(s) => {
+                *cached = Some(s);
+                return Ok(StorageLease::Cached(cached.as_mut().unwrap()));
+            }
+            Err(e) => e,
+        };
+
+        let first_str = first_err.to_string();
+        if first_str.contains("Unsupported SQLite cache schema version") {
+            return Err(Self::format_open_cache_error(&first_err).into());
+        }
+
+        // Brief single retry only for transient lock contention; never fall back to in_memory().
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        match SqliteStorage::open_rw(&cache_path) {
+            Ok(s) => {
+                *cached = Some(s);
+                Ok(StorageLease::Cached(cached.as_mut().unwrap()))
+            }
+            Err(retry_err) => Err(Self::format_open_cache_error(&retry_err).into()),
+        }
     }
 
     fn sync_cache(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let is_obsidian = self.is_obsidian();
         let vault_path = self.vault_path.clone();
         let embedder = self.embedder.clone();
-        let storage = self.get_or_init_storage()?;
+        let mut storage_lease = Self::acquire_storage_from(&mut self.storage, &vault_path)?;
+        Self::sync_cache_with_storage(&vault_path, embedder.as_ref(), &mut storage_lease)
+    }
 
+    fn sync_cache_with_storage(
+        vault_path: &Path,
+        embedder: Option<&Arc<dyn EmbeddingEngine>>,
+        storage: &mut SqliteStorage,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let had_vectors = storage.has_vectors().unwrap_or(false);
-        let migrated = if let Some(ref emb) = embedder {
+        let migrated = if let Some(emb) = embedder {
             storage
                 .ensure_vector_dimension(emb.dimension())
                 .unwrap_or(false)
@@ -174,32 +352,14 @@ impl McpServer {
         };
 
         let should_sync_vectors = had_vectors || migrated;
-
-        if is_obsidian {
-            let adapter = ObsidianAdapter::new(&vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, storage);
-            let _ = scanner.sync(false)?;
-            if should_sync_vectors {
-                if let Some(ref emb) = embedder {
-                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
-                }
-            }
-        } else {
-            let adapter = GenericWikiAdapter::new(&vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, storage);
-            let _ = scanner.sync(false)?;
-            if should_sync_vectors {
-                if let Some(ref emb) = embedder {
-                    let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
-                }
-            }
-        }
+        let adapter = open_vault_adapter(vault_path);
+        sync_adapter_and_vectors(&adapter, storage, embedder, should_sync_vectors)?;
         Ok(())
     }
 
-    fn detect_default_project(&self) -> String {
+    fn detect_explicit_default_project(vault_path: &Path) -> Option<String> {
         for dir_name in &["projects", "10_Projects", "1_Projects"] {
-            let projects_dir = self.vault_path.join(dir_name);
+            let projects_dir = vault_path.join(dir_name);
             if projects_dir.is_dir() {
                 if let Ok(entries) = std::fs::read_dir(&projects_dir) {
                     let mut stems: Vec<String> = entries
@@ -214,108 +374,134 @@ impl McpServer {
                         .collect();
                     stems.sort();
                     if let Some(first) = stems.into_iter().next() {
-                        return first;
+                        return Some(first);
                     }
                 }
             }
         }
-        let repo_root = crate::guard::resolve_repo_root(&self.vault_path);
-        repo_root
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("project")
-            .to_string()
+        None
     }
 
     fn call_get_project_loadout(&mut self, arguments: &Value) -> Result<String, String> {
-        let default_proj = self.detect_default_project();
-        let project_name = arguments
+        let explicit_project = arguments
             .get("project_name")
             .and_then(|v| v.as_str())
             .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&default_proj);
+            .filter(|s| !s.is_empty());
         let diff_requested = arguments
             .get("diff")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         let branch = arguments.get("branch").and_then(|v| v.as_str());
+        let explicit_repo_path = arguments
+            .get("repo_path")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from);
 
-        if let Err(e) = self.sync_cache() {
+        let vault_path = self.vault_path.clone();
+        self.ensure_global_storage();
+        let embedder = self.embedder.clone();
+        let global_ro = self.global_storage.as_ref().map(|(_, ro)| ro);
+        let mut storage_lease = Self::acquire_storage_from(&mut self.storage, &vault_path)
+            .map_err(|e| e.to_string())?;
+
+        if let Err(e) =
+            Self::sync_cache_with_storage(&vault_path, embedder.as_ref(), &mut storage_lease)
+        {
             return Err(format!("Cache sync failed: {}", e));
         }
 
-        let is_obsidian = self.is_obsidian();
-        let vault_path = self.vault_path.clone();
-        let embedder = self.embedder.clone();
-        let storage = self
-            .get_or_init_storage()
-            .map_err(|e| format!("Storage initialization failed: {}", e))?;
+        let storage: &SqliteStorage = &storage_lease;
+        let adapter = open_vault_adapter(&vault_path);
+        let mut builder = LoadoutBuilder::new(&adapter, storage);
+        if let Some(ref emb) = embedder {
+            builder = builder.with_embedder(emb.clone());
+        }
+        if let Some(ro) = global_ro {
+            builder = builder.with_global(ro);
+        }
 
-        let loadout_opt = if diff_requested || branch.is_some() {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| vault_path.clone());
-            let mut modified_files =
-                crate::git::GitInspector::inspect_diff(&cwd, branch).unwrap_or_default();
-            if modified_files.is_empty() {
-                modified_files =
-                    crate::git::GitInspector::inspect_diff(&vault_path, branch).unwrap_or_default();
-            }
-
-            if is_obsidian {
-                let adapter = ObsidianAdapter::new(&vault_path);
-                let mut builder = LoadoutBuilder::new(&adapter, storage);
-                if let Some(ref emb) = embedder {
-                    builder = builder.with_embedder(emb.clone());
-                }
-                builder
-                    .build_with_diff(project_name, &modified_files)
-                    .map_err(|e| e.to_string())?
+        let modified_files_opt = if diff_requested || branch.is_some() {
+            // Prefer explicit repo_path, then vault's enclosing git repo, then cwd.
+            let diff_root = if let Some(ref explicit_repo) = explicit_repo_path {
+                crate::guard::resolve_repo_root(explicit_repo)
             } else {
-                let adapter = GenericWikiAdapter::new(&vault_path);
-                let mut builder = LoadoutBuilder::new(&adapter, storage);
-                if let Some(ref emb) = embedder {
-                    builder = builder.with_embedder(emb.clone());
+                let vault_repo = crate::guard::resolve_repo_root(&vault_path);
+                if vault_repo.join(".git").exists() {
+                    vault_repo
+                } else {
+                    std::env::current_dir().unwrap_or_else(|_| vault_path.clone())
                 }
-                builder
-                    .build_with_diff(project_name, &modified_files)
-                    .map_err(|e| e.to_string())?
-            }
-        } else if is_obsidian {
-            let adapter = ObsidianAdapter::new(&vault_path);
-            let mut builder = LoadoutBuilder::new(&adapter, storage);
-            if let Some(ref emb) = embedder {
-                builder = builder.with_embedder(emb.clone());
-            }
-            builder.build(project_name).map_err(|e| e.to_string())?
+            };
+            Some(crate::git::GitInspector::inspect_diff(&diff_root, branch).unwrap_or_default())
         } else {
-            let adapter = GenericWikiAdapter::new(&vault_path);
-            let mut builder = LoadoutBuilder::new(&adapter, storage);
-            if let Some(ref emb) = embedder {
-                builder = builder.with_embedder(emb.clone());
-            }
-            builder.build(project_name).map_err(|e| e.to_string())?
+            None
         };
 
-        match loadout_opt {
-            Some(loadout) => Ok(loadout.markdown),
-            None => Err(format!(
-                "Project matching '{}' not found in vault.",
-                project_name
-            )),
+        if let Some(project_name) = explicit_project {
+            let loadout_opt = if let Some(ref modified_files) = modified_files_opt {
+                builder
+                    .build_with_diff(project_name, modified_files)
+                    .map_err(|e| e.to_string())?
+            } else {
+                builder.build(project_name).map_err(|e| e.to_string())?
+            };
+
+            match loadout_opt {
+                Some(loadout) => Ok(loadout.markdown),
+                None => {
+                    let available = builder.list_available_topics();
+                    if available.is_empty() {
+                        Err(format!(
+                            "Project matching '{}' not found in vault.",
+                            project_name
+                        ))
+                    } else {
+                        Err(format!(
+                            "Project matching '{}' not found in vault. Available projects/topics: {}",
+                            project_name,
+                            available.join(", ")
+                        ))
+                    }
+                }
+            }
+        } else {
+            // Omitted project_name: try explicit project card, then repo-name match, then Vault Overview
+            let candidate_name = Self::detect_explicit_default_project(&vault_path).or_else(|| {
+                let repo_root = crate::guard::resolve_repo_root(&vault_path);
+                repo_root
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            });
+
+            if let Some(ref proj) = candidate_name {
+                let loadout_opt = if let Some(ref modified_files) = modified_files_opt {
+                    builder
+                        .build_with_diff(proj, modified_files)
+                        .map_err(|e| e.to_string())?
+                } else {
+                    builder.build(proj).map_err(|e| e.to_string())?
+                };
+                if let Some(loadout) = loadout_opt {
+                    return Ok(loadout.markdown);
+                }
+            }
+
+            let overview = builder
+                .build_vault_overview(modified_files_opt.as_deref())
+                .map_err(|e| e.to_string())?;
+            Ok(overview.markdown)
         }
     }
 
     fn call_recall_memory(&mut self, arguments: &Value) -> Result<String, String> {
-        let query = arguments
-            .get("query")
-            .and_then(|v| v.as_str())
+        let query = extract_str_with_aliases(arguments, &["query", "q", "search", "keyword"])
             .ok_or_else(|| "Missing required parameter 'query'".to_string())?;
 
-        let limit = arguments
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
+        let limit = extract_i64_flexible(arguments, "limit")
+            .map(|v| v.clamp(1, 50) as usize)
             .unwrap_or(5);
 
         let full = arguments
@@ -338,51 +524,82 @@ impl McpServer {
             None => SearchMode::Hybrid,
         };
 
-        if let Err(e) = self.sync_cache() {
+        let vault_path = self.vault_path.clone();
+        self.ensure_global_storage();
+        let global_ro = self.global_storage.as_ref().map(|(_, ro)| ro);
+        let mut storage_lease = Self::acquire_storage_from(&mut self.storage, &vault_path)
+            .map_err(|e| e.to_string())?;
+
+        if let Err(e) =
+            Self::sync_cache_with_storage(&vault_path, self.embedder.as_ref(), &mut storage_lease)
+        {
             return Err(format!("Cache sync failed: {}", e));
         }
 
         let has_vectors = {
-            let storage = self
-                .get_or_init_storage()
-                .map_err(|e| format!("Storage initialization failed: {}", e))?;
-            if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+            let primary_vecs = storage_lease.vector_count().unwrap_or(0);
+            let global_vecs = global_ro
+                .and_then(|ro| ro.storage().vector_count().ok())
+                .unwrap_or(0);
+            if mode == SearchMode::Vector && primary_vecs == 0 && global_vecs == 0 {
                 return Err("Vector index is empty. Run 'k0maru sync --vector' first.".to_string());
             }
-            storage.has_vectors().unwrap_or(false)
+            storage_lease.has_vectors().unwrap_or(false) || global_vecs > 0
         };
 
         let effective_embedder = if has_vectors && mode != SearchMode::Bm25 {
-            self.ensure_embedder()
+            Self::resolve_or_init_embedder(
+                &mut self.embedder,
+                &self.vault_path,
+                self.embed_model_name.as_deref(),
+            )
         } else {
             None
         };
-        let storage = self
-            .get_or_init_storage()
-            .map_err(|e| format!("Storage initialization failed: {}", e))?;
-        let engine = HybridSearchEngine::new(storage, effective_embedder);
-        let results = engine
+        let storage: &SqliteStorage = &storage_lease;
+
+        // Direct path lookup when query looks like a vault-relative markdown path
+        let direct_path_hit = lookup_direct_path_hit(storage, &vault_path, query);
+
+        let engine = FederatedSearch::new(storage, global_ro, effective_embedder);
+        let mut results = engine
             .search(query, mode, limit)
             .map_err(|e| format!("Search failed: {}", e))?;
+
+        if let Some(direct) = direct_path_hit {
+            results.retain(|r| r.path != direct.path);
+            results.insert(0, direct);
+            results.truncate(limit);
+        }
 
         if results.is_empty() {
             return Ok(format!("No memories found matching query: '{}'", query));
         }
 
+        let scope_storage = |res: &k0maru_core::storage::SearchResult| -> &SqliteStorage {
+            if res.scope.as_deref() == Some("global") {
+                if let Some(ro) = global_ro {
+                    return ro.storage();
+                }
+            }
+            storage
+        };
+
         if full {
             let mut formatted = Vec::new();
             for res in &results {
-                let mut item = format!("## {} ({})\n", res.title, res.path);
+                let target_storage = scope_storage(res);
+                let mut item = format!("## {} ({})\n", res.title, res.locator());
                 item.push_str(&format!("Score: {:.4}\n", res.score));
 
-                let backlinks = retrieve_backlinks(storage, &res.title, &res.path);
+                let backlinks = retrieve_backlinks(target_storage, &res.title, &res.path);
                 if !backlinks.is_empty() {
                     let bl_strs: Vec<String> =
                         backlinks.iter().map(|s| format!("[[{}]]", s)).collect();
                     item.push_str(&format!("Backlinks: {}\n", bl_strs.join(", ")));
                 }
 
-                if let Ok(Some(doc)) = storage.get_document(Path::new(&res.path)) {
+                if let Ok(Some(doc)) = target_storage.get_document(Path::new(&res.path)) {
                     if !doc.tags.is_empty() {
                         item.push_str(&format!("Tags: #{}\n", doc.tags.join(" #")));
                     }
@@ -395,14 +612,16 @@ impl McpServer {
 
             Ok(formatted.join("\n\n---\n\n"))
         } else {
+            let locators: Vec<String> = results.iter().map(|r| r.locator()).collect();
             let mut hits = Vec::with_capacity(results.len());
-            for res in &results {
-                let in_links = retrieve_backlinks(storage, &res.title, &res.path).len();
-                let (tier, out_links) = match storage.get_document(Path::new(&res.path)) {
+            for (i, res) in results.iter().enumerate() {
+                let target_storage = scope_storage(res);
+                let in_links = retrieve_backlinks(target_storage, &res.title, &res.path).len();
+                let (tier, out_links) = match target_storage.get_document(Path::new(&res.path)) {
                     Ok(Some(doc)) => (hierarchy_to_tier(doc.hierarchy), doc.links.len()),
                     _ => (
                         infer_tier_from_path(&res.path),
-                        storage
+                        target_storage
                             .get_outgoing_links(Path::new(&res.path))
                             .map(|l| l.len())
                             .unwrap_or(0),
@@ -410,10 +629,11 @@ impl McpServer {
                 };
                 hits.push(CompactRecallHit {
                     tier,
-                    path: res.path.as_str(),
+                    path: locators[i].as_str(),
                     score: res.score,
                     in_links,
                     out_links,
+                    expanded_from: res.expanded_from.as_deref(),
                     raw_snippet: res.snippet.as_str(),
                 });
             }
@@ -461,16 +681,64 @@ impl McpServer {
     }
 
     fn call_inspect_note(&mut self, arguments: &Value) -> Result<String, String> {
-        let path = arguments
-            .get("path")
-            .and_then(|v| v.as_str())
+        let path = extract_str_with_aliases(arguments, &["path", "locator", "file", "note"])
             .ok_or_else(|| "Missing required parameter 'path'".to_string())?;
+        let full_body = arguments
+            .get("full_body")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let report = crate::hook::inspect_note_detail(&self.vault_path, path)
-            .map_err(|e| format!("Failed to inspect note: {}", e))?;
+        let is_global = crate::hook::parse_locator(path)
+            .map(|p| p.is_global)
+            .unwrap_or_else(|_| path.trim().starts_with(k0maru_core::storage::GLOBAL_PREFIX));
+
+        if !is_global {
+            let cache_path = self.vault_path.join(".k0maru").join("cache.sqlite");
+            if self.storage.is_some() || cache_path.exists() {
+                let vault_path = self.vault_path.clone();
+                let _ = Self::acquire_storage_from(&mut self.storage, &vault_path)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        let (report, scope_is_global) = if is_global {
+            self.ensure_global_storage();
+            let Some((ref global_root, ref ro)) = self.global_storage else {
+                return Err(
+                    "Global vault is not configured; cannot inspect '@global:...' locator"
+                        .to_string(),
+                );
+            };
+            let stripped = path
+                .trim()
+                .strip_prefix(k0maru_core::storage::GLOBAL_PREFIX)
+                .unwrap_or(path.trim());
+            let rep = crate::hook::inspect_note_detail_ro_with_options(
+                global_root,
+                stripped,
+                Some(ro),
+                full_body,
+            )
+            .map_err(|e| format!("Failed to inspect global note: {}", e))?;
+            (rep, true)
+        } else {
+            let rep =
+                crate::hook::inspect_note_detail_with_options(&self.vault_path, path, full_body)
+                    .map_err(|e| format!("Failed to inspect note: {}", e))?;
+            (rep, false)
+        };
 
         let mut out = format!("# {}\n\n", report.title);
-        out.push_str(&format!("- **Path**: {}\n", report.relative_path));
+        if scope_is_global {
+            out.push_str(&format!(
+                "- **Path**: {}{}\n",
+                k0maru_core::storage::GLOBAL_PREFIX,
+                report.relative_path
+            ));
+            out.push_str("- **Scope**: global\n");
+        } else {
+            out.push_str(&format!("- **Path**: {}\n", report.relative_path));
+        }
         out.push_str(&format!("- **Hierarchy**: {}\n", report.hierarchy));
         out.push_str(&format!("- **Status**: {}\n", report.status));
         if let Some(sb) = &report.superseded_by {
@@ -543,15 +811,14 @@ impl McpServer {
     }
 
     fn call_flush_session(&mut self, arguments: &Value) -> Result<String, String> {
-        let title = arguments
-            .get("title")
-            .and_then(|v| v.as_str())
+        let title = extract_str_with_aliases(arguments, &["title", "name", "heading"])
             .ok_or_else(|| "Missing required parameter 'title'".to_string())?;
 
-        let content = arguments
-            .get("content")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
+        let content = extract_str_with_aliases(
+            arguments,
+            &["content", "body", "markdown", "text", "note", "summary"],
+        )
+        .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
 
         let summary = arguments
             .get("summary")
@@ -610,7 +877,20 @@ impl McpServer {
             .flush(request)
             .map_err(|e| format!("Flush failed: {}", e))?;
 
-        let _ = self.sync_cache();
+        let mut sync_warn_line = result
+            .sync_warning
+            .as_ref()
+            .map(|w| format!("\n[warning] {}", w))
+            .unwrap_or_default();
+
+        if result.sync_warning.is_none() {
+            if let Err(e) = self.sync_cache() {
+                sync_warn_line = format!(
+                    "\n[warning] note written to disk, but cache sync failed: {}",
+                    e
+                );
+            }
+        }
 
         let links_str = if related_notes.is_empty() {
             "None".to_string()
@@ -643,19 +923,21 @@ impl McpServer {
 
         if !result.created {
             Ok(format!(
-                "Note already up to date with identical content.\nPath: {}\nCategory: {}{}",
+                "Note already up to date with identical content.\nPath: {}\nCategory: {}{}{}",
                 result.relative_path.display(),
                 result.category,
-                superseded_str
+                superseded_str,
+                sync_warn_line
             ))
         } else {
             Ok(format!(
-                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}{}",
+                "✓ Crystallized note into vault.\nTitle: {}\nRelative Path: {}\nCategory: {}\nWikiLinks: {}{}{}",
                 title,
                 result.relative_path.display(),
                 result.category,
                 links_str,
-                superseded_str
+                superseded_str,
+                sync_warn_line
             ))
         }
     }
@@ -836,7 +1118,7 @@ impl McpServer {
             line_threshold: threshold,
             hot_window_turns: hot_window,
             context_window_tokens: context_window,
-            refs_dir: Some(self.vault_path.join(".scratch/refs")),
+            refs_dir: Some(self.vault_path.join(".k0maru").join("refs")),
             ..Default::default()
         };
 
@@ -850,7 +1132,7 @@ impl McpServer {
     }
 
     fn call_guard_check(&mut self, arguments: &Value) -> Result<String, String> {
-        let diff_arg = arguments.get("diff").and_then(|v| v.as_str());
+        let raw_patch = resolve_guard_raw_patch(arguments);
         let project_name = arguments.get("project_name").and_then(|v| v.as_str());
         let branch = arguments.get("branch").and_then(|v| v.as_str());
         let strict = arguments
@@ -894,6 +1176,11 @@ impl McpServer {
         )
         .map_err(|e| format!("Failed to resolve guard rules: {}", e))?;
 
+        let mut seen: std::collections::HashSet<(String, String)> = rules
+            .iter()
+            .map(|rule| (rule.id.clone(), format!("{:?}", rule.condition)))
+            .collect();
+
         // A repository may own a `.k0maru/wiki` vault even when this MCP server
         // was launched against a global vault. Its Living ADRs must still be
         // enforced, so resolve and merge them without duplicating rules.
@@ -911,14 +1198,26 @@ impl McpServer {
                     project_name,
                     Some(&repo_dir),
                 ) {
-                    let mut seen: std::collections::HashSet<(String, String)> = rules
-                        .iter()
-                        .map(|rule| (rule.id.clone(), format!("{:?}", rule.condition)))
-                        .collect();
                     for rule in repo_rules {
                         if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
                             rules.push(rule);
                         }
+                    }
+                }
+            }
+        }
+
+        let mut global_origins = std::collections::HashSet::new();
+        if let Some(global_path) =
+            resolve_global_vault(self.global_vault_flag.as_deref(), &self.vault_path)
+        {
+            if let Ok(global_rules) =
+                crate::guard::resolve_guard_rules_with_repo(&global_path, project_name, None)
+            {
+                for rule in global_rules {
+                    if seen.insert((rule.id.clone(), format!("{:?}", rule.condition))) {
+                        global_origins.insert(crate::guard::GlobalRuleOrigin::from_rule(&rule));
+                        rules.push(rule);
                     }
                 }
             }
@@ -942,7 +1241,7 @@ impl McpServer {
             }
             crate::guard::GuardEngine::check_files(&file_tuples, &rules)
         } else {
-            let diff_text = if let Some(d) = diff_arg {
+            let diff_text = if let Some(d) = raw_patch {
                 let trimmed = d.trim();
                 if !trimmed.is_empty()
                     && !trimmed.contains("diff --git ")
@@ -967,7 +1266,7 @@ impl McpServer {
         // A non-empty diff that matched no file headers is malformed (or was
         // mangled in transit): fail closed instead of reporting a clean pass.
         if files.is_empty() {
-            if let Some(d) = diff_arg {
+            if let Some(d) = raw_patch {
                 if !d.trim().is_empty() && report.checked_files == 0 {
                     return Err(
                         "Invalid unified diff: no file headers (diff --git or +++ b/) matched"
@@ -977,17 +1276,234 @@ impl McpServer {
             }
         }
 
-        let formatted = crate::guard::format_guard_report(&report);
-        let json_report = serde_json::to_string_pretty(&report)
-            .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
+        let as_json = arguments
+            .get("json")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let combined = format!("{}\n\n```json\n{}\n```", formatted, json_report);
+        let formatted = crate::guard::format_guard_report_with_options(
+            &report,
+            &global_origins,
+            Some(&self.vault_path),
+            true,
+        );
+        let output = if as_json {
+            let json_report = serde_json::to_string_pretty(&report)
+                .map_err(|e| format!("Failed to serialize GuardReport: {}", e))?;
+            format!("{}\n\n```json\n{}\n```", formatted, json_report)
+        } else {
+            formatted
+        };
 
         if !report.is_passed || (strict && !report.violations.is_empty()) {
-            return Err(combined);
+            return Err(output);
         }
 
-        Ok(combined)
+        Ok(output)
+    }
+
+    fn call_handoff_session(&self, arguments: &Value) -> Result<String, String> {
+        let action = arguments
+            .get("action")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .ok_or_else(|| "Missing required parameter 'action'".to_string())?;
+        let as_json = arguments
+            .get("json")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let store = crate::handoff::HandoffStore::new(&self.vault_path);
+
+        match action {
+            "create" => {
+                let from_agent = arguments
+                    .get("from_agent")
+                    .or_else(|| arguments.get("from"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "Missing required parameter 'from_agent'".to_string())?
+                    .to_string();
+                let title = arguments
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "Missing required parameter 'title'".to_string())?
+                    .to_string();
+                let state = match arguments.get("state").and_then(|v| v.as_str()) {
+                    Some(raw) => raw
+                        .parse::<crate::handoff::HandoffState>()
+                        .map_err(|e| e.to_string())?,
+                    None => crate::handoff::HandoffState::InProgress,
+                };
+                let expires_at = match (
+                    arguments.get("expires_at").and_then(|v| v.as_str()),
+                    arguments.get("expires_in").and_then(|v| v.as_str()),
+                ) {
+                    (Some(_), Some(_)) => {
+                        return Err(
+                            "Provide either 'expires_at' or 'expires_in', not both".to_string()
+                        );
+                    }
+                    (Some(at), None) => Some(at.to_string()),
+                    (None, Some(dur)) => {
+                        let secs =
+                            crate::handoff::parse_duration_secs(dur).map_err(|e| e.to_string())?;
+                        let clamped = secs.min(i64::MAX as u64) as i64;
+                        let dt = chrono::Utc::now() + chrono::TimeDelta::seconds(clamped);
+                        Some(dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
+                    }
+                    (None, None) => None,
+                };
+                let files = arguments
+                    .get("files")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|item| {
+                                if let Some(s) = item.as_str() {
+                                    Some(parse_mcp_file_ref(s))
+                                } else {
+                                    serde_json::from_value::<crate::handoff::HandoffFileRef>(
+                                        item.clone(),
+                                    )
+                                    .ok()
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let req = crate::handoff::CreateHandoffRequest {
+                    from_agent,
+                    to_agent: arguments
+                        .get("to_agent")
+                        .or_else(|| arguments.get("to"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    project: arguments
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    title,
+                    goal: arguments
+                        .get("goal")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    state,
+                    done: extract_string_array_with_aliases(arguments, &["done"]),
+                    next_steps: extract_string_array_with_aliases(
+                        arguments,
+                        &["next_steps", "next"],
+                    ),
+                    open_questions: extract_string_array_with_aliases(
+                        arguments,
+                        &["open_questions", "questions", "question"],
+                    ),
+                    refs: extract_string_array_with_aliases(arguments, &["refs", "ref"]),
+                    files,
+                    branch: arguments
+                        .get("branch")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    commit: arguments
+                        .get("commit")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    expires_at,
+                    repo_path: arguments
+                        .get("repo_path")
+                        .and_then(|v| v.as_str())
+                        .map(PathBuf::from),
+                };
+
+                let record = store.create(req).map_err(|e| e.to_string())?;
+                if as_json {
+                    serde_json::to_string_pretty(&record)
+                        .map_err(|e| format!("Failed to serialize handoff record: {}", e))
+                } else {
+                    let entry = crate::handoff::HandoffEntry {
+                        status: crate::handoff::HandoffStatus::Pending,
+                        record,
+                    };
+                    Ok(entry.to_markdown())
+                }
+            }
+            "claim" => {
+                let agent = arguments
+                    .get("agent")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "Missing required parameter 'agent'".to_string())?
+                    .to_string();
+                let req = crate::handoff::ClaimHandoffRequest {
+                    agent,
+                    id: arguments
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    project: arguments
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    latest: arguments
+                        .get("latest")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                };
+                let record = store.claim(req).map_err(|e| e.to_string())?;
+                if as_json {
+                    serde_json::to_string_pretty(&record)
+                        .map_err(|e| format!("Failed to serialize handoff record: {}", e))
+                } else {
+                    let entry = crate::handoff::HandoffEntry {
+                        status: crate::handoff::HandoffStatus::Claimed,
+                        record,
+                    };
+                    Ok(entry.to_markdown())
+                }
+            }
+            "show" => {
+                let id_or_latest = if arguments
+                    .get("latest")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    Some("latest")
+                } else {
+                    arguments.get("id").and_then(|v| v.as_str())
+                };
+                let project = arguments.get("project").and_then(|v| v.as_str());
+                let entry = store
+                    .show(id_or_latest, project)
+                    .map_err(|e| e.to_string())?;
+                if as_json {
+                    serde_json::to_string_pretty(&entry)
+                        .map_err(|e| format!("Failed to serialize handoff entry: {}", e))
+                } else {
+                    Ok(entry.to_markdown())
+                }
+            }
+            "list" => {
+                let project = arguments.get("project").and_then(|v| v.as_str());
+                let include_claimed = arguments
+                    .get("all")
+                    .or_else(|| arguments.get("include_claimed"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let entries = store
+                    .list(project, include_claimed)
+                    .map_err(|e| e.to_string())?;
+                if as_json {
+                    serde_json::to_string_pretty(&entries)
+                        .map_err(|e| format!("Failed to serialize handoff list: {}", e))
+                } else {
+                    Ok(crate::handoff::format_handoff_list_markdown(&entries))
+                }
+            }
+            other => Err(format!(
+                "Invalid handoff_session action '{}'. Expected create, claim, show, or list.",
+                other
+            )),
+        }
     }
 
     fn handle_initialize(&self, id: Value, params: Option<&Value>) -> Value {
@@ -1014,22 +1530,100 @@ impl McpServer {
                     "name": "k0maru",
                     "version": crate::VERSION
                 },
-                "instructions": "K0maru-Agent-Memory Autonomous Protocol: 1) Call get_project_loadout(diff=true) at session start. 2) Call recall_memory before searching external docs. 3) Call guard_check before git commit or yielding code edits. 4) On a guard DENY, either fix the code per Remedy or, if the user asked to replace the architecture, call flush_session with category='decision', supersedes=['<source_note>'], and content containing '## Non-Negotiable Invariants\\n- [id] (deny) [glob] forbidden: \"...\" | remediation: \"...\"'. Always stage .k0maru/wiki with code changes."
+                "instructions": "K0maru-Agent-Memory Protocol: 1) Call get_project_loadout(diff=true) at session start. 2) Call recall_memory for local vault knowledge before searching external docs. 3) Call guard_check before committing code changes. 4) On a guard DENY, either fix the code per Remedy or, if replacing the architecture, call flush_session with category='decision', supersedes=['<source_note>'], and '## Non-Negotiable Invariants'. Stage updated vault notes alongside code changes."
             }
         })
     }
 
     fn handle_tools_list(&self, id: Value) -> Value {
+        if self.profile == McpProfile::Minimal {
+            let minimal_tools = json!([
+                {
+                    "name": "get_project_loadout",
+                    "description": "Fetch project context (<300 tokens) or vault overview.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "project_name": { "type": "string", "description": "Optional project name" },
+                            "diff": { "type": "boolean", "description": "Include active git diff ADRs" },
+                            "branch": { "type": "string", "description": "Optional base branch" }
+                        }
+                    }
+                },
+                {
+                    "name": "recall_memory",
+                    "description": "Search local vault notes, ADRs, and logs.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "Search query or note path" },
+                            "limit": { "type": "integer", "description": "Max hits (default 5)" },
+                            "full": { "type": "boolean", "description": "Return full markdown" }
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "inspect_note",
+                    "description": "Read note metadata and body by vault-relative path or locator.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string", "description": "Vault-relative path or locator" },
+                            "full_body": { "type": "boolean", "description": "Return entire note body" }
+                        },
+                        "required": ["path"]
+                    }
+                },
+                {
+                    "name": "flush_session",
+                    "description": "Save a decision, log, card, project, or skill note.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "title": { "type": "string", "description": "Note title" },
+                            "content": { "type": "string", "description": "Markdown body" },
+                            "category": { "type": "string", "description": "decision|card|log|project|skill" },
+                            "supersedes": { "type": "array", "items": { "type": "string" }, "description": "Superseded note paths or IDs" }
+                        },
+                        "required": ["title", "content"]
+                    }
+                },
+                {
+                    "name": "guard_check",
+                    "description": "Audit git diff or files against active ADR invariants.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "repo_path": { "type": "string", "description": "Optional git repo path" },
+                            "diff": { "type": "boolean", "description": "Audit uncommitted git diff (default true)" },
+                            "patch": { "type": "string", "description": "Optional raw unified diff patch" },
+                            "files": { "type": "array", "items": { "type": "string" }, "description": "Optional file paths" },
+                            "branch": { "type": "string", "description": "Optional base branch" }
+                        }
+                    }
+                }
+            ]);
+
+            return json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "tools": minimal_tools
+                }
+            });
+        }
+
         let mut tools = json!([
             {
                 "name": "get_project_loadout",
-                "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault. Always call this at the start of any new coding session or before planning major changes. Supports change-aware diff inspection to dynamically activate module-relevant ADRs.",
+                "description": "Fetch the high-priority architectural blueprint, core invariants, project vision, and recent ADR decision logs (<300 tokens) from the vault, or a vault overview when project_name is omitted. Supports change-aware diff inspection.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "project_name": {
                             "type": "string",
-                            "description": "Optional target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway'); auto-detected from repository/vault when omitted"
+                            "description": "Optional target project name or keyword (e.g. 'k0maru-agent-memory', 'payment-gateway'); returns vault overview when omitted"
                         },
                         "diff": {
                             "type": "boolean",
@@ -1038,27 +1632,31 @@ impl McpServer {
                         "branch": {
                             "type": "string",
                             "description": "Optional base branch for comparison (e.g. 'main', 'dev')"
+                        },
+                        "repo_path": {
+                            "type": "string",
+                            "description": "Optional git repository path for diff inspection (defaults to the vault's repository)"
                         }
                     }
                 }
             },
             {
                 "name": "recall_memory",
-                "description": "Search and retrieve documentation, technical research reports, project context, past architectural decisions, configurations, setup guides, and notes from the user's local knowledge vault (Obsidian Vault / LLM-Wiki). ALWAYS call this tool first whenever the user asks for information on any topic (e.g. 'what did we decide about...', 'how is X configured', 'find notes on...'), asks about previous experiments, or needs background domain knowledge. Do not guess or search external sources before querying this memory hub.",
+                "description": "Search and retrieve documentation, technical notes, project context, architectural decisions, configurations, and logs from the local knowledge vault (Obsidian Vault / LLM-Wiki). Call this when looking up project decisions, past runs, or domain docs.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'colab', 'redis idempotency', 'docker setup', 'A100 benchmark')"
+                            "description": "Search query keywords or topic name to search in the knowledge base (e.g. 'redis idempotency', 'oauth token rotation', 'rate limiter', 'postgres pool')"
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of results to return (default: 5)"
+                            "description": "Maximum number of results to return (default: 5, max: 50)"
                         },
                         "full": {
                             "type": "boolean",
-                            "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet>) for high token efficiency"
+                            "description": "Whether to return full verbose markdown documents. When false (default), returns compact single-line K-DSL wire format (!μ:<tier>|<path>|score:<score>|rank:#<n>|links:<in>/<out> § <snippet>) for high token efficiency"
                         },
                         "mode": {
                             "type": "string",
@@ -1092,13 +1690,17 @@ impl McpServer {
             },
             {
                 "name": "inspect_note",
-                "description": "Safely inspect full note metadata, frontmatter, incoming/outgoing WikiLinks, supersession status, and markdown body by relative path.",
+                "description": "Safely inspect note metadata, frontmatter, incoming/outgoing WikiLinks, supersession status, and markdown body (or exact line range from a locator) by relative path or locator.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": "Relative path to the markdown note within the vault (e.g. 'decisions/adr-001.md')"
+                            "description": "Relative path, stem, or locator to the markdown note within the vault (e.g. 'decisions/adr-001.md' or 'decisions/adr-001.md:10-25#Section')"
+                        },
+                        "full_body": {
+                            "type": "boolean",
+                            "description": "If true, return the full note body even when the locator includes a line range (default: false)"
                         }
                     },
                     "required": ["path"]
@@ -1106,7 +1708,7 @@ impl McpServer {
             },
             {
                 "name": "offload_context",
-                "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
+                "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk to prevent context window pollution.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1138,7 +1740,7 @@ impl McpServer {
             },
             {
                 "name": "flush_session",
-                "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes. Invoke this after fixing bugs, finalizing architectural designs, or when the user asks to save/record/document knowledge.",
+                "description": "Crystallize technical decisions, verified bug fixes, architecture decisions (ADRs), or task milestones back into the local Markdown vault as permanent notes.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1156,7 +1758,7 @@ impl McpServer {
                         },
                         "category": {
                             "type": "string",
-                            "description": "Category: 'decision', 'log', 'concept' (alias: 'card'), 'skill', or custom (default: 'log'). A 'card' whose content declares '## Non-Negotiable Invariants' is stored as a decision."
+                            "description": "Category: 'decision', 'card', 'concept', 'log', 'project', or 'skill' (default: 'log'). A 'card' whose content declares '## Non-Negotiable Invariants' is stored as a decision."
                         },
                         "tags": {
                             "type": "array",
@@ -1169,11 +1771,9 @@ impl McpServer {
                             "description": "Related existing notes to link via WikiLinks"
                         },
                         "supersedes": {
-                            "description": "Existing note(s) or ADR(s) that this note supersedes (automatically marks old notes as status: superseded). Accepts a single string or an array of strings.",
-                            "oneOf": [
-                                { "type": "string" },
-                                { "type": "array", "items": { "type": "string" } }
-                            ]
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Existing note(s) or ADR(s) that this note supersedes (automatically marks old notes as status: superseded)."
                         }
                     },
                     "required": ["title", "content"]
@@ -1255,13 +1855,17 @@ impl McpServer {
             },
             {
                 "name": "guard_check",
-                "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Always invoke this before committing or after implementing features to ensure mandatory patterns (e.g. distributed locks, error boundaries, state machine invariants) are strictly satisfied.",
+                "description": "Audit git diff or code changes against active Living ADR architectural invariants and project rules (<10ms). Invoke before committing or after implementing changes.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "diff": {
                             "type": "string",
                             "description": "Optional git unified diff text to audit. If omitted, automatically inspects working tree changes in current git repository."
+                        },
+                        "patch": {
+                            "type": "string",
+                            "description": "Optional raw unified diff patch text to audit."
                         },
                         "project_name": {
                             "type": "string",
@@ -1283,8 +1887,120 @@ impl McpServer {
                             "type": "array",
                             "items": { "type": "string" },
                             "description": "Optional explicit file paths to audit instead of a diff."
+                        },
+                        "json": {
+                            "type": "boolean",
+                            "description": "Append structured JSON GuardReport in addition to the text report (default: false)."
                         }
                     }
+                }
+            },
+            {
+                "name": "handoff_session",
+                "description": "Create, atomically claim, show, or list typed session handoff records stored in the primary vault (.k0maru/handoffs/).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["create", "claim", "show", "list"],
+                            "description": "Handoff action to execute: create, claim, show, or list"
+                        },
+                        "from_agent": {
+                            "type": "string",
+                            "description": "Originating agent name (required for create; alias: 'from')"
+                        },
+                        "to_agent": {
+                            "type": "string",
+                            "description": "Optional target agent name (alias: 'to')"
+                        },
+                        "agent": {
+                            "type": "string",
+                            "description": "Claiming agent name (required for claim)"
+                        },
+                        "id": {
+                            "type": "string",
+                            "description": "Specific handoff record ID (for claim or show)"
+                        },
+                        "latest": {
+                            "type": "boolean",
+                            "description": "Target the newest matching handoff (for claim or show)"
+                        },
+                        "project": {
+                            "type": "string",
+                            "description": "Optional project filter or tag"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Handoff title (required for create)"
+                        },
+                        "goal": {
+                            "type": "string",
+                            "description": "Goal description (for create)"
+                        },
+                        "state": {
+                            "type": "string",
+                            "enum": ["in_progress", "blocked", "done"],
+                            "description": "Workflow state (default: in_progress)"
+                        },
+                        "done": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Completed items (for create)"
+                        },
+                        "next_steps": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Recommended next steps (for create; alias: 'next')"
+                        },
+                        "open_questions": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Open questions or blockers (for create; alias: 'question')"
+                        },
+                        "refs": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Vault-relative note locators (for create; alias: 'ref')"
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "lines": { "type": "string" }
+                                },
+                                "required": ["path"]
+                            },
+                            "description": "Referenced relative file paths with optional line ranges"
+                        },
+                        "branch": {
+                            "type": "string",
+                            "description": "Optional git branch override (for create)"
+                        },
+                        "commit": {
+                            "type": "string",
+                            "description": "Optional git commit override (for create)"
+                        },
+                        "expires_at": {
+                            "type": "string",
+                            "description": "Optional RFC3339 UTC expiration timestamp (for create)"
+                        },
+                        "expires_in": {
+                            "type": "string",
+                            "description": "Optional relative expiration duration such as '24h' or '7d' (for create)"
+                        },
+                        "all": {
+                            "type": "boolean",
+                            "description": "Include claimed and expired records when action='list'"
+                        },
+                        "json": {
+                            "type": "boolean",
+                            "description": "Return raw JSON instead of formatted Markdown"
+                        }
+                    },
+                    "required": ["action"]
                 }
             }
         ]);
@@ -1353,6 +2069,10 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "guard_check" => match self.call_guard_check(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "handoff_session" => match self.call_handoff_session(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },
@@ -1553,7 +2273,161 @@ impl McpServer {
     }
 }
 
+fn extract_str_with_aliases<'a>(args: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        args.get(*key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+    })
+}
+
+fn extract_i64_flexible(args: &Value, key: &str) -> Option<i64> {
+    args.get(key).and_then(|v| {
+        v.as_i64()
+            .or_else(|| v.as_u64().and_then(|u| i64::try_from(u).ok()))
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+    })
+}
+
+/// Resolves an explicit raw unified diff patch from `patch` or `diff`,
+/// treating booleans, nulls, and boolean/mode tokens in `diff` as workspace
+/// git-diff mode (`None`).
+fn resolve_guard_raw_patch(arguments: &Value) -> Option<&str> {
+    if let Some(patch) = arguments
+        .get("patch")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        return Some(patch);
+    }
+
+    match arguments.get("diff") {
+        Some(Value::String(raw)) => {
+            let trimmed = raw.trim();
+            let is_mode_token = matches!(
+                trimmed.to_ascii_lowercase().as_str(),
+                "" | "true" | "false" | "1" | "0" | "yes" | "auto" | "head" | "staged"
+            );
+            if is_mode_token {
+                None
+            } else {
+                Some(raw.as_str())
+            }
+        }
+        Some(Value::Bool(_)) | Some(Value::Null) | None | Some(_) => None,
+    }
+}
+
+fn extract_string_array_with_aliases(args: &Value, keys: &[&str]) -> Vec<String> {
+    for key in keys {
+        if let Some(val) = args.get(*key) {
+            if let Some(arr) = val.as_array() {
+                return arr
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect();
+            }
+            if let Some(single) = val.as_str() {
+                if !single.trim().is_empty() {
+                    return vec![single.to_string()];
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn lookup_direct_path_hit(
+    storage: &SqliteStorage,
+    vault_path: &Path,
+    query: &str,
+) -> Option<k0maru_core::storage::SearchResult> {
+    let trimmed = query.trim().trim_matches(['`', '"', '\'']);
+    if trimmed.is_empty() || trimmed.contains(' ') {
+        return None;
+    }
+    let clean = trimmed.replace('\\', "/");
+    let clean = clean.strip_prefix("./").unwrap_or(&clean);
+    let mut candidates = vec![clean.to_string()];
+    if let Some(vault_name) = vault_path.file_name().and_then(|s| s.to_str()) {
+        if let Some(stripped) = clean
+            .strip_prefix(vault_name)
+            .and_then(|s| s.strip_prefix('/'))
+        {
+            candidates.push(stripped.to_string());
+        }
+    }
+    for cand in candidates {
+        let with_ext = if cand.ends_with(".md") || cand.ends_with(".MD") {
+            cand
+        } else if cand.contains('/') {
+            format!("{}.md", cand)
+        } else {
+            continue;
+        };
+        if let Ok(Some(doc)) = storage.get_document(Path::new(&with_ext)) {
+            let snippet: String = doc.body.chars().take(220).collect();
+            return Some(k0maru_core::storage::SearchResult {
+                path: doc.path.to_string_lossy().replace('\\', "/"),
+                title: doc.title,
+                snippet,
+                score: 1.0,
+                bm25_rank: Some(1),
+                vector_rank: None,
+                graph_boost: 0.0,
+                section: None,
+                expanded_from: None,
+                scope: None,
+            });
+        }
+    }
+    None
+}
+
+fn parse_mcp_file_ref(raw: &str) -> crate::handoff::HandoffFileRef {
+    let trimmed = raw.trim();
+    if let Some((path_part, suffix)) = trimmed.rsplit_once(':') {
+        if !path_part.is_empty()
+            && !suffix.is_empty()
+            && suffix
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b == b'-' || b == b',')
+            && suffix.bytes().any(|b| b.is_ascii_digit())
+        {
+            return crate::handoff::HandoffFileRef {
+                path: path_part.to_string(),
+                lines: Some(suffix.to_string()),
+            };
+        }
+    }
+    crate::handoff::HandoffFileRef {
+        path: trimmed.to_string(),
+        lines: None,
+    }
+}
+
 /// Helper function to retrieve all backlinks matching document title, file stem, or whitespace-normalized variants.
+fn sync_adapter_and_vectors<A: crate::VaultAdapter>(
+    adapter: &A,
+    storage: &mut SqliteStorage,
+    embedder: Option<&Arc<dyn EmbeddingEngine>>,
+    should_sync_vectors: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut scanner = IncrementalScanner::new(adapter, storage);
+    let _ = scanner.sync(false)?;
+    if should_sync_vectors {
+        if let Some(emb) = embedder {
+            let _ = crate::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**emb);
+            let _ = crate::scanner::VectorSyncEngine::new().sync_sections(
+                scanner.storage_mut(),
+                &**emb,
+                Some(64),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn retrieve_backlinks(storage: &SqliteStorage, title: &str, path_str: &str) -> Vec<String> {
     let mut all = Vec::new();
     if let Ok(bls) = storage.get_backlinks(title) {
@@ -1610,6 +2484,7 @@ pub struct CompactRecallHit<'a> {
     pub score: f32,
     pub in_links: usize,
     pub out_links: usize,
+    pub expanded_from: Option<&'a str>,
     pub raw_snippet: &'a str,
 }
 
@@ -1643,7 +2518,7 @@ pub fn clean_single_line_snippet(raw: &str) -> String {
 }
 
 /// Formats search hits into compact single-line K-DSL wire format:
-/// `!μ:<tier>|<path>|score:<score>|links:<in>/<out> § <snippet_single_line_max_220_chars>`
+/// `!μ:<tier>|<path>|score:<score>|links:<in>/<out>[|via:<parent_stem>] § <snippet_single_line_max_220_chars>`
 /// ensuring each line is a single line, snippets do not exceed 220 characters,
 /// and total output length is strictly under 1200 characters.
 pub fn format_compact_kdsl_hits(hits: &[CompactRecallHit]) -> String {
@@ -1658,9 +2533,26 @@ pub fn format_compact_kdsl_hits(hits: &[CompactRecallHit]) -> String {
         .iter()
         .enumerate()
         .map(|(i, h)| {
+            let via_segment = match h.expanded_from {
+                Some(parent) => {
+                    let stem = Path::new(parent)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(parent)
+                        .replace('|', "/");
+                    format!("|via:{}", stem)
+                }
+                None => String::new(),
+            };
             format!(
-                "!μ:{}|{}|score:{:.4}|links:{}/{} § ",
-                h.tier, normalized_paths[i], h.score, h.in_links, h.out_links
+                "!μ:{}|{}|score:{:.4}|rank:#{}|links:{}/{}{} § ",
+                h.tier,
+                normalized_paths[i],
+                h.score,
+                i + 1,
+                h.in_links,
+                h.out_links,
+                via_segment
             )
         })
         .collect();
@@ -1716,6 +2608,7 @@ mod tests {
                 score: 0.8542,
                 in_links: 4,
                 out_links: 2,
+                expanded_from: None,
                 raw_snippet: &long_body,
             },
             CompactRecallHit {
@@ -1724,6 +2617,7 @@ mod tests {
                 score: 0.1234,
                 in_links: 1,
                 out_links: 0,
+                expanded_from: Some("10_Projects/PaymentGateway.md"),
                 raw_snippet: "Short log snippet",
             },
         ];
@@ -1733,12 +2627,13 @@ mod tests {
         assert_eq!(lines.len(), 2);
 
         // Check line 1 format
-        assert!(lines[0].starts_with("!μ:L3|20_Cards/Arch.md|score:0.8542|links:4/2 § "));
+        assert!(lines[0].starts_with("!μ:L3|20_Cards/Arch.md|score:0.8542|rank:#1|links:4/2 § "));
         assert!(!lines[0].contains('\n'));
 
-        // Check line 2 format
-        assert!(lines[1]
-            .starts_with("!μ:L2|01_AI_Logs/Log1.md|score:0.1234|links:1/0 § Short log snippet"));
+        // Check line 2 format (includes |via:<parent_stem> after |links:<in>/<out>)
+        assert!(lines[1].starts_with(
+            "!μ:L2|01_AI_Logs/Log1.md|score:0.1234|rank:#2|links:1/0|via:PaymentGateway § Short log snippet"
+        ));
 
         // Check length budget < 1200
         assert!(formatted.len() < 1200);
@@ -1752,6 +2647,7 @@ mod tests {
                 score: 0.5,
                 in_links: i,
                 out_links: i + 1,
+                expanded_from: None,
                 raw_snippet: &long_body,
             });
         }

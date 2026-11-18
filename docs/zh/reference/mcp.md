@@ -85,7 +85,7 @@ K0maru 提供两种运行配置，以深度契合不同的智能体生态与终�
 ### 返回值格式（Markdown）
 ```markdown
 # Context Loadout: Payment Gateway Core
-- Root: `10_Projects/payment-gateway.md`
+- Root: `projects/payment-gateway.md`
 - Core Stack: Go 1.22, Redis 7, PostgreSQL 16
 
 ## L3 Invariants & Decisions:
@@ -145,8 +145,8 @@ K0maru 提供两种运行配置，以深度契合不同的智能体生态与终�
 
 ### 返回值格式（紧凑 K-DSL 格式）
 ```text
-!μ:L3|20_Cards/adr-001-idempotency.md|score:0.082|links:3/5 § 必须基于 SET lock:payment:{id} NX EX 30 抢占分布式锁；事务内校验 STATUS_PENDING。
-!μ:L2|30_Logs/2026-10-08-stripe-storm.md|score:0.041|links:1/2 § 修复并发重试风暴引发的级联重试雪崩事故。
+!μ:L3|decisions/adr-001-idempotency.md|score:0.082|links:3/5 § 必须基于 SET lock:payment:{id} NX EX 30 抢占分布式锁；事务内校验 STATUS_PENDING。
+!μ:L2|logs/2026-10-08-stripe-storm.md|score:0.041|links:1/2 § 修复并发重试风暴引发的级联重试雪崩事故。
 ```
 
 ---
@@ -208,7 +208,7 @@ K0maru 提供两种运行配置，以深度契合不同的智能体生态与终�
 ❌ Living ADR Guard Failure: 1 violation detected (<6ms)
 - [ADR-008-QuerySafety] Line 1: 'SELECT * FROM users' 违反架构铁律 'deny: SELECT * FROM'.
   整改建议: 必须显式声明查询字段，严禁全表通配符扫描以杜绝潜在的数据泄露与索引失效。
-  规则索引: [[20_Cards/adr-008-sql-best-practices.md]]
+  规则索引: [[decisions/adr-008-sql-best-practices.md]]
 ```
 
 ---

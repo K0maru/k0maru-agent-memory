@@ -289,7 +289,7 @@ A Unix pipe filter that intercepts terminal streams exceeding a line threshold, 
 #### Options & Flags
 - `-t, --threshold <N>`: Minimum line count required before triggering offload (default: `50` lines).
 - `--task-id <ID>`: Associates a task identifier for downstream session tracing.
-- `-r, --refs-dir <PATH>`: Directory where raw logs are saved (default: `.scratch/refs` or `<vault>/.k0maru/refs`).
+- `-r, --refs-dir <PATH>`: Directory where raw logs are saved (default: `<vault>/.k0maru/refs`).
 - `--json-stream`: Outputs line-delimited JSON stream (NDJSON).
 
 ---

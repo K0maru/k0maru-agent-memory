@@ -37,8 +37,8 @@ K0maru 内置自适应规约嗅探器（`ConventionSniffer`），能自动识别
 # K0maru 知识库路由规约
 
 - decisions: docs/adr
-- logs: 01_AI_Logs
-- concepts: 20_Cards
+- logs: logs
+- concepts: decisions
 - skills: playbooks
 ```
 

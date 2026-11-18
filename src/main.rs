@@ -3,14 +3,19 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
-use k0maru::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use k0maru::adapters::{has_index_markdown, is_structured_vault, open_vault_adapter};
 use k0maru::convention::{FlushEngine, FlushRequest};
 use k0maru::core::traits::{CacheStorage, VaultAdapter};
 use k0maru::distill::{DistillEngine, DistillOptions, DistillTarget};
-use k0maru::doctor::{format_report, run_diagnostics};
+use k0maru::doctor::format_report;
 use k0maru::git::{parse_diff_stream, GitInspector};
 use k0maru::guard::{
-    format_guard_report, run_guard_check, run_guard_install, GuardArgs, GuardSubcommand,
+    format_guard_report_with_options, run_guard_check_with_global, run_guard_install, GuardArgs,
+    GuardSubcommand,
+};
+use k0maru::handoff::{
+    format_handoff_list_markdown, parse_duration_secs, ClaimHandoffRequest, CreateHandoffRequest,
+    HandoffEntry, HandoffError, HandoffFileRef, HandoffState, HandoffStatus, HandoffStore,
 };
 use k0maru::install::{format_install_report, run_install, InstallOptions, InstallTarget};
 use k0maru::loadout::{copy_to_clipboard, LoadoutBuilder};
@@ -20,7 +25,7 @@ use k0maru::pack::{
     MemoryPack, PackExportOptions, PackImportOptions, PackInstallOptions,
 };
 use k0maru::scanner::IncrementalScanner;
-use k0maru::storage::{HybridSearchEngine, SearchMode, SqliteStorage};
+use k0maru::storage::{resolve_global_vault, FederatedSearch, SearchMode, SqliteStorage};
 use k0maru::vector::resolve_embedding_engine;
 
 #[derive(Parser, Debug)]
@@ -88,6 +93,12 @@ enum Commands {
     /// Inspect chronological memory timeline (L2 logs, passive session observations, and L3 ADR milestones)
     Timeline(TimelineArgs),
 
+    /// Audit vault graph health (orphans, broken links, duplicates) and optionally weave managed backlinks
+    Garden(GardenArgs),
+
+    /// Create, atomically claim, inspect, list, or prune typed session handoff records
+    Handoff(HandoffArgs),
+
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
         #[arg(short, long, help = "Path to the markdown vault")]
@@ -118,6 +129,10 @@ pub struct LoadoutArgs {
     /// Path to vault root directory (defaults to current dir or detects nearest vault)
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
+
+    /// Optional read-only global vault path for federated L3 invariants
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
 
     /// Copy formatted loadout to OS clipboard
     #[arg(short, long)]
@@ -154,7 +169,7 @@ pub struct OffloadArgs {
     #[arg(long)]
     pub task_id: Option<String>,
 
-    /// Directory to store offloaded references (defaults to .scratch/refs or <vault>/.k0maru/refs)
+    /// Directory to store offloaded references (defaults to <vault>/.k0maru/refs)
     #[arg(short = 'r', long, value_name = "PATH")]
     pub refs_dir: Option<PathBuf>,
 
@@ -169,7 +184,7 @@ pub struct InspectArgs {
     #[arg(value_name = "NODE_ID")]
     pub node_id: String,
 
-    /// Directory where offloaded references are stored (defaults to .scratch/refs or <vault>/.k0maru/refs)
+    /// Directory where offloaded references are stored (defaults to <vault>/.k0maru/refs)
     #[arg(short = 'r', long, value_name = "PATH")]
     pub refs_dir: Option<PathBuf>,
 }
@@ -180,13 +195,21 @@ pub struct McpArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
+    /// Optional read-only global vault path for federated recall, loadout, inspect, and guard
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
+
     /// Embedding model to use for semantic vector retrieval (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
     #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
     pub embed_model: Option<String>,
 
-    /// Run in orthogonal sidecar mode (omits offload_context, inspect_log_node, and gc_session_context tools)
+    /// Run in orthogonal sidecar mode (equivalent to --profile sidecar)
     #[arg(long)]
     pub sidecar: bool,
+
+    /// Tool-surface profile: full, sidecar, or minimal (compact <=2.2 KB schema for 7B-14B models)
+    #[arg(long, value_name = "PROFILE")]
+    pub profile: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -210,6 +233,14 @@ pub struct SyncArgs {
     /// Embedding model to use for vector generation (e.g. all-minilm-l6-v2, bge-small-zh-v1.5, mock)
     #[arg(long, visible_alias = "embedder", value_name = "MODEL")]
     pub embed_model: Option<String>,
+
+    /// Ingest last-commit timestamps from Git history (falls back gracefully if not a Git repo)
+    #[arg(long)]
+    pub git: bool,
+
+    /// Perform a safe fast-forward-only `git pull --ff-only --no-rebase` before syncing
+    #[arg(long)]
+    pub git_pull: bool,
 }
 
 #[derive(Args, Debug)]
@@ -221,6 +252,10 @@ pub struct SearchArgs {
     /// Path to vault root directory (defaults to current dir or detects nearest vault)
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
+
+    /// Optional read-only global vault path for federated search
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
 
     /// Search execution mode: hybrid, bm25, or vector
     #[arg(short, long, default_value = "hybrid")]
@@ -249,6 +284,10 @@ pub struct DoctorArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
+    /// Optional read-only global vault path to inspect
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
+
     /// Home directory override for inspecting client configs (defaults to system user home)
     #[arg(long, value_name = "PATH")]
     pub home: Option<PathBuf>,
@@ -256,6 +295,10 @@ pub struct DoctorArgs {
     /// Output structured JSON instead of human-readable report
     #[arg(long)]
     pub json: bool,
+
+    /// Compact cache database (FTS5 optimize + VACUUM + KNN vector self-check)
+    #[arg(long)]
+    pub compact: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -291,8 +334,8 @@ pub struct InstallArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Target client to configure: all, claude, cursor, gemini, windsurf, cline, hermes, openclaw, omp
-    #[arg(short, long, default_value = "all")]
+    /// Target client to configure: all, claude, cursor, gemini, antigravity, windsurf, cline, hermes, openclaw, omp
+    #[arg(short, long, visible_alias = "client", default_value = "all")]
     pub target: String,
 
     /// Home directory override for installing client configs (defaults to system user home)
@@ -614,6 +657,10 @@ pub struct HookArgs {
     #[arg(short, long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
+    /// Optional read-only global vault path for federated session-start loadout / stop guard
+    #[arg(long, value_name = "PATH")]
+    pub global_vault: Option<PathBuf>,
+
     /// Target repository path (defaults to current working directory)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<PathBuf>,
@@ -658,15 +705,218 @@ pub struct TimelineArgs {
     pub json: bool,
 }
 
-fn is_structured_vault_path(vault_path: &Path) -> bool {
-    vault_path.join(".obsidian").is_dir()
-        || vault_path.join("projects").is_dir()
-        || vault_path.join("decisions").is_dir()
-        || vault_path.join("cards").is_dir()
-        || vault_path.join("logs").is_dir()
-        || vault_path.join("10_Projects").is_dir()
-        || vault_path.join("20_Cards").is_dir()
-        || vault_path.join("01_AI_Logs").is_dir()
+#[derive(Args, Debug, Clone)]
+pub struct GardenArgs {
+    /// Path to vault root directory (defaults to current dir or detects nearest vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Output structured JSON report
+    #[arg(long)]
+    pub json: bool,
+
+    /// Write sorted, idempotent managed backlink blocks into active L3 target cards
+    #[arg(long)]
+    pub weave: bool,
+
+    /// Plan weave changes without writing any files to disk
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Include active L2 logs as backlink sources when weaving
+    #[arg(long)]
+    pub include_logs: bool,
+
+    /// Include active L0 daily/ephemeral notes in orphan detection
+    #[arg(long)]
+    pub include_daily: bool,
+
+    /// Allow weaving into files with uncommitted Git changes
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffArgs {
+    #[command(subcommand)]
+    pub command: HandoffSubcommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum HandoffSubcommand {
+    /// Create a new pending session handoff record
+    Create(Box<HandoffCreateArgs>),
+    /// Atomically claim a matching unexpired pending handoff
+    Claim(HandoffClaimArgs),
+    /// Show a specific handoff by ID or the latest matching record
+    Show(HandoffShowArgs),
+    /// List session handoffs
+    List(HandoffListArgs),
+    /// Prune claimed or expired handoffs older than a duration
+    Prune(HandoffPruneArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffCreateArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Originating agent name
+    #[arg(long = "from", visible_alias = "from-agent", value_name = "AGENT")]
+    pub from_agent: String,
+
+    /// Optional target agent name
+    #[arg(long = "to", visible_alias = "to-agent", value_name = "AGENT")]
+    pub to_agent: Option<String>,
+
+    /// Optional project tag
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Short handoff title
+    #[arg(short, long, value_name = "TITLE")]
+    pub title: String,
+
+    /// Session goal description
+    #[arg(short, long, default_value = "")]
+    pub goal: String,
+
+    /// Workflow state: in_progress, blocked, or done
+    #[arg(long, default_value = "in_progress")]
+    pub state: String,
+
+    /// Completed items (repeatable)
+    #[arg(long = "done", value_name = "ITEM")]
+    pub done: Vec<String>,
+
+    /// Recommended next steps (repeatable)
+    #[arg(long = "next", visible_alias = "next-step", value_name = "STEP")]
+    pub next_steps: Vec<String>,
+
+    /// Unresolved open questions or blockers (repeatable)
+    #[arg(
+        long = "question",
+        visible_alias = "open-question",
+        value_name = "TEXT"
+    )]
+    pub open_questions: Vec<String>,
+
+    /// Vault-relative note locators (repeatable)
+    #[arg(long = "ref", value_name = "LOCATOR")]
+    pub refs: Vec<String>,
+
+    /// Referenced relative file paths with optional line ranges `path[:lines]` (repeatable)
+    #[arg(long = "file", value_name = "PATH[:LINES]")]
+    pub files: Vec<String>,
+
+    /// Optional git branch override
+    #[arg(long)]
+    pub branch: Option<String>,
+
+    /// Optional git commit override
+    #[arg(long)]
+    pub commit: Option<String>,
+
+    /// Relative expiration duration (e.g. '24h', '7d')
+    #[arg(long, value_name = "DURATION")]
+    pub expires_in: Option<String>,
+
+    /// Explicit RFC3339 UTC expiration timestamp
+    #[arg(long, value_name = "RFC3339")]
+    pub expires_at: Option<String>,
+
+    /// Optional repository path for read-only git branch/commit detection
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<PathBuf>,
+
+    /// Output JSON instead of Markdown
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffClaimArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Claiming agent name
+    #[arg(long, value_name = "NAME")]
+    pub agent: String,
+
+    /// Specific handoff ID to claim
+    #[arg(long, value_name = "ID")]
+    pub id: Option<String>,
+
+    /// Optional project filter
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Claim the newest matching pending handoff
+    #[arg(long)]
+    pub latest: bool,
+
+    /// Output JSON instead of Markdown
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffShowArgs {
+    /// Optional handoff ID (defaults to latest)
+    #[arg(value_name = "ID")]
+    pub id: Option<String>,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Show the latest matching handoff
+    #[arg(long)]
+    pub latest: bool,
+
+    /// Optional project filter
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Output JSON instead of Markdown
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffListArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Optional project filter
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Include claimed and expired handoffs
+    #[arg(long)]
+    pub all: bool,
+
+    /// Output JSON instead of Markdown
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct HandoffPruneArgs {
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Delete claimed or expired handoffs older than this duration (e.g. '14d', '24h')
+    #[arg(long, default_value = "14d", value_name = "DURATION")]
+    pub older_than: String,
+
+    /// Output JSON instead of Markdown
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Resolves the markdown vault `k0maru` should operate on.
@@ -705,7 +955,7 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
     let home_dir = std::env::var_os("HOME").map(PathBuf::from);
 
     // Walk up the tree looking for an already-initialized repo vault or a real
-    // markdown vault (Obsidian / Johnny.Decimal layout).
+    // markdown vault (Obsidian / LLM-Wiki / Johnny.Decimal layout).
     for curr in cwd.ancestors() {
         let repo_wiki = curr.join(".k0maru").join("wiki");
         if repo_wiki.is_dir() {
@@ -718,10 +968,7 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
         if home_dir.as_deref() != Some(curr)
             && (curr.join(".obsidian").is_dir()
                 || (curr.join("10_Projects").is_dir() && curr.join("20_Cards").is_dir())
-                || (curr.join("INDEX.md").is_file()
-                    && (curr.join("decisions").is_dir()
-                        || curr.join("projects").is_dir()
-                        || curr.join("logs").is_dir())))
+                || (has_index_markdown(curr) && is_structured_vault(curr)))
         {
             return curr.to_path_buf();
         }
@@ -756,16 +1003,7 @@ fn detect_refs_dir(explicit: Option<PathBuf>) -> PathBuf {
     }
     if let Ok(mut current) = std::env::current_dir() {
         loop {
-            if current.join(".k0maru").exists() {
-                return current.join(".k0maru").join("refs");
-            }
-            if current.join(".scratch").exists() {
-                return current.join(".scratch").join("refs");
-            }
-            if current.join(".obsidian").exists()
-                || current.join("10_Projects").is_dir()
-                || current.join("20_Cards").is_dir()
-            {
+            if current.join(".k0maru").exists() || is_structured_vault(&current) {
                 return current.join(".k0maru").join("refs");
             }
             if !current.pop() {
@@ -773,7 +1011,7 @@ fn detect_refs_dir(explicit: Option<PathBuf>) -> PathBuf {
             }
         }
     }
-    PathBuf::from(".scratch/refs")
+    PathBuf::from(".k0maru/refs")
 }
 
 fn detect_hermes_dir(home_override: Option<&Path>) -> PathBuf {
@@ -846,6 +1084,16 @@ fn emit_json_stream_event(event: &str, data: serde_json::Value) {
     }
 }
 
+fn open_storage_with_retry(cache_path: &Path) -> Result<SqliteStorage, Box<dyn std::error::Error>> {
+    match SqliteStorage::open(cache_path) {
+        Ok(s) => Ok(s),
+        Err(_first_err) => {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            SqliteStorage::open(cache_path)
+        }
+    }
+}
+
 fn run_loadout_with_adapter<A: VaultAdapter>(
     adapter: &A,
     vault_path: &Path,
@@ -854,15 +1102,30 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
     let cache_dir = vault_path.join(".k0maru");
     let cache_path = cache_dir.join("cache.sqlite");
 
-    let mut storage = match SqliteStorage::open(&cache_path) {
+    let mut storage = match open_storage_with_retry(&cache_path) {
         Ok(s) => s,
-        Err(_) => SqliteStorage::in_memory()?,
+        Err(err) => {
+            eprintln!(
+                "[k0maru] warning: failed to open cache database {}: {}; falling back to ephemeral in-memory cache",
+                cache_path.display(),
+                err
+            );
+            SqliteStorage::in_memory()?
+        }
     };
 
     let mut scanner = IncrementalScanner::new(adapter, &mut storage);
     let _ = scanner.sync(false);
 
-    let builder = LoadoutBuilder::new(adapter, &storage);
+    let global_path = resolve_global_vault(args.global_vault.as_deref(), vault_path);
+    let global_ro = global_path
+        .as_deref()
+        .and_then(k0maru::open_global_storage_with_warning);
+
+    let mut builder = LoadoutBuilder::new(adapter, &storage);
+    if let Some(ref ro) = global_ro {
+        builder = builder.with_global(ro);
+    }
 
     if args.list {
         let projects = builder.list_projects()?;
@@ -1069,22 +1332,6 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
                 if args.copy {
                     copy_and_notify(&json_str);
                 }
-            } else if vault_path.join("00_Daily").is_dir() {
-                safe_println("📂 Available Projects:");
-                safe_println("--------------------------------------------------");
-                for p in &projects {
-                    safe_println(&format!("  • {}  [{}] ({})", p.name, p.status, p.path));
-                }
-                safe_println("--------------------------------------------------");
-                safe_println("💡 Usage: k0maru loadout <project-keyword>");
-                if args.copy {
-                    let text = projects
-                        .iter()
-                        .map(|p| format!("  • {}  [{}] ({})", p.name, p.status, p.path))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    copy_and_notify(&text);
-                }
             } else {
                 safe_println("📂 Available Projects:");
                 safe_println("--------------------------------------------------");
@@ -1162,13 +1409,8 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
 
 fn run_loadout(args: LoadoutArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault.clone());
-    if is_structured_vault_path(&vault_path) {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        run_loadout_with_adapter(&adapter, &vault_path, args)
-    } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        run_loadout_with_adapter(&adapter, &vault_path, args)
-    }
+    let adapter = open_vault_adapter(&vault_path);
+    run_loadout_with_adapter(&adapter, &vault_path, args)
 }
 
 fn run_offload(args: OffloadArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -1256,9 +1498,17 @@ fn run_inspect(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
+    let profile = match args.profile.as_deref() {
+        Some(raw) => raw
+            .parse::<k0maru::mcp::McpProfile>()
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?,
+        None if args.sidecar => k0maru::mcp::McpProfile::Sidecar,
+        None => k0maru::mcp::McpProfile::Full,
+    };
     let mut server =
         k0maru::mcp::McpServer::new_with_model(&vault_path, args.embed_model.as_deref())
-            .with_sidecar(args.sidecar);
+            .with_profile(profile)
+            .with_global_vault(args.global_vault);
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     server.run_stdio(stdin.lock(), stdout.lock())
@@ -1266,13 +1516,31 @@ fn run_mcp(args: McpArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault.clone());
+    if !vault_path.is_dir() {
+        return Err(format!(
+            "Vault path does not exist: {}. Pass --vault <path> (e.g. --vault wiki) or run `k0maru init` first.",
+            vault_path.display()
+        )
+        .into());
+    }
     let cache_dir = vault_path.join(".k0maru");
     let cache_path = cache_dir.join("cache.sqlite");
 
-    let mut storage = match SqliteStorage::open(&cache_path) {
+    let mut storage = match open_storage_with_retry(&cache_path) {
         Ok(s) => s,
-        Err(_) => SqliteStorage::in_memory()?,
+        Err(err) => {
+            eprintln!(
+                "[k0maru] error: failed to open cache database {}: {}",
+                cache_path.display(),
+                err
+            );
+            return Err(err);
+        }
     };
+
+    if args.git || args.git_pull {
+        let _git_outcome = k0maru::git::sync_git_pre_scan(&vault_path, &mut storage, args.git_pull);
+    }
 
     let embedder: Option<std::sync::Arc<dyn k0maru::vector::EmbeddingEngine>> = if args.vector {
         let model_cache = if vault_path.join(".k0maru").join("models").exists() {
@@ -1294,41 +1562,16 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let (stats, vec_stats) = if is_structured_vault_path(&vault_path) {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        if args.force {
-            let sync_stats = scanner.sync(true)?;
-            let vec_stats = if let Some(ref engine) = embedder {
-                k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
-            } else {
-                k0maru::scanner::VectorSyncStats::default()
-            };
-            (sync_stats, vec_stats)
-        } else {
-            scanner.sync_vault_with_vector(&vault_path, embedder)?
-        }
-    } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        if args.force {
-            let sync_stats = scanner.sync(true)?;
-            let vec_stats = if let Some(ref engine) = embedder {
-                k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
-            } else {
-                k0maru::scanner::VectorSyncStats::default()
-            };
-            (sync_stats, vec_stats)
-        } else {
-            scanner.sync_vault_with_vector(&vault_path, embedder)?
-        }
-    };
+    let adapter = open_vault_adapter(&vault_path);
+    let (stats, vec_stats, sec_vec_stats) =
+        run_sync_with_adapter(&adapter, &mut storage, args.force, embedder.as_deref())?;
 
     if args.json {
         if args.vector {
             let json_str = serde_json::to_string_pretty(&serde_json::json!({
                 "cache": stats,
                 "vector": vec_stats,
+                "sections": sec_vec_stats,
             }))?;
             println!("{}", json_str);
         } else {
@@ -1337,9 +1580,10 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         }
     } else if args.vector {
         println!(
-            "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {}) | Vector (embedded: {}, deleted: {}, skipped: {})",
+            "⚡ Vault synced in {}ms (added: {}, modified: {}, deleted: {}, unchanged: {}) | Vector (embedded: {}, deleted: {}, skipped: {}) | Sections (embedded: {}, pending: {})",
             stats.duration_ms, stats.added, stats.modified, stats.deleted, stats.unchanged,
-            vec_stats.embedded_count, vec_stats.deleted_count, vec_stats.skipped_count
+            vec_stats.embedded_count, vec_stats.deleted_count, vec_stats.skipped_count,
+            sec_vec_stats.embedded, sec_vec_stats.pending
         );
     } else {
         println!(
@@ -1349,6 +1593,38 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn run_sync_with_adapter<A: k0maru::VaultAdapter>(
+    adapter: &A,
+    storage: &mut SqliteStorage,
+    force: bool,
+    embedder: Option<&dyn k0maru::vector::EmbeddingEngine>,
+) -> Result<
+    (
+        k0maru::SyncStats,
+        k0maru::scanner::VectorSyncStats,
+        k0maru::SectionVectorStats,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let mut scanner = IncrementalScanner::new(adapter, storage).with_section_repair_budget(None);
+    let sync_stats = scanner.sync(force)?;
+    if let Some(engine) = embedder {
+        let doc_vecs = k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), engine)?;
+        let sec_vecs = k0maru::scanner::VectorSyncEngine::new().sync_sections(
+            scanner.storage_mut(),
+            engine,
+            None,
+        )?;
+        Ok((sync_stats, doc_vecs, sec_vecs))
+    } else {
+        Ok((
+            sync_stats,
+            k0maru::scanner::VectorSyncStats::default(),
+            k0maru::SectionVectorStats::default(),
+        ))
+    }
 }
 
 fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -1394,20 +1670,24 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Keep the index fresh (and self-heal a deleted `cache.sqlite`) before
     // answering, so `k0maru search` always sees newly written markdown notes.
-    if is_structured_vault_path(&vault_path) {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        let _ = scanner.sync(false);
-    } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-        let _ = scanner.sync(false);
-    }
+    let adapter = open_vault_adapter(&vault_path);
+    let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+    let _ = scanner.sync(false);
 
-    if mode == SearchMode::Vector && storage.vector_count().unwrap_or(0) == 0 {
+    let global_path = resolve_global_vault(args.global_vault.as_deref(), &vault_path);
+    let global_ro = global_path
+        .as_deref()
+        .and_then(k0maru::open_global_storage_with_warning);
+
+    let primary_vec_count = storage.vector_count().unwrap_or(0);
+    let global_vec_count = global_ro
+        .as_ref()
+        .and_then(|ro| ro.storage().vector_count().ok())
+        .unwrap_or(0);
+    if mode == SearchMode::Vector && primary_vec_count == 0 && global_vec_count == 0 {
         return Err("Vector index is empty. Run 'k0maru sync --vector' first.".into());
     }
-    let has_vectors = storage.has_vectors().unwrap_or(false);
+    let has_vectors = storage.has_vectors().unwrap_or(false) || global_vec_count > 0;
     let embedder = if mode != SearchMode::Bm25 && has_vectors {
         let model_cache = if vault_path.join(".k0maru").join("models").exists() {
             Some(vault_path.join(".k0maru").join("models"))
@@ -1418,7 +1698,7 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let engine = HybridSearchEngine::new(&storage, embedder);
+    let engine = FederatedSearch::new(&storage, global_ro.as_ref(), embedder);
 
     let results = engine.search(&query, mode, args.limit)?;
 
@@ -1439,6 +1719,7 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
                     "score": r.score,
                     "title": r.title,
                     "path": r.path,
+                    "locator": r.locator(),
                     "snippet": r.snippet,
                 }),
             );
@@ -1469,7 +1750,10 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
             let rank = i + 1;
             safe_println(&format!(
                 "#{:<2} [{:.4}] {} ({})",
-                rank, r.score, r.title, r.path
+                rank,
+                r.score,
+                r.title,
+                r.locator()
             ));
             if !r.snippet.is_empty() {
                 safe_println(&format!("    {}", r.snippet));
@@ -1487,7 +1771,12 @@ fn run_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_doctor(args: DoctorArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault);
-    let report = run_diagnostics(&vault_path, args.home.as_deref());
+    let report = k0maru::run_diagnostics_with_options(
+        &vault_path,
+        args.home.as_deref(),
+        args.compact,
+        args.global_vault.as_deref(),
+    );
 
     if args.json {
         let json_str = serde_json::to_string_pretty(&report)?;
@@ -1647,6 +1936,13 @@ fn run_flush(args: FlushArgs) -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Vec<_>>()
                 .join(", ");
             println!("Superseded: {}", list);
+        }
+    }
+
+    if !args.json {
+        if let Some(ref warn) = result.sync_warning {
+            eprintln!("[warning] {}", warn);
+            println!("[warning] {}", warn);
         }
     }
 
@@ -2098,7 +2394,7 @@ fn run_hook_cmd(args: HookArgs) -> Result<(), Box<dyn std::error::Error>> {
         summary: args.summary,
         stdin_payload,
     };
-    let report = k0maru::hook::run_hook(&options)?;
+    let report = k0maru::hook::run_hook_with_global(&options, args.global_vault.as_deref())?;
     if args.json {
         safe_println(&serde_json::to_string_pretty(&report)?);
     } else if let Some(md) = &report.output_markdown {
@@ -2241,12 +2537,12 @@ fn main() {
                 let is_json = check_args.json;
                 let is_stop_hook = check_args.claude_stop_hook;
                 let vault_path = detect_vault_path(check_args.vault.clone());
-                match run_guard_check(check_args, &vault_path) {
-                    Ok(report) => {
+                match run_guard_check_with_global(check_args, &vault_path) {
+                    Ok((report, global_origins)) => {
                         if is_stop_hook {
                             // Claude Code `Stop` hook: failures already wrote
                             // the report to stderr and exited 2 inside
-                            // `run_guard_check`; success stays silent.
+                            // `run_guard_check_with_global`; success stays silent.
                             std::process::exit(0);
                         }
                         if is_json {
@@ -2254,7 +2550,15 @@ fn main() {
                                 println!("{}", json_str);
                             }
                         } else {
-                            print!("{}", format_guard_report(&report));
+                            print!(
+                                "{}",
+                                format_guard_report_with_options(
+                                    &report,
+                                    &global_origins,
+                                    Some(&vault_path),
+                                    false
+                                )
+                            );
                         }
                         if !report.is_passed {
                             std::process::exit(1);
@@ -2322,8 +2626,208 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Commands::Garden(args)) => {
+            if let Err(e) = run_garden_cmd(args) {
+                eprintln!("❌ Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Handoff(args)) => {
+            if let Err(err) = run_handoff_cmd(args) {
+                eprintln!("❌ Error: {}", err);
+                std::process::exit(err.exit_code());
+            }
+        }
         None => {
             // Default when no subcommand is provided
         }
     }
+}
+
+fn parse_cli_file_ref(raw: &str) -> HandoffFileRef {
+    let trimmed = raw.trim();
+    if let Some((path_part, suffix)) = trimmed.rsplit_once(':') {
+        if !path_part.is_empty()
+            && !suffix.is_empty()
+            && suffix
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b == b'-' || b == b',')
+            && suffix.bytes().any(|b| b.is_ascii_digit())
+        {
+            return HandoffFileRef {
+                path: path_part.to_string(),
+                lines: Some(suffix.to_string()),
+            };
+        }
+    }
+    HandoffFileRef {
+        path: trimmed.to_string(),
+        lines: None,
+    }
+}
+
+fn run_handoff_cmd(args: HandoffArgs) -> Result<(), HandoffError> {
+    match args.command {
+        HandoffSubcommand::Create(create_args) => {
+            let create_args = *create_args;
+            let vault_path = detect_vault_path(create_args.vault);
+            let store = HandoffStore::new(&vault_path);
+            let state: HandoffState = create_args.state.parse()?;
+            let expires_at = match (create_args.expires_at, create_args.expires_in) {
+                (Some(_), Some(_)) => {
+                    return Err(HandoffError::InvalidInput(
+                        "provide either --expires-at or --expires-in, not both".to_string(),
+                    ));
+                }
+                (Some(at), None) => Some(at),
+                (None, Some(dur)) => {
+                    let secs = parse_duration_secs(&dur)?;
+                    let clamped = secs.min(i64::MAX as u64) as i64;
+                    let dt = chrono::Utc::now() + chrono::TimeDelta::seconds(clamped);
+                    Some(dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
+                }
+                (None, None) => None,
+            };
+            let files = create_args
+                .files
+                .iter()
+                .map(|raw| parse_cli_file_ref(raw))
+                .collect();
+
+            let record = store.create(CreateHandoffRequest {
+                from_agent: create_args.from_agent,
+                to_agent: create_args.to_agent,
+                project: create_args.project,
+                title: create_args.title,
+                goal: create_args.goal,
+                state,
+                done: create_args.done,
+                next_steps: create_args.next_steps,
+                open_questions: create_args.open_questions,
+                refs: create_args.refs,
+                files,
+                branch: create_args.branch,
+                commit: create_args.commit,
+                expires_at,
+                repo_path: create_args.repo,
+            })?;
+
+            if create_args.json {
+                let json = serde_json::to_string_pretty(&record)
+                    .map_err(|e| HandoffError::InvalidInput(e.to_string()))?;
+                safe_println(&json);
+            } else {
+                let entry = HandoffEntry {
+                    status: HandoffStatus::Pending,
+                    record,
+                };
+                safe_print(&entry.to_markdown());
+            }
+            Ok(())
+        }
+        HandoffSubcommand::Claim(claim_args) => {
+            let vault_path = detect_vault_path(claim_args.vault);
+            let store = HandoffStore::new(&vault_path);
+            let record = store.claim(ClaimHandoffRequest {
+                agent: claim_args.agent,
+                id: claim_args.id,
+                project: claim_args.project,
+                latest: claim_args.latest,
+            })?;
+
+            if claim_args.json {
+                let json = serde_json::to_string_pretty(&record)
+                    .map_err(|e| HandoffError::InvalidInput(e.to_string()))?;
+                safe_println(&json);
+            } else {
+                let entry = HandoffEntry {
+                    status: HandoffStatus::Claimed,
+                    record,
+                };
+                safe_print(&entry.to_markdown());
+            }
+            Ok(())
+        }
+        HandoffSubcommand::Show(show_args) => {
+            let vault_path = detect_vault_path(show_args.vault);
+            let store = HandoffStore::new(&vault_path);
+            let id_or_latest = if show_args.latest {
+                Some("latest".to_string())
+            } else {
+                show_args.id
+            };
+            let entry = store.show(id_or_latest.as_deref(), show_args.project.as_deref())?;
+
+            if show_args.json {
+                let json = serde_json::to_string_pretty(&entry)
+                    .map_err(|e| HandoffError::InvalidInput(e.to_string()))?;
+                safe_println(&json);
+            } else {
+                safe_print(&entry.to_markdown());
+            }
+            Ok(())
+        }
+        HandoffSubcommand::List(list_args) => {
+            let vault_path = detect_vault_path(list_args.vault);
+            let store = HandoffStore::new(&vault_path);
+            let entries = store.list(list_args.project.as_deref(), list_args.all)?;
+
+            if list_args.json {
+                let json = serde_json::to_string_pretty(&entries)
+                    .map_err(|e| HandoffError::InvalidInput(e.to_string()))?;
+                safe_println(&json);
+            } else {
+                safe_print(&format_handoff_list_markdown(&entries));
+            }
+            Ok(())
+        }
+        HandoffSubcommand::Prune(prune_args) => {
+            let vault_path = detect_vault_path(prune_args.vault);
+            let store = HandoffStore::new(&vault_path);
+            let older_than_secs = parse_duration_secs(&prune_args.older_than)?;
+            let res = store.prune(older_than_secs)?;
+
+            if prune_args.json {
+                let json = serde_json::to_string_pretty(&res)
+                    .map_err(|e| HandoffError::InvalidInput(e.to_string()))?;
+                safe_println(&json);
+            } else {
+                safe_println(&format!(
+                    "Pruned {} expired and {} claimed handoffs (kept {} pending, {} claimed).",
+                    res.deleted_expired, res.deleted_claimed, res.kept_pending, res.kept_claimed
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn run_garden_cmd(args: GardenArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault.clone());
+    if !vault_path.exists() {
+        return Err(format!("Vault path does not exist: {}", vault_path.display()).into());
+    }
+
+    let cache_path = vault_path.join(".k0maru").join("cache.sqlite");
+    let mut storage = open_storage_with_retry(&cache_path)?;
+
+    let opts = k0maru::garden::GardenOptions {
+        weave: args.weave,
+        dry_run: args.dry_run,
+        include_logs: args.include_logs,
+        include_daily: args.include_daily,
+        force: args.force,
+    };
+
+    let report = k0maru::garden::run_garden(&vault_path, &mut storage, &opts)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!(
+            "{}",
+            k0maru::garden::format_garden_report(&report, args.dry_run)
+        );
+    }
+
+    Ok(())
 }

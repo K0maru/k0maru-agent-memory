@@ -23,7 +23,7 @@
     },
     {
       "question": "Do I need an existing Obsidian vault to use K0maru Agent Memory?",
-      "answer": "No. Running 'k0maru init' automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with standard 00_Meta, 01_AI_Logs, and 02_Architecture directories. If you already use an Obsidian vault, you can seamlessly bind it via 'k0maru init --vault <path>'."
+      "answer": "No. Running 'k0maru init' automatically creates a self-contained .k0maru/wiki/ repository-local Markdown knowledge base with projects/, decisions/, and logs/ directories plus INDEX.md. If you already use an Obsidian vault, you can seamlessly bind it via 'k0maru init --vault <path>'."
     },
     {
       "question": "How do I install K0maru Agent Memory in Claude Code, Cursor, and Windsurf?",

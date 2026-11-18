@@ -312,10 +312,10 @@ pub fn probe_vault(vault_path: &Path) -> Vec<DiagnosticItem> {
         .map(|s| s.to_string())
         .collect();
 
-    if vault_path.join("INDEX.md").is_file() {
-        detected.push("INDEX.md".to_string());
-    } else if vault_path.join("index.md").is_file() {
-        detected.push("index.md".to_string());
+    if let Some(idx_path) = crate::adapters::find_index_markdown(vault_path) {
+        if let Some(name) = idx_path.file_name().and_then(|s| s.to_str()) {
+            detected.push(name.to_string());
+        }
     }
 
     if !detected.is_empty() {
@@ -377,35 +377,137 @@ pub fn probe_storage(vault_path: &Path) -> Vec<DiagnosticItem> {
             format!("{:.2} KB ({} bytes)", size_kb, size),
         ));
 
-        // Connect and test FTS5 and vector tables
-        match rusqlite::Connection::open(&cache_path) {
+        // Connect read-only and inspect schema v3, FTS5 parity, section index, fragmentation, and vectors
+        crate::storage::ensure_sqlite_vec_registered();
+        match rusqlite::Connection::open_with_flags(
+            &cache_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) {
             Ok(conn) => {
-                // Ensure sqlite-vec auto extension is registered
-                crate::storage::ensure_sqlite_vec_registered();
+                let user_version: i32 = conn
+                    .query_row("PRAGMA user_version", [], |r| r.get(0))
+                    .unwrap_or(0);
+                let supported = crate::storage::CURRENT_SCHEMA_VERSION;
+                if user_version == supported {
+                    items.push(DiagnosticItem::pass(
+                        cat,
+                        "Schema Version",
+                        format!("v{}", user_version),
+                    ));
+                } else if user_version < supported {
+                    items.push(DiagnosticItem::warn(
+                        cat,
+                        "Schema Version",
+                        format!("Legacy v{} (v{} available)", user_version, supported),
+                        Some(format!(
+                            "Run `k0maru sync` to upgrade to schema v{} without losing vectors",
+                            supported
+                        )),
+                    ));
+                } else {
+                    items.push(DiagnosticItem::fail(
+                        cat,
+                        "Schema Version",
+                        format!(
+                            "Unsupported v{} (supported up to v{})",
+                            user_version, supported
+                        ),
+                        Some("Upgrade k0maru to match cache schema version".to_string()),
+                    ));
+                }
 
-                // FTS5 and document count
+                // FTS5 (fts_documents) and fts_hash parity check
                 let doc_count_res: Result<i64, _> =
                     conn.query_row("SELECT count(*) FROM documents", [], |r| r.get(0));
-                let fts_count_res: Result<i64, _> =
-                    conn.query_row("SELECT count(*) FROM documents_fts", [], |r| r.get(0));
+                let fts_exists: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'fts_documents'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                let has_fts_hash_col: bool = conn
+                    .prepare("PRAGMA table_info(documents)")
+                    .and_then(|mut s| {
+                        let rows = s.query_map([], |r| r.get::<_, String>(1))?;
+                        let mut found = false;
+                        for col in rows {
+                            if col.as_deref() == Ok("fts_hash") {
+                                found = true;
+                            }
+                        }
+                        Ok(found)
+                    })
+                    .unwrap_or(false);
 
-                match (doc_count_res, fts_count_res) {
-                    (Ok(docs), Ok(fts)) => {
-                        items.push(DiagnosticItem::pass(
-                            cat,
-                            "FTS5 Search Index",
-                            format!("Operational ({} documents, {} in FTS index)", docs, fts),
-                        ));
+                match (doc_count_res, fts_exists, has_fts_hash_col) {
+                    (Ok(docs), true, true) => {
+                        let expected_ver = k0maru_core::text::FTS_SEGMENTER_VERSION.to_string();
+                        let mismatch_res: Result<i64, _> = conn.query_row(
+                            "SELECT count(*) FROM documents WHERE fts_hash IS NULL OR fts_hash != (content_hash || ':' || ?1)",
+                            rusqlite::params![expected_ver],
+                            |r| r.get(0),
+                        );
+                        match mismatch_res {
+                            Ok(0) => {
+                                items.push(DiagnosticItem::pass(
+                                    cat,
+                                    "FTS5 Search Index",
+                                    format!(
+                                        "Operational (fts_documents, {} documents, 0 stale fts_hash rows)",
+                                        docs
+                                    ),
+                                ));
+                            }
+                            Ok(mismatches) => {
+                                items.push(DiagnosticItem::warn(
+                                    cat,
+                                    "FTS5 Search Index",
+                                    format!(
+                                        "{} of {} documents have stale or missing fts_hash",
+                                        mismatches, docs
+                                    ),
+                                    Some(
+                                        "Run `k0maru sync` to repair stale FTS entries".to_string(),
+                                    ),
+                                ));
+                            }
+                            Err(e) => {
+                                items.push(DiagnosticItem::warn(
+                                    cat,
+                                    "FTS5 Search Index",
+                                    format!("Failed to check fts_hash parity: {}", e),
+                                    Some(
+                                        "Run `k0maru sync --force` to rebuild search index"
+                                            .to_string(),
+                                    ),
+                                ));
+                            }
+                        }
                     }
-                    (Ok(docs), Err(e)) => {
+                    (Ok(docs), false, _) => {
                         items.push(DiagnosticItem::warn(
                             cat,
                             "FTS5 Search Index",
-                            format!("FTS5 table error: {} ({} raw docs exist)", e, docs),
-                            Some("Run `k0maru sync --force` to rebuild search index".to_string()),
+                            format!("fts_documents table missing ({} raw docs exist)", docs),
+                            Some("Run `k0maru sync` to migrate to fts_documents".to_string()),
                         ));
                     }
-                    (Err(e), _) => {
+                    (Ok(docs), true, false) => {
+                        items.push(DiagnosticItem::warn(
+                            cat,
+                            "FTS5 Search Index",
+                            format!(
+                                "documents.fts_hash column missing ({} raw docs exist)",
+                                docs
+                            ),
+                            Some(format!(
+                                "Run `k0maru sync` to migrate schema to v{}",
+                                supported
+                            )),
+                        ));
+                    }
+                    (Err(e), _, _) => {
                         items.push(DiagnosticItem::warn(
                             cat,
                             "FTS5 Search Index",
@@ -415,12 +517,177 @@ pub fn probe_storage(vault_path: &Path) -> Vec<DiagnosticItem> {
                     }
                 }
 
-                // Vector virtual table and coverage
-                let vec_count_res: Result<i64, _> =
-                    conn.query_row("SELECT count(*) FROM vector_metadata", [], |r| r.get(0));
+                // Legacy documents_fts absence check
+                let legacy_fts_present: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'documents_fts'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                if legacy_fts_present {
+                    items.push(DiagnosticItem::warn(
+                        cat,
+                        "Legacy FTS5 Table",
+                        "Legacy documents_fts table is still present",
+                        Some("Run `k0maru sync` to drop legacy documents_fts".to_string()),
+                    ));
+                } else {
+                    items.push(DiagnosticItem::pass(
+                        cat,
+                        "Legacy FTS5 Table",
+                        "Absent (legacy documents_fts cleaned up)",
+                    ));
+                }
+
+                // Reclaimable freelist check
+                let freelist_count: i64 = conn
+                    .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+                    .unwrap_or(0);
+                let page_size: i64 = conn
+                    .query_row("PRAGMA page_size", [], |r| r.get(0))
+                    .unwrap_or(4096);
+                let reclaimable_bytes =
+                    (freelist_count.max(0) as u64).saturating_mul(page_size.max(0) as u64);
+                let reclaimable_kb = reclaimable_bytes as f64 / 1024.0;
+                if reclaimable_bytes > 1024 * 1024 {
+                    items.push(DiagnosticItem::warn(
+                        cat,
+                        "Cache Fragmentation",
+                        format!(
+                            "{:.2} KB reclaimable ({} free pages)",
+                            reclaimable_kb, freelist_count
+                        ),
+                        Some(
+                            "Run `k0maru doctor --compact` to optimize FTS5 and VACUUM free pages"
+                                .to_string(),
+                        ),
+                    ));
+                } else {
+                    items.push(DiagnosticItem::pass(
+                        cat,
+                        "Cache Fragmentation",
+                        format!(
+                            "{:.2} KB reclaimable ({} free pages)",
+                            reclaimable_kb, freelist_count
+                        ),
+                    ));
+                }
+
+                // Section search index (v3)
                 let doc_count = conn
                     .query_row("SELECT count(*) FROM documents", [], |r| r.get(0))
                     .unwrap_or(0);
+                let has_doc_sections: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'document_sections'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                let has_fts_sections: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'fts_sections'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                let has_section_state: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'document_section_state'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+
+                if has_doc_sections && has_fts_sections && has_section_state {
+                    let sec_count: i64 = conn
+                        .query_row("SELECT count(*) FROM document_sections", [], |r| r.get(0))
+                        .unwrap_or(0);
+                    let expected_sec_suffix = format!(
+                        ":s{}:f{}",
+                        k0maru_core::parser::sections::SECTION_PARSER_VERSION,
+                        k0maru_core::text::FTS_SEGMENTER_VERSION
+                    );
+                    let stale_sec_res: Result<i64, _> = conn.query_row(
+                        r#"
+                        SELECT count(*)
+                        FROM documents d
+                        LEFT JOIN document_section_state s ON s.doc_id = d.id
+                        WHERE s.sections_hash IS NULL OR s.sections_hash != (d.content_hash || ?1)
+                        "#,
+                        rusqlite::params![expected_sec_suffix],
+                        |r| r.get(0),
+                    );
+                    match stale_sec_res {
+                        Ok(0) => {
+                            items.push(DiagnosticItem::pass(
+                                cat,
+                                "Section Search Index",
+                                format!(
+                                    "Operational (document_sections, {} sections across {} docs, 0 stale)",
+                                    sec_count, doc_count
+                                ),
+                            ));
+                        }
+                        Ok(stale) => {
+                            items.push(DiagnosticItem::warn(
+                                cat,
+                                "Section Search Index",
+                                format!(
+                                    "{} sections indexed ({} of {} docs have stale or missing sections)",
+                                    sec_count, stale, doc_count
+                                ),
+                                Some(
+                                    "Run `k0maru sync` to repair stale section indices".to_string(),
+                                ),
+                            ));
+                        }
+                        Err(e) => {
+                            items.push(DiagnosticItem::warn(
+                                cat,
+                                "Section Search Index",
+                                format!("Failed to check section index parity: {}", e),
+                                Some("Run `k0maru sync` to rebuild section index".to_string()),
+                            ));
+                        }
+                    }
+                } else {
+                    items.push(DiagnosticItem::warn(
+                        cat,
+                        "Section Search Index",
+                        "Section index tables missing (legacy schema)".to_string(),
+                        Some(format!(
+                            "Run `k0maru sync` to upgrade to schema v{}",
+                            supported
+                        )),
+                    ));
+                }
+
+                // Vector virtual table, model provenance, and section vectors
+                let has_meta_table: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'k0maru_meta'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                let read_meta = |key: &str| -> Option<String> {
+                    if !has_meta_table {
+                        return None;
+                    }
+                    conn.query_row(
+                        "SELECT value FROM k0maru_meta WHERE key = ?1",
+                        rusqlite::params![key],
+                        |r| r.get(0),
+                    )
+                    .ok()
+                };
+                let embed_model = read_meta("embed_model");
+                let sec_vecs_complete = read_meta("section_vectors_complete");
+
+                let vec_count_res: Result<i64, _> =
+                    conn.query_row("SELECT count(*) FROM vector_metadata", [], |r| r.get(0));
 
                 match vec_count_res {
                     Ok(vec_count) => {
@@ -429,14 +696,43 @@ pub fn probe_storage(vault_path: &Path) -> Vec<DiagnosticItem> {
                         } else {
                             0.0
                         };
-                        items.push(DiagnosticItem::pass(
-                            cat,
-                            "Vector Embeddings",
-                            format!(
-                                "{} vectors indexed ({:.1}% coverage of {} docs)",
-                                vec_count, coverage, doc_count
-                            ),
-                        ));
+                        if vec_count > 0 {
+                            match embed_model.as_deref() {
+                                Some(model) => {
+                                    items.push(DiagnosticItem::pass(
+                                        cat,
+                                        "Vector Embeddings",
+                                        format!(
+                                            "{} vectors indexed ({:.1}% coverage of {} docs, model: {})",
+                                            vec_count, coverage, doc_count, model
+                                        ),
+                                    ));
+                                }
+                                None => {
+                                    items.push(DiagnosticItem::warn(
+                                        cat,
+                                        "Vector Embeddings",
+                                        format!(
+                                            "{} vectors indexed ({:.1}% coverage of {} docs; model provenance unknown)",
+                                            vec_count, coverage, doc_count
+                                        ),
+                                        Some(
+                                            "Run `k0maru sync --vector` to record embed_model provenance"
+                                                .to_string(),
+                                        ),
+                                    ));
+                                }
+                            }
+                        } else {
+                            items.push(DiagnosticItem::pass(
+                                cat,
+                                "Vector Embeddings",
+                                format!(
+                                    "{} vectors indexed ({:.1}% coverage of {} docs)",
+                                    vec_count, coverage, doc_count
+                                ),
+                            ));
+                        }
                     }
                     Err(e) => {
                         items.push(DiagnosticItem::warn(
@@ -446,6 +742,55 @@ pub fn probe_storage(vault_path: &Path) -> Vec<DiagnosticItem> {
                             Some(
                                 "Run `k0maru sync --vector` to generate vector embeddings"
                                     .to_string(),
+                            ),
+                        ));
+                    }
+                }
+
+                let has_sec_vec_meta: bool = conn
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'section_vector_meta'",
+                        [],
+                        |r| Ok(r.get::<_, i64>(0)? > 0),
+                    )
+                    .unwrap_or(false);
+                if has_sec_vec_meta && has_doc_sections {
+                    let sec_vec_count: i64 = conn
+                        .query_row("SELECT count(*) FROM section_vector_meta", [], |r| r.get(0))
+                        .unwrap_or(0);
+                    let sec_total: i64 = conn
+                        .query_row("SELECT count(*) FROM document_sections", [], |r| r.get(0))
+                        .unwrap_or(0);
+                    if sec_vecs_complete.as_deref() == Some("1") {
+                        items.push(DiagnosticItem::pass(
+                            cat,
+                            "Section Vectors",
+                            format!(
+                                "{} section vectors indexed (ready, model: {})",
+                                sec_vec_count,
+                                embed_model.as_deref().unwrap_or("unknown")
+                            ),
+                        ));
+                    } else if sec_vec_count > 0 {
+                        items.push(DiagnosticItem::warn(
+                            cat,
+                            "Section Vectors",
+                            format!(
+                                "{} of {} section vectors indexed (backfill incomplete)",
+                                sec_vec_count, sec_total
+                            ),
+                            Some(
+                                "Run `k0maru sync --vector` to finish section embedding backfill"
+                                    .to_string(),
+                            ),
+                        ));
+                    } else {
+                        items.push(DiagnosticItem::pass(
+                            cat,
+                            "Section Vectors",
+                            format!(
+                                "0 of {} section vectors indexed (run `k0maru sync --vector` to enable section KNN)",
+                                sec_total
                             ),
                         ));
                     }
@@ -627,6 +972,7 @@ fn target_flag_name(client: McpClient) -> &'static str {
         McpClient::Claude => "claude",
         McpClient::Cursor => "cursor",
         McpClient::Gemini => "gemini",
+        McpClient::Antigravity => "antigravity",
         McpClient::Windsurf => "windsurf",
         McpClient::Cline => "cline",
         McpClient::Hermes => "hermes",
@@ -635,13 +981,397 @@ fn target_flag_name(client: McpClient) -> &'static str {
     }
 }
 
+/// Optimizes `fts_documents`, runs `VACUUM`, and performs a post-compact KNN vector self-check.
+pub fn compact_cache(vault_path: &Path) -> DiagnosticItem {
+    let cat = "Storage & Search Engine";
+    let cache_path = vault_path.join(".k0maru").join("cache.sqlite");
+    if !cache_path.exists() {
+        return DiagnosticItem::warn(
+            cat,
+            "Cache Compaction",
+            format!("Cache file does not exist ({})", cache_path.display()),
+            Some("Run `k0maru sync` to initialize local cache index".to_string()),
+        );
+    }
+
+    let size_before = std::fs::metadata(&cache_path).map(|m| m.len()).unwrap_or(0);
+    let storage = match crate::storage::SqliteStorage::open_rw(&cache_path) {
+        Ok(s) => s,
+        Err(e) => {
+            return DiagnosticItem::fail(
+                cat,
+                "Cache Compaction",
+                format!("Failed to open cache for compaction: {}", e),
+                None,
+            );
+        }
+    };
+
+    if let Err(e) = storage.connection().execute(
+        "INSERT INTO fts_documents(fts_documents) VALUES('optimize')",
+        [],
+    ) {
+        return DiagnosticItem::fail(
+            cat,
+            "Cache Compaction",
+            format!("FTS5 optimize failed: {}", e),
+            None,
+        );
+    }
+
+    let has_fts_sections: bool = storage
+        .connection()
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'fts_sections'",
+            [],
+            |r| Ok(r.get::<_, i64>(0)? > 0),
+        )
+        .unwrap_or(false);
+    if has_fts_sections {
+        if let Err(e) = storage.connection().execute(
+            "INSERT INTO fts_sections(fts_sections) VALUES('optimize')",
+            [],
+        ) {
+            return DiagnosticItem::fail(
+                cat,
+                "Cache Compaction",
+                format!("Section FTS5 optimize failed: {}", e),
+                None,
+            );
+        }
+    }
+
+    if let Err(e) = storage.connection().execute_batch("VACUUM;") {
+        return DiagnosticItem::fail(
+            cat,
+            "Cache Compaction",
+            format!("SQLite VACUUM failed: {}", e),
+            None,
+        );
+    }
+
+    let knn_summary = match storage.has_vectors() {
+        Ok(true) => {
+            let dim = storage
+                .get_vector_dimension()
+                .ok()
+                .flatten()
+                .unwrap_or(crate::storage::VECTOR_DIMENSIONS);
+            let mut query = vec![0.0f32; dim];
+            if !query.is_empty() {
+                query[0] = 1.0;
+            }
+            match storage.search_vectors(&query, 1) {
+                Ok(hits) if !hits.is_empty() && hits[0].1.is_finite() => {
+                    format!("KNN self-check passed ({}d)", dim)
+                }
+                Ok(_) => {
+                    return DiagnosticItem::fail(
+                        cat,
+                        "Cache Compaction",
+                        "Post-VACUUM KNN self-check returned empty or non-finite vector hits"
+                            .to_string(),
+                        Some(
+                            "Run `k0maru sync --force --vector` to rebuild vector index"
+                                .to_string(),
+                        ),
+                    );
+                }
+                Err(e) => {
+                    return DiagnosticItem::fail(
+                        cat,
+                        "Cache Compaction",
+                        format!("Post-VACUUM KNN self-check failed: {}", e),
+                        Some(
+                            "Run `k0maru sync --force --vector` to rebuild vector index"
+                                .to_string(),
+                        ),
+                    );
+                }
+            }
+        }
+        Ok(false) => "no vectors indexed".to_string(),
+        Err(e) => format!("vector check skipped ({})", e),
+    };
+
+    let size_after = std::fs::metadata(&cache_path).map(|m| m.len()).unwrap_or(0);
+    DiagnosticItem::pass(
+        cat,
+        "Cache Compaction",
+        format!(
+            "FTS5 optimized + VACUUM completed ({:.2} KB -> {:.2} KB; {})",
+            size_before as f64 / 1024.0,
+            size_after as f64 / 1024.0,
+            knn_summary
+        ),
+    )
+}
+
+/// Probe 5: Inspects optional read-only global vault path, schema version, embed_model parity, and sync age.
+pub fn probe_global_vault(primary_vault: &Path, global_flag: Option<&Path>) -> Vec<DiagnosticItem> {
+    let cat = "Global Vault";
+    let mut items = Vec::new();
+
+    if std::env::var("K0MARU_NO_GLOBAL").as_deref() == Ok("1") {
+        return items;
+    }
+
+    let resolved =
+        k0maru_core::storage::federated::resolve_global_vault(global_flag, primary_vault);
+    let Some(global_path) = resolved else {
+        let candidate = global_flag
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+            .or_else(|| {
+                std::env::var_os("K0MARU_GLOBAL_VAULT")
+                    .filter(|v| !v.is_empty() && v.to_str().is_some_and(|s| !s.trim().is_empty()))
+                    .map(std::path::PathBuf::from)
+            });
+        if let Some(cand) = candidate {
+            let canon_cand = std::fs::canonicalize(&cand).unwrap_or(cand);
+            let canon_prim = std::fs::canonicalize(primary_vault)
+                .unwrap_or_else(|_| primary_vault.to_path_buf());
+            if canon_cand != canon_prim {
+                let cache_path = canon_cand.join(".k0maru").join("cache.sqlite");
+                items.push(DiagnosticItem::warn(
+                    cat,
+                    "Global Vault Cache",
+                    format!(
+                        "Global vault {} has no cache at {}",
+                        canon_cand.display(),
+                        cache_path.display()
+                    ),
+                    Some(format!(
+                        "Run `k0maru sync --vault {}`",
+                        canon_cand.display()
+                    )),
+                ));
+            }
+        }
+        return items;
+    };
+
+    items.push(DiagnosticItem::pass(
+        cat,
+        "Global Vault Path",
+        global_path.display().to_string(),
+    ));
+
+    let global_cache = global_path.join(".k0maru").join("cache.sqlite");
+    let ro = match k0maru_core::storage::ReadOnlyStorage::open(&global_cache) {
+        Ok(ro) => ro,
+        Err(err) => {
+            items.push(DiagnosticItem::warn(
+                cat,
+                "Global Vault Cache",
+                format!(
+                    "Failed to open global cache read-only ({}): {}",
+                    global_cache.display(),
+                    err
+                ),
+                Some(format!(
+                    "Run `k0maru sync --vault {}`",
+                    global_path.display()
+                )),
+            ));
+            return items;
+        }
+    };
+
+    let user_version: i32 = ro
+        .storage()
+        .connection()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+    let supported = crate::storage::CURRENT_SCHEMA_VERSION;
+    if user_version <= supported {
+        items.push(DiagnosticItem::pass(
+            cat,
+            "Global Schema Version",
+            format!("v{}", user_version),
+        ));
+    } else {
+        items.push(DiagnosticItem::fail(
+            cat,
+            "Global Schema Version",
+            format!(
+                "Unsupported v{} (supported up to v{})",
+                user_version, supported
+            ),
+            Some("Upgrade k0maru to match global cache schema version".to_string()),
+        ));
+    }
+
+    let global_model = ro.storage().meta_get("embed_model").ok().flatten();
+    let primary_cache = primary_vault.join(".k0maru").join("cache.sqlite");
+    let primary_model = if primary_cache.is_file() {
+        k0maru_core::storage::ReadOnlyStorage::open(&primary_cache)
+            .ok()
+            .and_then(|p_ro| p_ro.storage().meta_get("embed_model").ok().flatten())
+    } else {
+        None
+    };
+
+    match (global_model.as_deref(), primary_model.as_deref()) {
+        (Some(g), Some(p)) if g == p => {
+            items.push(DiagnosticItem::pass(
+                cat,
+                "Global Embed Model",
+                format!("Matches primary ({})", g),
+            ));
+        }
+        (Some(g), Some(p)) => {
+            items.push(DiagnosticItem::warn(
+                cat,
+                "Global Embed Model",
+                format!(
+                    "Mismatch: global '{}' vs primary '{}' (global falls back to BM25-only)",
+                    g, p
+                ),
+                Some(format!(
+                    "Re-sync global vault with matching model: `k0maru sync --vault {} --vector --embed-model {}`",
+                    global_path.display(),
+                    p
+                )),
+            ));
+        }
+        (Some(g), None) => {
+            items.push(DiagnosticItem::pass(
+                cat,
+                "Global Embed Model",
+                format!("{} (primary has no embed_model recorded)", g),
+            ));
+        }
+        (None, Some(p)) => {
+            if ro.storage().has_vectors().unwrap_or(false) {
+                items.push(DiagnosticItem::warn(
+                    cat,
+                    "Global Embed Model",
+                    format!(
+                        "Unknown provenance on global vectors (primary uses '{}')",
+                        p
+                    ),
+                    Some(format!(
+                        "Run `k0maru sync --vault {} --vector --embed-model {}`",
+                        global_path.display(),
+                        p
+                    )),
+                ));
+            } else {
+                items.push(DiagnosticItem::pass(
+                    cat,
+                    "Global Embed Model",
+                    format!("None (BM25-only; primary uses {})", p),
+                ));
+            }
+        }
+        (None, None) => {
+            if ro.storage().has_vectors().unwrap_or(false) {
+                items.push(DiagnosticItem::warn(
+                    cat,
+                    "Global Embed Model",
+                    "Unknown (vectors present without embed_model provenance)".to_string(),
+                    Some(format!(
+                        "Run `k0maru sync --vault {} --vector`",
+                        global_path.display()
+                    )),
+                ));
+            } else {
+                items.push(DiagnosticItem::pass(
+                    cat,
+                    "Global Embed Model",
+                    "None (no vectors indexed)".to_string(),
+                ));
+            }
+        }
+    }
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let last_sync_secs = ro
+        .storage()
+        .meta_get("last_sync_at")
+        .ok()
+        .flatten()
+        .and_then(|s| s.trim().parse::<i64>().ok());
+    const STALE_GLOBAL_SECS: i64 = 7 * 86_400;
+
+    match last_sync_secs {
+        Some(ts) => {
+            let age_secs = now_secs.saturating_sub(ts);
+            if age_secs > STALE_GLOBAL_SECS {
+                let age_days = age_secs / 86_400;
+                items.push(DiagnosticItem::warn(
+                    cat,
+                    "Global Sync Age",
+                    format!("Stale: last synced {} days ago (> 7d)", age_days),
+                    Some(format!(
+                        "Run `k0maru sync --vault {}`",
+                        global_path.display()
+                    )),
+                ));
+            } else {
+                let age_hours = age_secs / 3_600;
+                items.push(DiagnosticItem::pass(
+                    cat,
+                    "Global Sync Age",
+                    format!("Fresh ({}h ago)", age_hours),
+                ));
+            }
+        }
+        None => {
+            items.push(DiagnosticItem::warn(
+                cat,
+                "Global Sync Age",
+                "Unknown (last_sync_at metadata missing)".to_string(),
+                Some(format!(
+                    "Run `k0maru sync --vault {}`",
+                    global_path.display()
+                )),
+            ));
+        }
+    }
+
+    items
+}
+
 /// Runs full diagnostic suite across all categories and generates a `DoctorReport`.
 pub fn run_diagnostics(vault_path: &Path, home_override: Option<&Path>) -> DoctorReport {
+    run_diagnostics_with_options(vault_path, home_override, false, None)
+}
+
+/// Runs full diagnostic suite, optionally compacting the SQLite cache first.
+pub fn run_diagnostics_with_compact(
+    vault_path: &Path,
+    home_override: Option<&Path>,
+    compact: bool,
+) -> DoctorReport {
+    run_diagnostics_with_options(vault_path, home_override, compact, None)
+}
+
+/// Runs full diagnostic suite with optional compaction and global vault diagnostics.
+pub fn run_diagnostics_with_options(
+    vault_path: &Path,
+    home_override: Option<&Path>,
+    compact: bool,
+    global_vault: Option<&Path>,
+) -> DoctorReport {
     let mut items = Vec::new();
+    let compact_item = if compact {
+        Some(compact_cache(vault_path))
+    } else {
+        None
+    };
 
     items.extend(probe_binary());
     items.extend(probe_vault(vault_path));
     items.extend(probe_storage(vault_path));
+    if let Some(c) = compact_item {
+        items.push(c);
+    }
+    items.extend(probe_global_vault(vault_path, global_vault));
     items.extend(probe_ecosystem(home_override, vault_path));
 
     DoctorReport::from_items(items)
@@ -661,6 +1391,7 @@ pub fn format_report(report: &DoctorReport) -> String {
         "Binary & System",
         "Vault & Hierarchy",
         "Storage & Search Engine",
+        "Global Vault",
         "Agent MCP Ecosystem",
     ];
 

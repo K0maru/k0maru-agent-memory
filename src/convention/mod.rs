@@ -31,6 +31,7 @@ pub enum NoteCategory {
     Decision,
     Log,
     Concept,
+    Project,
     Skill,
     Generic,
 }
@@ -41,21 +42,28 @@ impl NoteCategory {
             NoteCategory::Decision => "decision",
             NoteCategory::Log => "log",
             NoteCategory::Concept => "concept",
+            NoteCategory::Project => "project",
             NoteCategory::Skill => "skill",
             NoteCategory::Generic => "generic",
         }
     }
 
-    pub fn from_str_loose(s: &str) -> Self {
+    /// Parses an explicitly supported category or alias. Returns `None` for unrecognized values.
+    pub fn parse_strict(s: &str) -> Option<Self> {
         let lower = s.trim().to_lowercase();
         match lower.as_str() {
-            "decision" | "decisions" | "adr" => NoteCategory::Decision,
-            "log" | "logs" | "journal" | "daily" | "records" => NoteCategory::Log,
-            "concept" | "concepts" | "wiki" | "card" | "cards" => NoteCategory::Concept,
+            "decision" | "decisions" | "adr" | "adrs" => Some(NoteCategory::Decision),
+            "" | "log" | "logs" | "journal" | "daily" | "records" => Some(NoteCategory::Log),
+            "concept" | "concepts" | "wiki" | "card" | "cards" => Some(NoteCategory::Concept),
+            "project" | "projects" => Some(NoteCategory::Project),
             "skill" | "skills" | "playbook" | "playbooks" | "recipe" | "recipes"
-            | "troubleshooting" => NoteCategory::Skill,
-            _ => NoteCategory::Generic,
+            | "troubleshooting" => Some(NoteCategory::Skill),
+            _ => None,
         }
+    }
+
+    pub fn from_str_loose(s: &str) -> Self {
+        Self::parse_strict(s).unwrap_or(NoteCategory::Generic)
     }
 }
 
@@ -80,18 +88,29 @@ pub struct VaultConvention {
 
 impl VaultConvention {
     /// Resolve the relative target subdirectory for a given category.
-    /// Falls back to empty path (meaning vault root) if not mapped.
+    /// Defaults to structured subdirectories (`decisions`, `logs`, `projects`, `skills`)
+    /// rather than writing directly into the vault root.
     pub fn target_subdir_for(&self, category: &str) -> PathBuf {
         let norm_cat = category.trim().to_lowercase();
         if let Some(sub) = self.target_subdirs.get(&norm_cat) {
-            return sub.clone();
+            if !sub.as_os_str().is_empty() {
+                return sub.clone();
+            }
         }
         // Check standard category mapping
         let loose = NoteCategory::from_str_loose(&norm_cat);
         if let Some(sub) = self.target_subdirs.get(loose.as_str()) {
-            return sub.clone();
+            if !sub.as_os_str().is_empty() {
+                return sub.clone();
+            }
         }
-        PathBuf::from("")
+        match loose {
+            NoteCategory::Decision | NoteCategory::Concept => PathBuf::from("decisions"),
+            NoteCategory::Log => PathBuf::from("logs"),
+            NoteCategory::Project => PathBuf::from("projects"),
+            NoteCategory::Skill => PathBuf::from("skills"),
+            NoteCategory::Generic => PathBuf::from("logs"),
+        }
     }
 }
 
@@ -123,4 +142,7 @@ pub struct FlushResult {
     /// Relative paths of existing notes that were marked as superseded by this flush
     #[serde(default)]
     pub superseded_files: Vec<PathBuf>,
+    /// Non-fatal warning when the note was written to disk but SQLite cache sync failed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_warning: Option<String>,
 }

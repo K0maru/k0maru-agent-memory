@@ -261,7 +261,7 @@ k0maru pack <COMMAND> [OPTIONS]
 
 #### 1. `k0maru pack export`
 
-Scans the source vault, extracts notes and Living ADR rules, strips folder-bound prefixes from `[[WikiLinks]]` (e.g. `[[20_Cards/Foo|Bar]]` $\to$ `[[Foo|Bar]]`), and bundles them into a portable JSON package.
+Scans the source vault, extracts notes and Living ADR rules, strips folder-bound prefixes from `[[WikiLinks]]` (e.g. `[[decisions/Foo|Bar]]` $\to$ `[[Foo|Bar]]`), and bundles them into a portable JSON package.
 
 ```bash
 k0maru pack export --name <NAME> [OPTIONS]

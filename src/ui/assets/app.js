@@ -1892,19 +1892,9 @@ ${escapeHtml(mermaidCode)}
       const clients = Array.isArray(data) ? data : (data.clients || []);
       appState.clients = clients;
       renderClients(clients, container);
-    } catch (_err) {
-      // Fallback: 8 default clients
-      const defaultClients = [
-        { id: 'claude', name: 'Claude Code', configured: true, details: 'FastMCP configured via ~/.claude.json' },
-        { id: 'cursor', name: 'Cursor IDE', configured: true, details: 'MCP server active via .cursor/mcp.json' },
-        { id: 'windsurf', name: 'Windsurf', configured: false, details: 'FastMCP hook not installed' },
-        { id: 'gemini', name: 'Gemini CLI', configured: false, details: 'Pre-commit hook not installed' },
-        { id: 'openclaw', name: 'OpenClaw', configured: false, details: 'MCP server pending installation' },
-        { id: 'cline', name: 'Cline', configured: true, details: 'FastMCP server registered' },
-        { id: 'hermes', name: 'Hermes Agent', configured: true, details: 'Skill export sync active' },
-        { id: 'omp', name: 'omp Cockpit', configured: true, details: 'Integrated session & hooks active' },
-      ];
-      renderClients(defaultClients, container);
+    } catch (err) {
+      const msg = err && err.message ? err.message : 'Unable to reach /api/clients';
+      container.innerHTML = `<div class="client-card" style="border-color: var(--danger, #e5534b);"><div class="client-header"><span class="client-name mono">MCP Client Discovery Error</span><span class="badge badge-muted mono">[ERROR]</span></div><p class="client-details" style="margin-top: 6px;">${escapeHtml(msg)}</p></div>`;
     }
   }
 

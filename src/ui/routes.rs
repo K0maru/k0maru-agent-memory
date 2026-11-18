@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::adapters::{GenericWikiAdapter, ObsidianAdapter};
+use crate::adapters::{has_index_markdown, is_structured_vault, open_vault_adapter};
 use crate::core::models::SyncStats;
 use crate::core::traits::{CacheStorage, VaultAdapter};
 use crate::guard::GuardEngine;
@@ -763,23 +763,9 @@ async fn handle_sync(
 
     let mut runtime = state.runtime.lock().await;
 
-    let is_structured = vault_path.join(".obsidian").exists()
-        || vault_path.join("projects").is_dir()
-        || vault_path.join("decisions").is_dir()
-        || vault_path.join("cards").is_dir()
-        || vault_path.join("logs").is_dir()
-        || vault_path.join("10_Projects").is_dir()
-        || vault_path.join("20_Cards").is_dir();
-
-    let res = if is_structured {
-        let adapter = ObsidianAdapter::new(&vault_path);
-        let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut runtime.storage);
-        scanner.sync_vault_with_vector(&vault_path, embedder)
-    } else {
-        let adapter = GenericWikiAdapter::new(&vault_path);
-        let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut runtime.storage);
-        scanner.sync_vault_with_vector(&vault_path, embedder)
-    };
+    let adapter = open_vault_adapter(&vault_path);
+    let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut runtime.storage);
+    let res = scanner.sync_vault_with_vector(&vault_path, embedder);
 
     match res {
         Ok((sync_stats, vector_stats)) => {
@@ -862,9 +848,8 @@ async fn handle_post_config(
         }
 
         if target_vault.join(".k0maru/wiki").is_dir()
-            && !target_vault.join("INDEX.md").is_file()
-            && !target_vault.join("projects").is_dir()
-            && !target_vault.join("10_Projects").is_dir()
+            && !has_index_markdown(&target_vault)
+            && !is_structured_vault(&target_vault)
         {
             target_vault = target_vault.join(".k0maru/wiki");
         }
@@ -893,23 +878,9 @@ async fn handle_post_config(
             })?,
         };
 
-        let is_structured = canonical_vault.join(".obsidian").exists()
-            || canonical_vault.join("projects").is_dir()
-            || canonical_vault.join("decisions").is_dir()
-            || canonical_vault.join("cards").is_dir()
-            || canonical_vault.join("logs").is_dir()
-            || canonical_vault.join("10_Projects").is_dir()
-            || canonical_vault.join("20_Cards").is_dir();
-
-        if is_structured {
-            let adapter = ObsidianAdapter::new(&canonical_vault);
-            let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut new_storage);
-            let _ = scanner.sync(false);
-        } else {
-            let adapter = GenericWikiAdapter::new(&canonical_vault);
-            let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut new_storage);
-            let _ = scanner.sync(false);
-        }
+        let adapter = open_vault_adapter(&canonical_vault);
+        let mut scanner = crate::scanner::IncrementalScanner::new(&adapter, &mut new_storage);
+        let _ = scanner.sync(false);
 
         runtime.vault_path = canonical_vault.clone();
         runtime.storage = new_storage;
@@ -1172,31 +1143,13 @@ async fn handle_note(
         ));
     }
 
-    let is_structured = vault_path.join(".obsidian").exists()
-        || vault_path.join("projects").is_dir()
-        || vault_path.join("decisions").is_dir()
-        || vault_path.join("cards").is_dir()
-        || vault_path.join("logs").is_dir()
-        || vault_path.join("10_Projects").is_dir()
-        || vault_path.join("20_Cards").is_dir();
-
-    let doc = if is_structured {
-        let adapter = ObsidianAdapter::new(vault_path);
-        adapter.read_document(rel_path).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-        })?
-    } else {
-        let adapter = GenericWikiAdapter::new(vault_path);
-        adapter.read_document(rel_path).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-        })?
-    };
+    let adapter = open_vault_adapter(vault_path);
+    let doc = adapter.read_document(rel_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let mut outgoing_links: Vec<String> = runtime
         .storage
@@ -1364,20 +1317,14 @@ async fn handle_clients_install(
 
 fn candidate_log_dirs(vault_path: &Path) -> Vec<PathBuf> {
     let vault_k0maru = vault_path.join(".k0maru").join("refs");
-    let vault_scratch = vault_path.join(".scratch").join("refs");
     let mut dirs = Vec::new();
 
     if vault_k0maru.is_dir() {
         dirs.push(vault_k0maru);
-    }
-    if vault_scratch.is_dir() {
-        dirs.push(vault_scratch);
-    }
-
-    if dirs.is_empty() {
-        let global_scratch = PathBuf::from(".scratch/refs");
-        if global_scratch.is_dir() {
-            dirs.push(global_scratch);
+    } else {
+        let global_refs = PathBuf::from(".k0maru/refs");
+        if global_refs.is_dir() {
+            dirs.push(global_refs);
         }
     }
 
