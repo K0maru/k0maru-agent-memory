@@ -370,10 +370,8 @@ fn load_document_vectors(
         if blob.is_empty() || blob.len() % 4 != 0 {
             continue;
         }
-        let mut vec_f32 = Vec::with_capacity(blob.len() / 4);
-        for chunk in blob.chunks_exact(4) {
-            vec_f32.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-        }
+        let (chunks, _) = blob.as_chunks::<4>();
+        let vec_f32: Vec<f32> = chunks.iter().map(|c| f32::from_le_bytes(*c)).collect();
         vectors.insert(id.replace('\\', "/"), vec_f32);
     }
 
