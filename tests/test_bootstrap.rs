@@ -64,28 +64,28 @@ edition = "2021"
     let report = run_bootstrap(options).expect("run_bootstrap failed");
 
     assert_eq!(report.project_slug, "acme-payment");
-    assert_eq!(report.created_files.len(), 3);
-    assert_eq!(report.indexed_docs, 3);
+    assert_eq!(report.created_files.len(), 4);
+    assert_eq!(report.indexed_docs, 4);
 
     // Verify directory topology and files
     let default_vault = report.repo_path.join(".k0maru").join("wiki");
     assert_eq!(report.vault_path, default_vault);
 
-    let project_file = default_vault.join("10_Projects").join("acme-payment.md");
-    assert!(
-        project_file.exists(),
-        "10_Projects/acme-payment.md must exist"
-    );
+    let project_file = default_vault.join("projects").join("acme-payment.md");
+    assert!(project_file.exists(), "projects/acme-payment.md must exist");
 
     let adr_file = default_vault
-        .join("20_Cards")
+        .join("decisions")
         .join("adr-001-repository-guardrails.md");
     assert!(
         adr_file.exists(),
-        "20_Cards/adr-001-repository-guardrails.md must exist"
+        "decisions/adr-001-repository-guardrails.md must exist"
     );
 
-    let logs_dir = default_vault.join("01_AI_Logs");
+    let index_file = default_vault.join("INDEX.md");
+    assert!(index_file.exists(), "INDEX.md must exist at vault root");
+
+    let logs_dir = default_vault.join("logs");
     let log_files: Vec<_> = fs::read_dir(&logs_dir)
         .unwrap()
         .filter_map(|e| e.ok())
@@ -102,13 +102,18 @@ edition = "2021"
     assert!(cache_db.exists(), "cache.sqlite must exist");
 
     let storage = SqliteStorage::open(&cache_db).expect("open cache.sqlite");
-    assert_eq!(storage.document_count().unwrap(), 3);
+    assert_eq!(storage.document_count().unwrap(), 4);
 
     // Check project note content
     let project_note = fs::read_to_string(&project_file).unwrap();
     assert!(project_note.contains("title: \"acme-payment\""));
-    assert!(project_note.contains("[[20_Cards/adr-001-repository-guardrails]]"));
+    assert!(project_note.contains("[[decisions/adr-001-repository-guardrails]]"));
     assert!(project_note.contains("High-throughput transactional payment processor"));
+
+    // Check INDEX.md content
+    let index_note = fs::read_to_string(&index_file).unwrap();
+    assert!(index_note.contains("[[projects/acme-payment]]"));
+    assert!(index_note.contains("[[decisions/adr-001-repository-guardrails]]"));
 }
 
 #[test]

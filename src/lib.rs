@@ -21,12 +21,14 @@ pub use k0maru_core::{resolve_cache_dir, FastEmbedBackend};
 
 // Application modules
 pub mod bootstrap;
+pub mod config;
 pub mod convention;
 pub mod distill;
 pub mod doctor;
 pub mod ecosystem;
 pub mod git;
 pub mod guard;
+pub mod hook;
 pub mod install;
 pub mod loadout;
 pub mod mcp;
@@ -35,6 +37,7 @@ pub mod pack;
 pub mod ui;
 
 pub use bootstrap::{format_bootstrap_report, run_bootstrap, BootstrapOptions, BootstrapReport};
+pub use config::K0maruConfig;
 pub use convention::{
     generate_filename, slugify, synthesize_markdown, ConventionSniffer, FlushEngine, FlushRequest,
     FlushResult, NamingStyle, NoteCategory, VaultConvention,
@@ -52,6 +55,10 @@ pub use git::{parse_diff_stream, FileChangeStatus, GitInspector, ModifiedFile};
 pub use guard::{
     format_guard_report, get_git_diff, resolve_guard_rules, run_guard_check, run_guard_install,
     GuardArgs, GuardCheckArgs, GuardEngine, GuardInstallArgs, GuardSubcommand,
+};
+pub use hook::{
+    build_timeline, inspect_note_detail, run_hook, HookEvent, HookOptions, HookReport,
+    NoteDetailReport, TimelineEntry, TimelineQuery,
 };
 pub use install::{
     format_install_report, inject_k0maru_mcp, install_claude_project_hooks, install_repo_hooks,

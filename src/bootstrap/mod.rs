@@ -1,7 +1,7 @@
 //! Zero-vault cold-start bootstrap engine for K0maru Agent Memory Hub.
 //!
 //! Scans unconfigured Git repositories, synthesizes an initial LLM-Wiki topology
-//! (`10_Projects/`, `20_Cards/adr-001-...`, `01_AI_Logs/`), and indexes the resulting
+//! (`projects/`, `decisions/adr-001-...`, `logs/`, `INDEX.md`), and indexes the resulting
 //! knowledge artifacts into `.k0maru/cache.sqlite` for sub-5ms context loadouts and
 //! instant Living ADR guard sentinel checks.
 
@@ -338,14 +338,13 @@ pub fn run_bootstrap(
     };
 
     // Ensure wiki folders exist
-    let projects_dir = vault_path.join("10_Projects");
-    let cards_dir = vault_path.join("20_Cards");
-    let logs_dir = vault_path.join("01_AI_Logs");
+    let projects_dir = vault_path.join("projects");
+    let decisions_dir = vault_path.join("decisions");
+    let logs_dir = vault_path.join("logs");
 
     fs::create_dir_all(&projects_dir)?;
-    fs::create_dir_all(&cards_dir)?;
+    fs::create_dir_all(&decisions_dir)?;
     fs::create_dir_all(&logs_dir)?;
-
     let project_slug = detect_project_slug(&repo_path, options.project_name.as_deref());
     let today = chrono::Local::now()
         .date_naive()
@@ -359,7 +358,7 @@ pub fn run_bootstrap(
 
     let mut created_files = Vec::new();
 
-    // 1. 10_Projects/<project_slug>.md
+    // 1. projects/<project_slug>.md
     let project_note_path = projects_dir.join(format!("{}.md", project_slug));
     if !project_note_path.exists() {
         let tech_stack_bullets: Vec<String> =
@@ -392,8 +391,8 @@ repo: "{repo}"
 {commits}
 
 ## Key Artifacts & Invariants
-- Architecture Guardrails: [[20_Cards/adr-001-repository-guardrails]]
-- Initial Bootstrap Log: [[01_AI_Logs/{date}-initial-bootstrap]]
+- Architecture Guardrails: [[decisions/adr-001-repository-guardrails]]
+- Initial Bootstrap Log: [[logs/{date}-initial-bootstrap]]
 "#,
             title = project_slug,
             date = today,
@@ -408,8 +407,8 @@ repo: "{repo}"
         created_files.push(project_note_path);
     }
 
-    // 2. 20_Cards/adr-001-repository-guardrails.md
-    let adr_path = cards_dir.join("adr-001-repository-guardrails.md");
+    // 2. decisions/adr-001-repository-guardrails.md
+    let adr_path = decisions_dir.join("adr-001-repository-guardrails.md");
     if !adr_path.exists() {
         let adr_content = format!(
             r#"---
@@ -464,7 +463,7 @@ k0maru guard check --diff
         created_files.push(adr_path);
     }
 
-    // 3. 01_AI_Logs/<today>-initial-bootstrap.md
+    // 3. logs/<today>-initial-bootstrap.md
     let log_path = logs_dir.join(format!("{}-initial-bootstrap.md", today));
     if !log_path.exists() {
         let log_content = format!(
@@ -474,7 +473,7 @@ date: "{date}"
 tags:
   - type/ai-log
   - bootstrap
-project: "[[10_Projects/{slug}]]"
+project: "[[projects/{slug}]]"
 ---
 
 # Initial Repository Bootstrap
@@ -488,7 +487,7 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
 - **Vault Location**: `.k0maru/wiki`
 
 ## Living ADR Guardrails
-- Enforced via `[[20_Cards/adr-001-repository-guardrails]]`.
+- Enforced via `[[decisions/adr-001-repository-guardrails]]`.
 
 ## Recent Commits
 {commits}
@@ -501,6 +500,35 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         created_files.push(log_path);
     }
 
+    // 4. INDEX.md (LLM-Wiki Map of Content MOC)
+    let index_path = vault_path.join("INDEX.md");
+    if !index_path.exists() {
+        let index_content = format!(
+            r#"---
+title: "Map of Content"
+date: "{date}"
+tags:
+  - type/index
+  - moc
+---
+
+# Map of Content
+
+## Projects
+- [[projects/{slug}]]
+
+## Decisions & Guardrails
+- [[decisions/adr-001-repository-guardrails]]
+
+## Recent Logs
+- [[logs/{date}-initial-bootstrap]]
+"#,
+            date = today,
+            slug = project_slug,
+        );
+        fs::write(&index_path, index_content)?;
+        created_files.push(index_path);
+    }
     // Immediately index vault artifacts into cache.sqlite
     let cache_dir = vault_path.join(".k0maru");
     fs::create_dir_all(&cache_dir)?;
@@ -515,14 +543,14 @@ Bootstrapped zero-config repository LLM-Wiki and Living ADR Sentinel with K0maru
         if vault_path.starts_with(&repo_path) {
             fs::write(
                 vault_path.join(".gitignore"),
-                ".k0maru/\n01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n",
+                ".k0maru/\nlogs/*auto-commit-*.md\n01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
             )?;
         }
         let top_k0maru = repo_path.join(".k0maru");
         if top_k0maru.is_dir() {
             fs::write(
                 top_k0maru.join(".gitignore"),
-                "**/cache.sqlite*\n**/models/\n**/refs/\n**/01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n",
+                "**/cache.sqlite*\n**/models/\n**/refs/\n**/logs/*auto-commit-*.md\n**/01_AI_Logs/*auto-commit-*.md\n**/*auto-commit-*.md\n**/*-session-observations.md\n",
             )?;
         }
     }

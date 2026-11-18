@@ -59,6 +59,8 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"distill_session_skill"));
     assert!(tool_names.contains(&"gc_session_context"));
     assert!(tool_names.contains(&"guard_check"));
+    assert!(tool_names.contains(&"timeline_memory"));
+    assert!(tool_names.contains(&"inspect_note"));
 }
 
 #[test]
@@ -401,7 +403,7 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
         .expect("Should respond to tools/list");
     let default_resp: Value = serde_json::from_str(&default_str).unwrap();
     let default_tools = default_resp["result"]["tools"].as_array().unwrap();
-    assert_eq!(default_tools.len(), 8);
+    assert_eq!(default_tools.len(), 10);
 
     // Sidecar mode exposes only the 5 core orthogonal tools.
     let mut server = McpServer::new(vault.path()).with_sidecar(true);
@@ -422,12 +424,14 @@ fn test_mcp_sidecar_mode_filters_context_tools() {
         vec![
             "get_project_loadout",
             "recall_memory",
+            "timeline_memory",
+            "inspect_note",
             "flush_session",
             "distill_session_skill",
             "guard_check",
         ]
     );
-    assert_eq!(sidecar_tools.len(), 5);
+    assert_eq!(sidecar_tools.len(), 7);
     assert!(!sidecar_names.contains(&"offload_context"));
     assert!(!sidecar_names.contains(&"inspect_log_node"));
     assert!(!sidecar_names.contains(&"gc_session_context"));
@@ -469,5 +473,88 @@ fn test_mcp_guard_check_enforces_repo_local_k0maru_wiki_rules() {
     assert!(
         text.contains("REPO-LOCAL-001"),
         "the repo-local rule must appear in the report, got: {text}"
+    );
+}
+
+#[test]
+fn test_mcp_timeline_memory_tool() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    let timeline_req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "timeline_memory",
+            "arguments": {
+                "window": 5
+            }
+        }
+    });
+
+    let resp_str = server
+        .handle_line(&timeline_req.to_string())
+        .expect("Should respond to timeline_memory");
+    let resp: Value = serde_json::from_str(&resp_str).unwrap();
+    assert_ne!(resp["result"]["isError"], true);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("| Date | Kind | Title | Path | Status |"));
+}
+
+#[test]
+fn test_mcp_inspect_note_tool_and_traversal_rejection() {
+    let vault = mock_obsidian_vault();
+    let mut server = McpServer::new(vault.path());
+
+    // 1. Valid note inspection
+    let inspect_req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "inspect_note",
+            "arguments": {
+                "path": "10_Projects/k0maru-memory.md"
+            }
+        }
+    });
+
+    let resp_str = server
+        .handle_line(&inspect_req.to_string())
+        .expect("Should respond to inspect_note");
+    let resp: Value = serde_json::from_str(&resp_str).unwrap();
+    assert_ne!(resp["result"]["isError"], true);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("# K0maru Agent Memory") || text.contains("10_Projects/k0maru-memory.md")
+    );
+    assert!(text.contains("## Body"));
+
+    // 2. Path traversal rejection: ../Cargo.toml
+    let traversal_req = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "inspect_note",
+            "arguments": {
+                "path": "../Cargo.toml"
+            }
+        }
+    });
+
+    let resp_str = server
+        .handle_line(&traversal_req.to_string())
+        .expect("Should respond to inspect_note traversal attempt");
+    let resp: Value = serde_json::from_str(&resp_str).unwrap();
+    assert_eq!(resp["result"]["isError"], true);
+    let err_msg = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        err_msg.contains("traversal")
+            || err_msg.contains("not allowed")
+            || err_msg.contains("Failed to inspect"),
+        "Error message should mention rejection: {}",
+        err_msg
     );
 }

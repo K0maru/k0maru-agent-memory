@@ -140,6 +140,9 @@ impl McpServer {
         self.vault_path.join("10_Projects").is_dir()
             || self.vault_path.join(".obsidian").exists()
             || self.vault_path.join("20_Cards").is_dir()
+            || self.vault_path.join("projects").is_dir()
+            || self.vault_path.join("decisions").is_dir()
+            || self.vault_path.join("logs").is_dir()
     }
 
     fn get_or_init_storage(&mut self) -> Result<&mut SqliteStorage, Box<dyn std::error::Error>> {
@@ -195,22 +198,24 @@ impl McpServer {
     }
 
     fn detect_default_project(&self) -> String {
-        let projects_dir = self.vault_path.join("10_Projects");
-        if projects_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&projects_dir) {
-                let mut stems: Vec<String> = entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
-                    .filter_map(|e| {
-                        e.path()
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.to_string())
-                    })
-                    .collect();
-                stems.sort();
-                if let Some(first) = stems.into_iter().next() {
-                    return first;
+        for dir_name in &["projects", "10_Projects", "1_Projects"] {
+            let projects_dir = self.vault_path.join(dir_name);
+            if projects_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+                    let mut stems: Vec<String> = entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                        .filter_map(|e| {
+                            e.path()
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .map(|s| s.to_string())
+                        })
+                        .collect();
+                    stems.sort();
+                    if let Some(first) = stems.into_iter().next() {
+                        return first;
+                    }
                 }
             }
         }
@@ -414,6 +419,87 @@ impl McpServer {
             }
             Ok(format_compact_kdsl_hits(&hits))
         }
+    }
+    fn call_timeline_memory(&mut self, arguments: &Value) -> Result<String, String> {
+        let anchor = arguments
+            .get("anchor")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let window = arguments
+            .get("window")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(10);
+        let project = arguments
+            .get("project")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let query = crate::hook::TimelineQuery {
+            anchor,
+            window,
+            project,
+        };
+
+        let entries = crate::hook::build_timeline(&self.vault_path, &query)
+            .map_err(|e| format!("Failed to build timeline: {}", e))?;
+
+        if entries.is_empty() {
+            return Ok("No timeline entries found.".to_string());
+        }
+
+        let mut out = String::new();
+        out.push_str("| Date | Kind | Title | Path | Status |\n");
+        out.push_str("| --- | --- | --- | --- | --- |\n");
+        for entry in &entries {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {} |\n",
+                entry.date, entry.kind, entry.title, entry.relative_path, entry.status
+            ));
+        }
+        Ok(out)
+    }
+
+    fn call_inspect_note(&mut self, arguments: &Value) -> Result<String, String> {
+        let path = arguments
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing required parameter 'path'".to_string())?;
+
+        let report = crate::hook::inspect_note_detail(&self.vault_path, path)
+            .map_err(|e| format!("Failed to inspect note: {}", e))?;
+
+        let mut out = format!("# {}\n\n", report.title);
+        out.push_str(&format!("- **Path**: {}\n", report.relative_path));
+        out.push_str(&format!("- **Hierarchy**: {}\n", report.hierarchy));
+        out.push_str(&format!("- **Status**: {}\n", report.status));
+        if let Some(sb) = &report.superseded_by {
+            out.push_str(&format!("- **Superseded By**: {}\n", sb));
+        }
+        if !report.supersedes.is_empty() {
+            out.push_str(&format!(
+                "- **Supersedes**: {}\n",
+                report.supersedes.join(", ")
+            ));
+        }
+        if !report.tags.is_empty() {
+            out.push_str(&format!("- **Tags**: {}\n", report.tags.join(", ")));
+        }
+        if !report.incoming_links.is_empty() {
+            out.push_str(&format!(
+                "- **Incoming Links**: {}\n",
+                report.incoming_links.join(", ")
+            ));
+        }
+        if !report.outgoing_links.is_empty() {
+            out.push_str(&format!(
+                "- **Outgoing Links**: {}\n",
+                report.outgoing_links.join(", ")
+            ));
+        }
+        out.push_str("\n## Body\n\n");
+        out.push_str(&report.body);
+        Ok(out)
     }
 
     fn call_offload_context(&self, arguments: &Value) -> Result<String, String> {
@@ -984,6 +1070,41 @@ impl McpServer {
                 }
             },
             {
+                "name": "timeline_memory",
+                "description": "Chronological progressive-disclosure timeline of engineering logs, session observations, and ADR milestones around an optional anchor date/note.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "anchor": {
+                            "type": "string",
+                            "description": "Optional anchor date (YYYY-MM-DD), note title, or relative path to center the timeline window around"
+                        },
+                        "window": {
+                            "type": "integer",
+                            "description": "Number of timeline entries to return (default: 10)"
+                        },
+                        "project": {
+                            "type": "string",
+                            "description": "Optional project slug/filter"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "inspect_note",
+                "description": "Safely inspect full note metadata, frontmatter, incoming/outgoing WikiLinks, supersession status, and markdown body by relative path.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the markdown note within the vault (e.g. 'decisions/adr-001.md')"
+                        }
+                    },
+                    "required": ["path"]
+                }
+            },
+            {
                 "name": "offload_context",
                 "description": "Externalize and compress verbose terminal logs, build outputs, test traces, or error dumps (>30 lines) into a compact symbolic Mermaid state diagram on disk. Always invoke this whenever a terminal command produces large output to prevent context window pollution.",
                 "inputSchema": {
@@ -1200,6 +1321,14 @@ impl McpServer {
                 Err(e) => (e, true),
             },
             "recall_memory" => match self.call_recall_memory(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "timeline_memory" => match self.call_timeline_memory(arguments) {
+                Ok(text) => (text, false),
+                Err(e) => (e, true),
+            },
+            "inspect_note" => match self.call_inspect_note(arguments) {
                 Ok(text) => (text, false),
                 Err(e) => (e, true),
             },

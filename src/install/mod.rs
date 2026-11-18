@@ -242,21 +242,26 @@ fn ensure_gemini_instructions(config_path: &Path) {
 `k0maru-memory` mounts the user's permanent local knowledge base (Obsidian Vault / LLM-Wiki).
 It stores research reports, architectural decisions (ADRs), technical feasibility studies, infrastructure configs, project notes, postmortems, and domain knowledge.
 
-## Critical Invariant: Proactive Memory Recall
-You MUST trigger `recall_memory` in `k0maru-memory` under the following circumstances:
-1. **Information & Documentation Requests**:
-   Whenever the user asks for information, documentation, notes, or background on ANY topic, technology, platform, project, or keyword (for example: "what did we decide about...", "how is X configured", "find notes on..."):
+## Critical Invariant: Proactive Memory Recall & Progressive Disclosure
+You MUST follow the 3-stage progressive disclosure retrieval pattern:
+1. **Stage 1: Fast Recall (`recall_memory`)**:
+   Whenever asked about ANY topic, technology, configuration, or past decision:
    - **DO NOT** assume the knowledge does not exist.
    - **DO NOT** answer solely from pre-training without checking `recall_memory`.
-   - **DO NOT** call unrelated tools or external web search before checking `recall_memory`.
-   - **ALWAYS** call `recall_memory(query: "<topic_keyword>")` first.
-2. **Context & Setup Lookups**:
-   - Whenever asked about previous experiments (e.g. Colab, GPU setups, benchmarks, A100 evaluations, models, Docker, Redis).
-   - Whenever asked how something was configured, deployed, or previously solved.
-3. **Session Bootstrap**:
+   - **DO NOT** call unrelated external web search before checking `recall_memory`.
+   - **ALWAYS** call `recall_memory(query: "<topic_keyword>")` first to inspect compact K-DSL hits (~50 tokens/hit).
+2. **Stage 2: Chronological Timeline (`timeline_memory`)**:
+   When you need chronological context around recent events, engineering logs, or ADR milestones, call `timeline_memory(anchor: "<path_or_date>", window: 10)`.
+3. **Stage 3: Deep Inspection (`inspect_note`)**:
+   For notes identified in Stage 1 or Stage 2 that require full context, inbound/outbound links, or invariant rules, call `inspect_note(path: "<relative_path>")` to inspect full frontmatter, relations, and markdown body.
+
+## Additional Invariants
+1. **Session Bootstrap**:
    - When starting work on a specific project or repo, invoke `get_project_loadout(project_name: "<name>")` to fetch architectural invariants (<300 tokens).
-4. **Knowledge Crystallization**:
+2. **Knowledge Crystallization**:
    - After solving a complex bug, making a non-trivial architectural choice, or discovering an important workaround, invoke `flush_session` or `distill_session_skill` to persist the solution.
+3. **Guard Checking**:
+   - Before completing changes or committing, invoke `guard_check()` to ensure non-negotiable ADR invariants are satisfied.
 "#;
             let _ = std::fs::write(instructions_path, instructions_content);
         }
@@ -621,6 +626,15 @@ fn upsert_claude_hook_command(
 /// non-destructive `hooks.SessionStart` command entry that automatically briefs Claude Code
 /// with the sub-300-token project loadout at session initiation, plus a `hooks.Stop`
 /// guard check that blocks the turn on architectural invariant violations.
+/// Sanitizes a string argument for inclusion in hook commands, rejecting shell metacharacters (P0-2 & P0-5 Remedy).
+fn sanitize_hook_arg(s: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    const FORBIDDEN: &[char] = &['"', '\'', '$', '`', '\\', ';', '|', '&', '\n', '\r', '\0'];
+    if s.contains(FORBIDDEN) {
+        return Err(format!("Unsafe characters in hook argument: {:?}", s).into());
+    }
+    Ok(s.to_string())
+}
+
 pub fn install_claude_project_hooks(
     repo_path: &Path,
     vault_path: &Path,
@@ -660,16 +674,18 @@ pub fn install_claude_project_hooks(
         .and_then(|v| v.as_object_mut())
         .ok_or("Field 'hooks' must be a JSON object")?;
 
+    let sanitized_slug = sanitize_hook_arg(project_slug)?;
     let vault_arg = portable_claude_vault_arg(repo_path, vault_path);
+    let sanitized_vault = sanitize_hook_arg(&vault_arg)?;
     // Claude Code hooks run with the GUI shell PATH on macOS, which often omits
     // `~/.local/bin` / `~/.cargo/bin`; export both so `k0maru` always resolves.
     let loadout_cmd = format!(
         "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; k0maru loadout \"{}\" --diff --vault \"{}\"",
-        project_slug, vault_arg
+        sanitized_slug, sanitized_vault
     );
     let stop_cmd = format!(
         "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\"; k0maru guard check --diff --claude-stop-hook --vault \"{}\"",
-        vault_arg
+        sanitized_vault
     );
 
     upsert_claude_hook_command(hooks_obj, "SessionStart", "k0maru loadout", &loadout_cmd)?;

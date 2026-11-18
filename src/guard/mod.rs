@@ -295,13 +295,15 @@ fn extract_doc_project_slugs(
                 clean = stripped;
             }
             let mut clean = clean.trim().trim_matches('/');
-            for prefix in ["10_Projects/", "10_projects/", "1_Projects/", "1_projects/"] {
-                if let Some(stripped) = clean.strip_prefix(prefix) {
-                    clean = stripped;
-                    break;
-                }
-            }
-            for prefix in ["projects/", "Projects/", "PROJECTS/"] {
+            for prefix in [
+                "10_Projects/",
+                "10_projects/",
+                "1_Projects/",
+                "1_projects/",
+                "projects/",
+                "Projects/",
+                "PROJECTS/",
+            ] {
                 if let Some(stripped) = clean.strip_prefix(prefix) {
                     clean = stripped;
                     break;

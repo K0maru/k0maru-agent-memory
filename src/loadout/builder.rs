@@ -590,40 +590,42 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             }
 
             // === TIER 2: Scoped FTS5 SQL Push-down ===
-            // First try 10_Projects/ scope
-            if let Ok(fts_matches) =
-                self.storage
-                    .search_scoped_fts(trimmed, Some("10_Projects/"), None, 5)
-            {
-                for m in fts_matches {
-                    if paths.contains(&m.path) {
-                        return Ok(Some(m.path));
-                    }
-                    if let Some(matching_path) =
-                        paths.iter().find(|p| p.file_stem() == m.path.file_stem())
-                    {
-                        return Ok(Some(matching_path.clone()));
-                    }
-                }
-            }
-
-            // Also try L1Resource hierarchy scope for generic wiki layouts
-            if let Ok(fts_matches) =
-                self.storage
-                    .search_scoped_fts(trimmed, None, Some("L1Resource"), 5)
-            {
-                for m in fts_matches {
-                    if paths.contains(&m.path) {
-                        return Ok(Some(m.path));
-                    }
-                    if let Some(matching_path) =
-                        paths.iter().find(|p| p.file_stem() == m.path.file_stem())
-                    {
-                        return Ok(Some(matching_path.clone()));
+            const PROJECT_SCOPES: &[&str] = &["projects/", "10_Projects/", "1_Projects/"];
+            for scope in PROJECT_SCOPES {
+                if let Ok(fts_matches) =
+                    self.storage
+                        .search_scoped_fts(trimmed, Some(scope), None, 5)
+                {
+                    for m in fts_matches {
+                        if paths.contains(&m.path) {
+                            return Ok(Some(m.path));
+                        }
+                        if let Some(matching_path) =
+                            paths.iter().find(|p| p.file_stem() == m.path.file_stem())
+                        {
+                            return Ok(Some(matching_path.clone()));
+                        }
                     }
                 }
             }
 
+            // Also try L1Resource / L3Evergreen hierarchy scopes for generic wiki layouts
+            for hier in &["L1Resource", "L3Evergreen"] {
+                if let Ok(fts_matches) =
+                    self.storage.search_scoped_fts(trimmed, None, Some(hier), 5)
+                {
+                    for m in fts_matches {
+                        if paths.contains(&m.path) {
+                            return Ok(Some(m.path));
+                        }
+                        if let Some(matching_path) =
+                            paths.iter().find(|p| p.file_stem() == m.path.file_stem())
+                        {
+                            return Ok(Some(matching_path.clone()));
+                        }
+                    }
+                }
+            }
             // === TIER 3: Vector Semantic Fallback ===
             if let Some(ref embedder) = self.embedder {
                 if let Ok(query_emb) = embedder.embed(trimmed) {
@@ -734,8 +736,12 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             ],
         );
         let clean = stripped.rsplit('/').next().unwrap_or("").trim();
-
         if clean.is_empty() {
+            return None;
+        }
+
+        let clean_lower = clean.to_lowercase();
+        if clean_lower == "index" || clean_lower == "readme" || clean_lower == "template" {
             return None;
         }
 
@@ -788,8 +794,21 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     continue;
                 }
                 // Explicit card folders are accepted as-is; root notes must
-                // resolve to an evergreen hierarchy.
-                if doc.hierarchy == HierarchyLevel::L3Evergreen || !dir.is_empty() {
+                // resolve to an evergreen hierarchy (and if date-prefixed, carry ADR/card metadata).
+                let root_date_prefixed = dir.is_empty()
+                    && clean.len() >= 10
+                    && clean.as_bytes()[..4].iter().all(|b| b.is_ascii_digit())
+                    && clean.as_bytes()[4] == b'-'
+                    && clean.as_bytes()[7] == b'-';
+                let explicit_l3_meta = !root_date_prefixed
+                    || clean_lower.contains("adr")
+                    || doc.frontmatter.get("category").is_some()
+                    || doc.frontmatter.get("type").is_some()
+                    || doc.frontmatter.get("hierarchy").is_some()
+                    || !k0maru_core::guard::extractor::extract_rules_from_document(&doc).is_empty();
+                if (doc.hierarchy == HierarchyLevel::L3Evergreen && explicit_l3_meta)
+                    || !dir.is_empty()
+                {
                     let concept = extract_guard_aware_concept(&doc);
                     return Some((clean.to_string(), doc.path, concept));
                 }
@@ -927,13 +946,20 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
 
         for link in &project_doc.links {
             let target_str = link.target.replace('\\', "/");
+            let stem = target_str.rsplit('/').next().unwrap_or(&target_str);
+            let starts_with_date = stem.len() >= 10
+                && stem.as_bytes()[..4].iter().all(|b| b.is_ascii_digit())
+                && stem.as_bytes()[4] == b'-'
+                && stem.as_bytes()[7] == b'-';
 
-            // Check if card
-            let is_card_link = target_str.contains("20_Cards/")
-                || (!target_str.contains("01_AI_Logs/") && !target_str.contains("00_Daily/"));
+            let is_log_link = path_has_segment(&target_str, LOG_DIR_SEGMENTS) || starts_with_date;
+            let is_card_link = !path_has_segment(&target_str, LOG_DIR_SEGMENTS)
+                && !is_non_knowledge_path(&target_str);
 
+            let mut matched_as_card = false;
             if is_card_link && l3_cards.len() < 5 {
                 if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
+                    matched_as_card = true;
                     if !seen_cards.contains(&name) {
                         seen_cards.insert(name.clone());
                         l3_cards.push(L3CardSummary {
@@ -945,16 +971,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 }
             }
 
-            // Check if log
-            let is_log_link = target_str.contains("01_AI_Logs/")
-                || (target_str.len() >= 10
-                    && target_str.as_bytes()[..4]
-                        .iter()
-                        .all(|b| b.is_ascii_digit())
-                    && target_str.as_bytes()[4] == b'-'
-                    && target_str.as_bytes()[7] == b'-');
-
-            if is_log_link && l2_logs.len() < 3 {
+            if !matched_as_card && is_log_link && l2_logs.len() < 3 {
                 if let Some((name, path)) = self.resolve_l2_log(&target_str) {
                     if !seen_logs.contains(&name) {
                         seen_logs.insert(name.clone());
@@ -972,8 +989,21 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             if let Ok(cached_links) = self.storage.get_outgoing_links(&project_path) {
                 for link in cached_links {
                     let target_str = link.target.replace('\\', "/");
-                    if l3_cards.len() < 5 {
+                    let stem = target_str.rsplit('/').next().unwrap_or(&target_str);
+                    let starts_with_date = stem.len() >= 10
+                        && stem.as_bytes()[..4].iter().all(|b| b.is_ascii_digit())
+                        && stem.as_bytes()[4] == b'-'
+                        && stem.as_bytes()[7] == b'-';
+
+                    let is_log_link =
+                        path_has_segment(&target_str, LOG_DIR_SEGMENTS) || starts_with_date;
+                    let is_card_link = !path_has_segment(&target_str, LOG_DIR_SEGMENTS)
+                        && !is_non_knowledge_path(&target_str);
+
+                    let mut matched_as_card = false;
+                    if is_card_link && l3_cards.len() < 5 {
                         if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
+                            matched_as_card = true;
                             if !seen_cards.contains(&name) {
                                 seen_cards.insert(name.clone());
                                 l3_cards.push(L3CardSummary {
@@ -984,7 +1014,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                             }
                         }
                     }
-                    if l2_logs.len() < 3 {
+                    if !matched_as_card && is_log_link && l2_logs.len() < 3 {
                         if let Some((name, path)) = self.resolve_l2_log(&target_str) {
                             if !seen_logs.contains(&name) {
                                 seen_logs.insert(name.clone());
@@ -999,119 +1029,118 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             }
         }
 
-        // Auto-discover active L3 cards (20_Cards/) and recent L2 logs (01_AI_Logs/)
+        // Auto-discover active L3 cards and recent L2 logs
         let default_vault_root = PathBuf::from(".");
         let vault_root = self.adapter.root_path().unwrap_or(&default_vault_root);
-        let projects_dir = vault_root.join("10_Projects");
-        let project_md_count = if projects_dir.is_dir() {
-            std::fs::read_dir(&projects_dir)
-                .map(|entries| {
-                    entries
-                        .filter_map(|e| e.ok())
-                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
-                        .count()
-                })
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        let project_md_count = self.discover_project_paths().map(|p| p.len()).unwrap_or(0);
         let is_single_project_vault = project_md_count <= 1;
 
         if l3_cards.len() < 5 {
-            let cards_dir = vault_root.join("20_Cards");
-            if cards_dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&cards_dir) {
-                    let mut card_entries: Vec<_> = entries
-                        .filter_map(|e| e.ok())
-                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
-                        .collect();
+            const L3_CANDIDATE_DIRS: &[&str] =
+                &["decisions", "cards", "adr", "concepts", "20_Cards"];
+            for dir_name in L3_CANDIDATE_DIRS {
+                if l3_cards.len() >= 5 {
+                    break;
+                }
+                let cards_dir = vault_root.join(dir_name);
+                if cards_dir.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(&cards_dir) {
+                        let mut card_entries: Vec<_> = entries
+                            .filter_map(|e| e.ok())
+                            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                            .collect();
 
-                    card_entries.sort_by(|a, b| {
-                        let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
-                        let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
-                        match (mtime_a, mtime_b) {
-                            (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
-                            _ => b.file_name().cmp(&a.file_name()),
-                        }
-                    });
-
-                    for entry in card_entries {
-                        if l3_cards.len() >= 5 {
-                            break;
-                        }
-                        let rel_path = match entry.path().strip_prefix(vault_root) {
-                            Ok(p) => p.to_path_buf(),
-                            Err(_) => entry.path(),
-                        };
-                        let rel_path_str = rel_path.to_string_lossy().to_string();
-
-                        if let Ok(doc) = self.adapter.read_document(&rel_path) {
-                            if !doc.is_active() {
-                                continue;
+                        card_entries.sort_by(|a, b| {
+                            let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
+                            let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
+                            match (mtime_a, mtime_b) {
+                                (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
+                                _ => b.file_name().cmp(&a.file_name()),
                             }
+                        });
 
-                            let links_to_project = doc.links.iter().any(|l| {
-                                let clean = l.target.trim_end_matches(".md");
-                                clean == project_stem
-                                    || clean.ends_with(&format!("/{}", project_stem))
-                            });
+                        for entry in card_entries {
+                            if l3_cards.len() >= 5 {
+                                break;
+                            }
+                            let rel_path = match entry.path().strip_prefix(vault_root) {
+                                Ok(p) => p.to_path_buf(),
+                                Err(_) => entry.path(),
+                            };
+                            let rel_path_str = rel_path.to_string_lossy().to_string();
 
-                            let frontmatter_matches = doc
-                                .frontmatter
-                                .get("project")
-                                .or_else(|| doc.frontmatter.get("projects"))
-                                .is_some_and(|val| {
-                                    if let Some(s) = val.as_str() {
-                                        let s_clean =
-                                            s.trim_start_matches("[[").trim_end_matches("]]");
-                                        let s_clean = s_clean.trim_end_matches(".md");
-                                        s_clean == project_stem
-                                            || s_clean.ends_with(&format!("/{}", project_stem))
-                                    } else if let Some(arr) = val.as_array() {
-                                        arr.iter().any(|item| {
-                                            if let Some(s) = item.as_str() {
-                                                let s_clean = s
-                                                    .trim_start_matches("[[")
-                                                    .trim_end_matches("]]");
-                                                let s_clean = s_clean.trim_end_matches(".md");
-                                                s_clean == project_stem
-                                                    || s_clean
-                                                        .ends_with(&format!("/{}", project_stem))
-                                            } else {
-                                                false
-                                            }
-                                        })
-                                    } else {
-                                        false
-                                    }
+                            if let Ok(doc) = self.adapter.read_document(&rel_path) {
+                                if !doc.is_active() {
+                                    continue;
+                                }
+
+                                let links_to_project = doc.links.iter().any(|l| {
+                                    let clean = l.target.trim_end_matches(".md");
+                                    clean == project_stem
+                                        || clean.ends_with(&format!("/{}", project_stem))
                                 });
 
-                            let is_adr_or_guard =
-                                !k0maru_core::guard::extractor::extract_rules_from_document(&doc)
+                                let frontmatter_matches = doc
+                                    .frontmatter
+                                    .get("project")
+                                    .or_else(|| doc.frontmatter.get("projects"))
+                                    .is_some_and(|val| {
+                                        if let Some(s) = val.as_str() {
+                                            let s_clean =
+                                                s.trim_start_matches("[[").trim_end_matches("]]");
+                                            let s_clean = s_clean.trim_end_matches(".md");
+                                            s_clean == project_stem
+                                                || s_clean.ends_with(&format!("/{}", project_stem))
+                                        } else if let Some(arr) = val.as_array() {
+                                            arr.iter().any(|item| {
+                                                if let Some(s) = item.as_str() {
+                                                    let s_clean = s
+                                                        .trim_start_matches("[[")
+                                                        .trim_end_matches("]]");
+                                                    let s_clean = s_clean.trim_end_matches(".md");
+                                                    s_clean == project_stem
+                                                        || s_clean.ends_with(&format!(
+                                                            "/{}",
+                                                            project_stem
+                                                        ))
+                                                } else {
+                                                    false
+                                                }
+                                            })
+                                        } else {
+                                            false
+                                        }
+                                    });
+
+                                let is_adr_or_guard =
+                                    !k0maru_core::guard::extractor::extract_rules_from_document(
+                                        &doc,
+                                    )
                                     .is_empty()
-                                    || rel_path_str.to_lowercase().contains("adr")
-                                    || rel_path_str.to_lowercase().contains("decision")
-                                    || doc
-                                        .frontmatter
-                                        .get("category")
-                                        .and_then(|c| c.as_str())
-                                        .is_some_and(|c| c == "decision" || c == "adr");
+                                        || rel_path_str.to_lowercase().contains("adr")
+                                        || rel_path_str.to_lowercase().contains("decision")
+                                        || doc
+                                            .frontmatter
+                                            .get("category")
+                                            .and_then(|c| c.as_str())
+                                            .is_some_and(|c| c == "decision" || c == "adr");
 
-                            let should_include = links_to_project
-                                || frontmatter_matches
-                                || (is_single_project_vault && is_adr_or_guard);
+                                let should_include = links_to_project
+                                    || frontmatter_matches
+                                    || (is_single_project_vault && is_adr_or_guard);
 
-                            if should_include {
-                                if let Some((name, resolved_path, concept)) =
-                                    self.resolve_l3_card(&rel_path_str)
-                                {
-                                    if !seen_cards.contains(&name) {
-                                        seen_cards.insert(name.clone());
-                                        l3_cards.push(L3CardSummary {
-                                            name,
-                                            path: resolved_path.to_string_lossy().to_string(),
-                                            concept,
-                                        });
+                                if should_include {
+                                    if let Some((name, resolved_path, concept)) =
+                                        self.resolve_l3_card(&rel_path_str)
+                                    {
+                                        if !seen_cards.contains(&name) {
+                                            seen_cards.insert(name.clone());
+                                            l3_cards.push(L3CardSummary {
+                                                name,
+                                                path: resolved_path.to_string_lossy().to_string(),
+                                                concept,
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -1122,54 +1151,62 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         }
 
         if l2_logs.len() < 3 {
-            let logs_dir = vault_root.join("01_AI_Logs");
-            if logs_dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&logs_dir) {
-                    let mut log_entries: Vec<_> = entries
-                        .filter_map(|e| e.ok())
-                        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
-                        .collect();
+            const L2_CANDIDATE_DIRS: &[&str] =
+                &["logs", "journal", "records", "01_AI_Logs", "30_Logs"];
+            for dir_name in L2_CANDIDATE_DIRS {
+                if l2_logs.len() >= 3 {
+                    break;
+                }
+                let logs_dir = vault_root.join(dir_name);
+                if logs_dir.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(&logs_dir) {
+                        let mut log_entries: Vec<_> = entries
+                            .filter_map(|e| e.ok())
+                            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                            .collect();
 
-                    log_entries.sort_by(|a, b| {
-                        let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
-                        let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
-                        match (mtime_a, mtime_b) {
-                            (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
-                            _ => b.file_name().cmp(&a.file_name()),
-                        }
-                    });
+                        log_entries.sort_by(|a, b| {
+                            let mtime_a = a.metadata().and_then(|m| m.modified()).ok();
+                            let mtime_b = b.metadata().and_then(|m| m.modified()).ok();
+                            match (mtime_a, mtime_b) {
+                                (Some(ta), Some(tb)) if ta != tb => tb.cmp(&ta),
+                                _ => b.file_name().cmp(&a.file_name()),
+                            }
+                        });
 
-                    for entry in log_entries {
-                        if l2_logs.len() >= 3 {
-                            break;
-                        }
-                        let rel_path = match entry.path().strip_prefix(vault_root) {
-                            Ok(p) => p.to_path_buf(),
-                            Err(_) => entry.path(),
-                        };
-                        let rel_path_str = rel_path.to_string_lossy().to_string();
+                        for entry in log_entries {
+                            if l2_logs.len() >= 3 {
+                                break;
+                            }
+                            let rel_path = match entry.path().strip_prefix(vault_root) {
+                                Ok(p) => p.to_path_buf(),
+                                Err(_) => entry.path(),
+                            };
+                            let rel_path_str = rel_path.to_string_lossy().to_string();
 
-                        let should_include = if is_single_project_vault {
-                            true
-                        } else if let Ok(doc) = self.adapter.read_document(&rel_path) {
-                            doc.links.iter().any(|l| {
-                                let clean = l.target.trim_end_matches(".md");
-                                clean == project_stem
-                                    || clean.ends_with(&format!("/{}", project_stem))
-                            }) || doc.body.contains(&project_stem)
-                        } else {
-                            false
-                        };
+                            let should_include = if is_single_project_vault {
+                                true
+                            } else if let Ok(doc) = self.adapter.read_document(&rel_path) {
+                                doc.links.iter().any(|l| {
+                                    let clean = l.target.trim_end_matches(".md");
+                                    clean == project_stem
+                                        || clean.ends_with(&format!("/{}", project_stem))
+                                }) || doc.body.contains(&project_stem)
+                            } else {
+                                false
+                            };
 
-                        if should_include {
-                            if let Some((name, resolved_path)) = self.resolve_l2_log(&rel_path_str)
-                            {
-                                if !seen_logs.contains(&name) {
-                                    seen_logs.insert(name.clone());
-                                    l2_logs.push(L2LogSummary {
-                                        name,
-                                        path: resolved_path.to_string_lossy().to_string(),
-                                    });
+                            if should_include {
+                                if let Some((name, resolved_path)) =
+                                    self.resolve_l2_log(&rel_path_str)
+                                {
+                                    if !seen_logs.contains(&name) {
+                                        seen_logs.insert(name.clone());
+                                        l2_logs.push(L2LogSummary {
+                                            name,
+                                            path: resolved_path.to_string_lossy().to_string(),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -1189,8 +1226,13 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             lines.push("- *(No linked L3 architecture cards yet)*".to_string());
         } else {
             for card in &l3_cards {
-                let link_target = if card.path.contains("20_Cards") {
+                let norm_path = card.path.replace('\\', "/");
+                let link_target = if norm_path.contains("20_Cards/") {
                     format!("20_Cards/{}", card.name)
+                } else if norm_path.contains("decisions/") {
+                    format!("decisions/{}", card.name)
+                } else if norm_path.contains("cards/") {
+                    format!("cards/{}", card.name)
                 } else {
                     card.name.clone()
                 };
@@ -1208,8 +1250,13 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
             lines.push("- *(No recent L2 engineering logs)*".to_string());
         } else {
             for log in &l2_logs {
-                let link_target = if log.path.contains("01_AI_Logs") {
+                let norm_path = log.path.replace('\\', "/");
+                let link_target = if norm_path.contains("01_AI_Logs/") {
                     format!("01_AI_Logs/{}", log.name)
+                } else if norm_path.contains("logs/") {
+                    format!("logs/{}", log.name)
+                } else if norm_path.contains("journal/") {
+                    format!("journal/{}", log.name)
                 } else {
                     log.name.clone()
                 };
@@ -1219,17 +1266,17 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
 
         lines.push(String::new());
         if has_daily_notes {
-            lines.push("## 🛡️ Operating Rules (Obsidian Vault Protocol)".to_string());
+            lines.push("## 🛡️ Operating Rules (LLM-Wiki Protocol)".to_string());
             lines.push(
                 "1. **WikiLinks First**: Use bare native WikiLinks `[[...]]`; never wrap them in backticks."
                     .to_string(),
             );
             lines.push(
-                "2. **Symbolic Offloading**: Write outputs longer than 50 lines to external logs under `01_AI_Logs/`; keep only the Mermaid map in the main context."
+                "2. **Symbolic Offloading**: Write outputs longer than 50 lines to external logs under `01_AI_Logs/` or `logs/`; keep only the Mermaid map in the main context."
                     .to_string(),
             );
             lines.push(
-                "3. **Discuss Before Persisting**: Confirm major changes first; never pollute `00_Daily` or the flat `20_Cards/` tree."
+                "3. **Discuss Before Persisting**: Confirm major changes first; never pollute daily scratchpads or the persistent cards tree."
                     .to_string(),
             );
         } else {
@@ -1340,12 +1387,24 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
         };
 
         // 2. Discover all candidate ADR cards from project links and vault
+        let is_excluded_card_path = |p: &Path| -> bool {
+            let p_str = p.to_string_lossy().replace('\\', "/");
+            if is_non_knowledge_path(&p_str) {
+                return true;
+            }
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                let stem_lower = stem.to_lowercase();
+                if stem_lower == "index" || stem_lower == "readme" || stem_lower == "template" {
+                    return true;
+                }
+            }
+            false
+        };
+
         let mut candidate_cards: Vec<ScoredCard> = Vec::new();
         let mut seen_card_names = HashSet::new();
         seen_card_names.insert(project_stem.clone());
         seen_card_names.insert(format!("{}.md", project_stem));
-
-        // 2a. Direct project links
         for link in &project_doc.links {
             let target_str = link.target.replace('\\', "/");
             let is_card_link = target_str.contains("20_Cards/")
@@ -1355,7 +1414,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
                     if name != project_stem
                         && path != project_path
-                        && !path.to_string_lossy().contains("10_Projects")
+                        && !is_excluded_card_path(&path)
                         && seen_card_names.insert(name.clone())
                     {
                         let score = score_card_relevance(
@@ -1384,7 +1443,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                 if let Some((name, path, concept)) = self.resolve_l3_card(&target_str) {
                     if name != project_stem
                         && path != project_path
-                        && !path.to_string_lossy().contains("10_Projects")
+                        && !is_excluded_card_path(&path)
                         && seen_card_names.insert(name.clone())
                     {
                         let score = score_card_relevance(
@@ -1415,7 +1474,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                     if let Some((name, path, concept)) = self.resolve_l3_card(&f_str) {
                         if name != project_stem
                             && path != project_path
-                            && !path.to_string_lossy().contains("10_Projects")
+                            && !is_excluded_card_path(&path)
                             && seen_card_names.insert(name.clone())
                         {
                             let score = score_card_relevance(
@@ -1451,7 +1510,7 @@ impl<'a, A: VaultAdapter, S: CacheStorage> LoadoutBuilder<'a, A, S> {
                         if let Some((name, path, concept)) = self.resolve_l3_card(&doc_path_str) {
                             if name != project_stem
                                 && path != project_path
-                                && !path.to_string_lossy().contains("10_Projects")
+                                && !is_excluded_card_path(&path)
                                 && seen_card_names.insert(name.clone())
                             {
                                 let score = score_card_relevance(
@@ -1746,8 +1805,13 @@ fn assemble_diff_loadout_markdown(
         );
     } else {
         for card in cards {
-            let link_target = if card.path.contains("20_Cards") {
+            let norm_path = card.path.replace('\\', "/");
+            let link_target = if norm_path.contains("20_Cards/") {
                 format!("20_Cards/{}", card.name)
+            } else if norm_path.contains("decisions/") {
+                format!("decisions/{}", card.name)
+            } else if norm_path.contains("cards/") {
+                format!("cards/{}", card.name)
             } else {
                 card.name.clone()
             };
@@ -1765,8 +1829,13 @@ fn assemble_diff_loadout_markdown(
         lines.push("- *(No recent L2 engineering logs)*".to_string());
     } else {
         for log in l2_logs {
-            let link_target = if log.path.contains("01_AI_Logs") {
+            let norm_path = log.path.replace('\\', "/");
+            let link_target = if norm_path.contains("01_AI_Logs/") {
                 format!("01_AI_Logs/{}", log.name)
+            } else if norm_path.contains("logs/") {
+                format!("logs/{}", log.name)
+            } else if norm_path.contains("journal/") {
+                format!("journal/{}", log.name)
             } else {
                 log.name.clone()
             };
@@ -1776,7 +1845,7 @@ fn assemble_diff_loadout_markdown(
 
     lines.push(String::new());
     if has_daily_notes {
-        lines.push("## 🛡️ Operating Rules (Obsidian Vault Protocol)".to_string());
+        lines.push("## 🛡️ Operating Rules (LLM-Wiki Protocol)".to_string());
         lines.push(
             "1. **WikiLinks First**: Use bare native WikiLinks `[[...]]`; never wrap them in backticks."
                 .to_string(),

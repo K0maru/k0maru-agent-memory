@@ -50,6 +50,7 @@ impl SqliteStorage {
         }
 
         let conn = rusqlite::Connection::open(path_ref)?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;

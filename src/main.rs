@@ -82,6 +82,12 @@ enum Commands {
     /// Export, import, or inspect portable LLM-Wiki Memory Packs (.pack.json)
     Pack(PackArgs),
 
+    /// Execute zero-LLM passive lifecycle hooks (session-start, post-tool-failure, stop, session-end)
+    Hook(HookArgs),
+
+    /// Inspect chronological memory timeline (L2 logs, passive session observations, and L3 ADR milestones)
+    Timeline(TimelineArgs),
+
     #[command(about = "Launch the local developer dashboard and visual memory explorer")]
     Ui {
         #[arg(short, long, help = "Path to the markdown vault")]
@@ -598,6 +604,71 @@ pub struct PackListArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct HookArgs {
+    /// Hook lifecycle event: session-start, post-tool-failure, stop, or session-end
+    #[arg(value_name = "EVENT")]
+    pub event: String,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Target repository path (defaults to current working directory)
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<PathBuf>,
+
+    /// Optional project slug or name
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Tool name (for post-tool-failure)
+    #[arg(long, value_name = "TOOL")]
+    pub tool: Option<String>,
+
+    /// Explicit summary or error message
+    #[arg(long, value_name = "TEXT")]
+    pub summary: Option<String>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TimelineArgs {
+    /// Optional anchor note path, title substring, or YYYY-MM-DD date
+    #[arg(value_name = "ANCHOR")]
+    pub anchor: Option<String>,
+
+    /// Target vault path (defaults to detected vault)
+    #[arg(short, long, value_name = "PATH")]
+    pub vault: Option<PathBuf>,
+
+    /// Number of chronological entries to return
+    #[arg(short, long, default_value_t = 15)]
+    pub window: usize,
+
+    /// Optional project filter
+    #[arg(short, long, value_name = "PROJECT")]
+    pub project: Option<String>,
+
+    /// Output timeline as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+fn is_structured_vault_path(vault_path: &Path) -> bool {
+    vault_path.join(".obsidian").is_dir()
+        || vault_path.join("projects").is_dir()
+        || vault_path.join("decisions").is_dir()
+        || vault_path.join("cards").is_dir()
+        || vault_path.join("logs").is_dir()
+        || vault_path.join("10_Projects").is_dir()
+        || vault_path.join("20_Cards").is_dir()
+        || vault_path.join("01_AI_Logs").is_dir()
+}
+
 /// Resolves the markdown vault `k0maru` should operate on.
 ///
 /// Detection is deliberately conservative: `~/.k0maru` is the global model
@@ -646,9 +717,20 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
         // home directory as a knowledge base.
         if home_dir.as_deref() != Some(curr)
             && (curr.join(".obsidian").is_dir()
-                || (curr.join("10_Projects").is_dir() && curr.join("20_Cards").is_dir()))
+                || (curr.join("10_Projects").is_dir() && curr.join("20_Cards").is_dir())
+                || (curr.join("INDEX.md").is_file()
+                    && (curr.join("decisions").is_dir()
+                        || curr.join("projects").is_dir()
+                        || curr.join("logs").is_dir())))
         {
             return curr.to_path_buf();
+        }
+    }
+
+    // If K0MARU_CONFIG_PATH is explicitly set, honor its configured vault_path.
+    if k0maru::config::K0maruConfig::has_explicit_env_path() {
+        if let Some(cfg_vault) = k0maru::config::K0maruConfig::load().vault_path {
+            return cfg_vault;
         }
     }
 
@@ -658,6 +740,11 @@ fn detect_vault_path(explicit: Option<PathBuf>) -> PathBuf {
     let repo_wiki = repo_root.join(".k0maru").join("wiki");
     if repo_wiki.is_dir() || repo_root.join(".git").exists() {
         return repo_wiki;
+    }
+
+    // Outside any Git repository, check persistent `~/.config/k0maru/config.toml`.
+    if let Some(cfg_vault) = k0maru::config::K0maruConfig::load().vault_path {
+        return cfg_vault;
     }
 
     cwd.join(".k0maru").join("wiki")
@@ -1075,7 +1162,7 @@ fn run_loadout_with_adapter<A: VaultAdapter>(
 
 fn run_loadout(args: LoadoutArgs) -> Result<(), Box<dyn std::error::Error>> {
     let vault_path = detect_vault_path(args.vault.clone());
-    if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
+    if is_structured_vault_path(&vault_path) {
         let adapter = ObsidianAdapter::new(&vault_path);
         run_loadout_with_adapter(&adapter, &vault_path, args)
     } else {
@@ -1207,36 +1294,35 @@ fn run_sync(args: SyncArgs) -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let (stats, vec_stats) =
-        if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
-            let adapter = ObsidianAdapter::new(&vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            if args.force {
-                let sync_stats = scanner.sync(true)?;
-                let vec_stats = if let Some(ref engine) = embedder {
-                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
-                } else {
-                    k0maru::scanner::VectorSyncStats::default()
-                };
-                (sync_stats, vec_stats)
+    let (stats, vec_stats) = if is_structured_vault_path(&vault_path) {
+        let adapter = ObsidianAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        if args.force {
+            let sync_stats = scanner.sync(true)?;
+            let vec_stats = if let Some(ref engine) = embedder {
+                k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
             } else {
-                scanner.sync_vault_with_vector(&vault_path, embedder)?
-            }
+                k0maru::scanner::VectorSyncStats::default()
+            };
+            (sync_stats, vec_stats)
         } else {
-            let adapter = GenericWikiAdapter::new(&vault_path);
-            let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
-            if args.force {
-                let sync_stats = scanner.sync(true)?;
-                let vec_stats = if let Some(ref engine) = embedder {
-                    k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
-                } else {
-                    k0maru::scanner::VectorSyncStats::default()
-                };
-                (sync_stats, vec_stats)
+            scanner.sync_vault_with_vector(&vault_path, embedder)?
+        }
+    } else {
+        let adapter = GenericWikiAdapter::new(&vault_path);
+        let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
+        if args.force {
+            let sync_stats = scanner.sync(true)?;
+            let vec_stats = if let Some(ref engine) = embedder {
+                k0maru::scanner::VectorSyncEngine::sync(scanner.storage_mut(), &**engine)?
             } else {
-                scanner.sync_vault_with_vector(&vault_path, embedder)?
-            }
-        };
+                k0maru::scanner::VectorSyncStats::default()
+            };
+            (sync_stats, vec_stats)
+        } else {
+            scanner.sync_vault_with_vector(&vault_path, embedder)?
+        }
+    };
 
     if args.json {
         if args.vector {
@@ -1308,7 +1394,7 @@ fn handle_search(args: SearchArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // Keep the index fresh (and self-heal a deleted `cache.sqlite`) before
     // answering, so `k0maru search` always sees newly written markdown notes.
-    if vault_path.join("10_Projects").is_dir() || vault_path.join(".obsidian").exists() {
+    if is_structured_vault_path(&vault_path) {
         let adapter = ObsidianAdapter::new(&vault_path);
         let mut scanner = IncrementalScanner::new(&adapter, &mut storage);
         let _ = scanner.sync(false);
@@ -1966,6 +2052,100 @@ fn run_pack(args: PackArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn run_hook_cmd(args: HookArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+
+    let event = match args.event.trim().to_lowercase().as_str() {
+        "session-start" | "session_start" | "start" => k0maru::hook::HookEvent::SessionStart,
+        "post-tool-failure" | "post_tool_failure" | "post-tool-use-failure" | "failure" => {
+            k0maru::hook::HookEvent::PostToolFailure
+        }
+        "stop" => k0maru::hook::HookEvent::Stop,
+        "session-end" | "session_end" | "end" => k0maru::hook::HookEvent::SessionEnd,
+        other => {
+            return Err(format!(
+                "Unknown hook event '{}'. Expected session-start, post-tool-failure, stop, or session-end.",
+                other
+            )
+            .into());
+        }
+    };
+
+    let stdin_payload = if matches!(
+        event,
+        k0maru::hook::HookEvent::PostToolFailure | k0maru::hook::HookEvent::Stop
+    ) && args.summary.is_none()
+        && !std::io::stdin().is_terminal()
+    {
+        let mut buf = String::new();
+        let _ = std::io::stdin().take(64 * 1024).read_to_string(&mut buf);
+        if buf.trim().is_empty() {
+            None
+        } else {
+            Some(buf)
+        }
+    } else {
+        None
+    };
+
+    let vault_path = detect_vault_path(args.vault);
+    let options = k0maru::hook::HookOptions {
+        event,
+        vault_path,
+        repo_path: args.repo,
+        project: args.project,
+        tool_name: args.tool,
+        summary: args.summary,
+        stdin_payload,
+    };
+    let report = k0maru::hook::run_hook(&options)?;
+    if args.json {
+        safe_println(&serde_json::to_string_pretty(&report)?);
+    } else if let Some(md) = &report.output_markdown {
+        safe_print(md);
+        if !md.ends_with('\n') {
+            safe_println("");
+        }
+    }
+    if !report.guard_passed {
+        std::process::exit(2);
+    }
+    Ok(())
+}
+
+fn run_timeline_cmd(args: TimelineArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let vault_path = detect_vault_path(args.vault);
+    let query = k0maru::hook::TimelineQuery {
+        anchor: args.anchor,
+        window: args.window,
+        project: args.project,
+    };
+    let entries = k0maru::hook::build_timeline(&vault_path, &query)?;
+    if args.json {
+        safe_println(&serde_json::to_string_pretty(&entries)?);
+    } else if entries.is_empty() {
+        safe_println("No timeline entries found in vault.");
+    } else {
+        safe_println(&format!(
+            "🕒 Memory Timeline ({} entries in {}):",
+            entries.len(),
+            vault_path.display()
+        ));
+        for entry in &entries {
+            safe_println(&format!(
+                "  [{}] [{} // {}] {} ({}) — {}",
+                entry.date,
+                entry.hierarchy,
+                entry.kind.to_uppercase(),
+                entry.title,
+                entry.relative_path,
+                entry.summary
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -2126,6 +2306,18 @@ fn main() {
         }
         Some(Commands::Pack(args)) => {
             if let Err(e) = run_pack(args) {
+                eprintln!("❌ Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Hook(args)) => {
+            if let Err(e) = run_hook_cmd(args) {
+                eprintln!("❌ Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Timeline(args)) => {
+            if let Err(e) = run_timeline_cmd(args) {
                 eprintln!("❌ Error: {}", e);
                 std::process::exit(1);
             }

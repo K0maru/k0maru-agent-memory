@@ -217,11 +217,21 @@ fn matches_file_pattern(pattern_opt: Option<&str>, path: &Path) -> bool {
         || path_str.starts_with("20_Cards/")
         || path_str.starts_with("01_AI_Logs/")
         || path_str.starts_with("00_Daily/")
+        || path_str.starts_with("projects/")
+        || path_str.starts_with("decisions/")
+        || path_str.starts_with("cards/")
+        || path_str.starts_with("logs/")
+        || path_str.starts_with("daily/")
         || path_str.starts_with(".k0maru/wiki/")
         || path_str.contains("/10_Projects/")
         || path_str.contains("/20_Cards/")
         || path_str.contains("/01_AI_Logs/")
         || path_str.contains("/00_Daily/")
+        || path_str.contains("/projects/")
+        || path_str.contains("/decisions/")
+        || path_str.contains("/cards/")
+        || path_str.contains("/logs/")
+        || path_str.contains("/daily/")
         || path_str.contains("/.k0maru/wiki/");
 
     let is_exempt_markdown = is_markdown && !is_under_src_or_lib && is_vault_dir;
