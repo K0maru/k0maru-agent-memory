@@ -55,12 +55,22 @@ impl ConventionSniffer {
         }
 
         // 2. Probe for templates
-        let template_dirs = ["templates", "_templates", ".obsidian/templates"];
+        let template_dirs = [
+            "Templates",
+            "templates",
+            "_templates",
+            ".obsidian/templates",
+        ];
+        let mut category_templates = HashMap::new();
         for dir in template_dirs {
             let tdir = canonical_root.join(dir);
             if tdir.is_dir() {
+                category_templates = probe_category_templates_in_dir(&tdir);
                 if let Some(t_content) = probe_template_in_dir(&tdir) {
                     template = Some(t_content);
+                    break;
+                }
+                if !category_templates.is_empty() {
                     break;
                 }
             }
@@ -81,6 +91,7 @@ impl ConventionSniffer {
             naming_style,
             has_frontmatter,
             template,
+            category_templates,
         }
     }
 }
@@ -305,6 +316,55 @@ fn probe_template_in_dir(tdir: &Path) -> Option<String> {
     }
 
     None
+}
+
+/// Inspects template directory and maps category-specific filenames (e.g. `Tech Card Template.md`,
+/// `AI Log Template.md`, `decision.md`) to canonical categories without picking daily note templates.
+fn probe_category_templates_in_dir(tdir: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(entries) = fs::read_dir(tdir) else {
+        return map;
+    };
+    let mut md_files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("md"))
+        .collect();
+    md_files.sort();
+
+    for path in md_files {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if stem.contains("daily") {
+            continue;
+        }
+        let category = if stem.contains("decision") || stem.contains("adr") {
+            Some("decision")
+        } else if stem.contains("card") || stem.contains("concept") {
+            Some("concept")
+        } else if stem.contains("log") || stem.contains("journal") {
+            Some("log")
+        } else if stem.contains("project") {
+            Some("project")
+        } else if stem.contains("skill") || stem.contains("playbook") {
+            Some("skill")
+        } else {
+            None
+        };
+
+        if let Some(cat) = category {
+            if !map.contains_key(cat) {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    map.insert(cat.to_string(), content);
+                }
+            }
+        }
+    }
+
+    map
 }
 
 /// Statistical topology matching for standard category folders.

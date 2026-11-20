@@ -583,3 +583,71 @@ fn test_flush_supersedes_frontmatter_links_resolved_relative_path() {
     let old = fs::read_to_string(cards.join("adr-010-legacy-setnx-lock.md")).unwrap();
     assert!(old.contains("status: superseded"), "got:\n{old}");
 }
+
+#[test]
+fn test_flush_selects_category_specific_template() {
+    let temp = tempdir().unwrap();
+    let vault_root = temp.path();
+    let templates = vault_root.join("Templates");
+    fs::create_dir_all(&templates).unwrap();
+    fs::create_dir_all(vault_root.join("01_AI_Logs")).unwrap();
+    fs::create_dir_all(vault_root.join("20_Cards")).unwrap();
+
+    fs::write(
+        templates.join("AI Log Template.md"),
+        "---\ndate: <% tp.file.creation_date(\"YYYY-MM-DD\") %>\ntags:\n  - type/ai-log\n---\n\n# <% tp.file.title %>\n\n{{content}}\n",
+    )
+    .unwrap();
+    fs::write(
+        templates.join("Tech Card Template.md"),
+        "---\ndate: <% tp.file.creation_date(\"YYYY-MM-DD\") %>\ntags:\n  - type/card\n---\n\n# <% tp.file.title %>\n\n{{content}}\n",
+    )
+    .unwrap();
+
+    let engine = FlushEngine::new(vault_root).unwrap();
+
+    let card_res = engine
+        .flush(FlushRequest {
+            title: "Atomic Invariant".to_string(),
+            summary: None,
+            content: "Evergreen concept body.".to_string(),
+            category: "card".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec![],
+        })
+        .unwrap();
+    assert_eq!(card_res.category, "concept");
+    let card_written = fs::read_to_string(&card_res.file_path).unwrap();
+    assert!(
+        card_written.contains("type/card"),
+        "card flush must use Tech Card Template, got:\n{card_written}"
+    );
+    assert!(
+        !card_written.contains("type/ai-log"),
+        "card flush must never inherit type/ai-log, got:\n{card_written}"
+    );
+    assert!(
+        !card_written.contains("<% tp.file.creation_date"),
+        "Templater creation_date must be substituted, got:\n{card_written}"
+    );
+
+    let log_res = engine
+        .flush(FlushRequest {
+            title: "Daily Run Log".to_string(),
+            summary: None,
+            content: "Execution run trace.".to_string(),
+            category: "log".to_string(),
+            tags: vec![],
+            related_notes: vec![],
+            dry_run: false,
+            supersedes: vec![],
+        })
+        .unwrap();
+    let log_written = fs::read_to_string(&log_res.file_path).unwrap();
+    assert!(
+        log_written.contains("type/ai-log"),
+        "log flush must use AI Log Template, got:\n{log_written}"
+    );
+}

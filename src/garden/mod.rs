@@ -141,7 +141,7 @@ pub fn run_garden(
     }
 
     // 2. Broken links: `links` rows resolving to `Resolution::Broken` (Assets & SelfRefs skipped).
-    let broken_links = detect_broken_links(storage, &resolver)?;
+    let broken_links = detect_broken_links(vault_path, storage, &resolver)?;
 
     // 3. Duplicate active L3 cards (excluding superseded pairs).
     let duplicates = detect_duplicates(storage, &docs, &resolver)?;
@@ -267,6 +267,7 @@ fn load_link_edges(storage: &SqliteStorage) -> Result<Vec<(i64, i64)>, Box<dyn s
 }
 
 fn detect_broken_links(
+    vault_path: &Path,
     storage: &SqliteStorage,
     resolver: &LinkResolver,
 ) -> Result<Vec<BrokenLinkReport>, Box<dyn std::error::Error>> {
@@ -286,7 +287,9 @@ fn detect_broken_links(
     for row in rows {
         let (source_raw, target, raw) = row?;
         let source = source_raw.replace('\\', "/");
-        if matches!(resolver.resolve(&source, &target), Resolution::Broken) {
+        if matches!(resolver.resolve(&source, &target), Resolution::Broken)
+            && !ignored_target_exists_on_disk(vault_path, &target)
+        {
             broken.push(BrokenLinkReport {
                 source,
                 target,
@@ -295,6 +298,36 @@ fn detect_broken_links(
         }
     }
     Ok(broken)
+}
+
+/// Fallback disk existence check for links targeting `.k0maruignore`d cold archives.
+fn ignored_target_exists_on_disk(vault_path: &Path, target: &str) -> bool {
+    let without_alias = target.split('|').next().unwrap_or("");
+    let without_heading = without_alias.split('#').next().unwrap_or("").trim();
+    let clean = without_heading
+        .trim_start_matches("./")
+        .trim_start_matches('/');
+    if clean.is_empty() {
+        return false;
+    }
+
+    let rel = Path::new(clean);
+    if rel.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return false;
+    }
+
+    let exact = vault_path.join(rel);
+    if exact.is_file() {
+        return true;
+    }
+    !clean.ends_with(".md") && vault_path.join(format!("{clean}.md")).is_file()
 }
 
 fn collect_supersession_pairs(

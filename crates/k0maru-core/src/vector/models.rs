@@ -78,7 +78,10 @@ impl EmbeddingModelType {
     }
 
     /// Parses a string into an [`EmbeddingModelType`], resolving aliases and case insensitivity.
-    #[allow(clippy::should_implement_trait)]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "inherent from_str helper delegates to FromStr for backwards-compatible public API"
+    )]
     pub fn from_str(s: &str) -> Result<Self, VectorError> {
         <Self as FromStr>::from_str(s)
     }

@@ -76,3 +76,9 @@ strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[workspace.lints.clippy]
+allow_attributes_without_reason = "deny"
+
+[lints]
+workspace = true

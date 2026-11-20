@@ -15,8 +15,8 @@ use crate::storage::locate::{
     format_locator, locate_sections_for_results, vector_scope_enabled, SectionLocator,
 };
 use crate::storage::rank_signals::{
-    compute_access_reinforcement, compute_decay, current_unix_timestamp, fetch_doc_ids_by_paths,
-    fetch_paths_by_doc_ids, DecayConfig,
+    compute_access_reinforcement, compute_decay, current_unix_timestamp, expired_stale_after_label,
+    fetch_doc_ids_by_paths, fetch_paths_by_doc_ids, DecayConfig,
 };
 use crate::storage::SqliteStorage;
 use crate::text::FtsQueryTier;
@@ -772,6 +772,8 @@ impl<'a> HybridSearchEngine<'a> {
                     cand.superseded_label.as_deref(),
                     snippet,
                 );
+            } else if let Some(stale_date) = expired_stale_after_label(&cand.frontmatter, now) {
+                snippet = format!("[STALE since {stale_date}] {snippet}");
             }
 
             results.push(SearchResult {
@@ -947,7 +949,13 @@ impl<'a> HybridSearchEngine<'a> {
             let r_n =
                 compute_access_reinforcement(n_access_stats.get(&item.path).copied(), ctx.now);
             let f_n = item.s_n * d_n * r_n;
-            let snippet = generate_snippet(&item.doc.body, ctx.query, 200);
+            let mut snippet = generate_snippet(&item.doc.body, ctx.query, 200);
+            if item.doc.is_active() {
+                if let Some(stale_date) = expired_stale_after_label(&item.doc.frontmatter, ctx.now)
+                {
+                    snippet = format!("[STALE since {stale_date}] {snippet}");
+                }
+            }
 
             expansions.push(SearchResult {
                 path: item.path,
@@ -1105,6 +1113,16 @@ pub(crate) fn format_doc_lifecycle_snippet(
     snippet: String,
 ) -> String {
     if doc.is_active() {
+        let now = engine.now_override.unwrap_or_else(current_unix_timestamp);
+        if let Some(stale_date) = expired_stale_after_label(&doc.frontmatter, now) {
+            if !snippet.starts_with("[STALE") {
+                return if snippet.is_empty() {
+                    format!("[STALE since {stale_date}]")
+                } else {
+                    format!("[STALE since {stale_date}] {snippet}")
+                };
+            }
+        }
         return snippet;
     }
     let label = doc.superseded_by();

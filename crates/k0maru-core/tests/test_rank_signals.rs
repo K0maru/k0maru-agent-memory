@@ -4,7 +4,7 @@ use std::sync::Arc;
 use k0maru_core::core::models::{Document, HierarchyLevel, WikiLink};
 use k0maru_core::core::traits::CacheStorage;
 use k0maru_core::storage::rank_signals::{
-    compute_access_reinforcement, compute_decay, DecayConfig,
+    compute_access_reinforcement, compute_decay, DecayConfig, STALE_AFTER_MULTIPLIER,
 };
 use k0maru_core::storage::{GraphBoostMode, HybridSearchEngine, SearchMode, SqliteStorage};
 use k0maru_core::vector::{EmbeddingEngine, MockEmbeddingEngine, VectorError};
@@ -825,4 +825,77 @@ fn test_expanded_hit_section_locate_and_git_time_custom_decay() {
     let expected_beta_score = 1.0 / (60.0 + beta.bm25_rank.unwrap() as f32);
     assert!((alpha.score - expected_alpha_score).abs() < 1e-6);
     assert!((beta.score - expected_beta_score).abs() < 1e-6);
+}
+
+#[test]
+fn test_stale_after_expiry_penalizes_decay_and_annotates_snippet() {
+    let cfg = DecayConfig::default();
+
+    let fresh_fm = json!({ "date": "2026-01-01", "stale_after": "2026-12-31" });
+    let expired_fm = json!({ "date": "2026-01-01", "stale_after": "2026-10-01" });
+
+    assert_eq!(
+        compute_decay(
+            HierarchyLevel::L3Evergreen,
+            &fresh_fm,
+            "20_Cards/fresh-card.md",
+            None,
+            TEST_NOW as u64,
+            TEST_NOW,
+            cfg,
+        ),
+        1.0
+    );
+    assert!(
+        (compute_decay(
+            HierarchyLevel::L3Evergreen,
+            &expired_fm,
+            "20_Cards/expired-card.md",
+            None,
+            TEST_NOW as u64,
+            TEST_NOW,
+            cfg,
+        ) - STALE_AFTER_MULTIPLIER)
+            .abs()
+            < 1e-6
+    );
+
+    let mut storage = SqliteStorage::in_memory().unwrap();
+    storage.initialize().unwrap();
+
+    let expired_doc = make_doc(
+        "20_Cards/expired-card.md",
+        "Expired Card",
+        HierarchyLevel::L3Evergreen,
+        expired_fm,
+        TEST_NOW as u64,
+        "Distributed settlement lease renewal protocol guidelines.",
+        vec![],
+    );
+    let fresh_doc = make_doc(
+        "20_Cards/fresh-card.md",
+        "Fresh Card",
+        HierarchyLevel::L3Evergreen,
+        fresh_fm,
+        TEST_NOW as u64,
+        "Distributed settlement lease renewal protocol guidelines.",
+        vec![],
+    );
+    storage.upsert_document(&expired_doc).unwrap();
+    storage.upsert_document(&fresh_doc).unwrap();
+
+    let engine = HybridSearchEngine::new(&storage, None).with_now(TEST_NOW);
+    let hits = engine
+        .search("settlement lease renewal", SearchMode::Hybrid, 5)
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].path, "20_Cards/fresh-card.md");
+    assert_eq!(hits[1].path, "20_Cards/expired-card.md");
+    assert!(hits[0].score > hits[1].score);
+    assert!(
+        hits[1].snippet.starts_with("[STALE since 2026-10-01] "),
+        "expected stale prefix, got: {}",
+        hits[1].snippet
+    );
+    assert!(!hits[0].snippet.starts_with("[STALE"));
 }

@@ -414,6 +414,47 @@ fn clean_diff_path(raw: &str) -> Option<PathBuf> {
 /// Core Sentinel Engine for Living ADR invariant enforcement and diff auditing.
 pub struct GuardEngine;
 
+/// Determines whether a rule should scan raw lines (including comments) rather than stripped code.
+fn should_scan_raw_line(rule: &GuardRule, pat: &str) -> bool {
+    if rule.include_comments {
+        return true;
+    }
+    let pat_upper = pat.to_ascii_uppercase();
+    let id_upper = rule.id.to_ascii_uppercase();
+    pat.contains("//")
+        || pat.contains("/*")
+        || pat.contains("# ")
+        || pat.contains("<<<<<<<")
+        || pat.contains("=======")
+        || pat_upper.contains("PRIVATE KEY")
+        || pat_upper.contains("BEGIN ")
+        || pat_upper.contains("SECRET")
+        || pat_upper.contains("AKIA")
+        || pat_upper.starts_with("GHP_")
+        || pat_upper.starts_with("SK-")
+        || pat_upper.contains("@TS-IGNORE")
+        || pat_upper.contains("@TS-EXPECT-ERROR")
+        || pat_upper.contains("@TS-NOCHECK")
+        || pat_upper.contains("ESLINT-DISABLE")
+        || pat_upper.contains("BIOME-IGNORE")
+        || pat_upper.contains("TYPE: IGNORE")
+        || pat_upper.contains("PYRIGHT: IGNORE")
+        || pat_upper.contains("NOQA")
+        || pat_upper.contains("NOLINT")
+        || pat_upper.contains("TODO(")
+        || pat_upper.contains("FIXME")
+        || pat_upper.contains("WORKAROUND")
+        || pat_upper.contains("HACK")
+        || id_upper.contains("SECRET")
+        || id_upper.contains("TOKEN")
+        || id_upper.contains("KEY")
+        || id_upper.contains("SLOP")
+        || id_upper.contains("COMMENT")
+        || id_upper.contains("SUPPRESS")
+        || id_upper.contains("PII")
+        || id_upper.contains("PRIVACY")
+}
+
 fn parse_hunk_counts(line: &str) -> Option<(usize, usize, usize)> {
     let trimmed = line.trim();
     if !trimmed.starts_with("@@") {
@@ -518,28 +559,11 @@ impl GuardEngine {
                     }
 
                     match &cr.rule.condition {
-                        RuleCondition::Forbidden(_) => {
-                            let pat = match &cr.rule.condition {
-                                RuleCondition::MustContain(p) => p.as_str(),
-                                RuleCondition::Forbidden(p) => p.as_str(),
-                            };
-                            let pat_upper = pat.to_ascii_uppercase();
-                            let id_upper = cr.rule.id.to_ascii_uppercase();
-                            let is_comment_or_conflict_rule = pat.contains("//")
-                                || pat.contains("<<<<<<<")
-                                || pat.contains("=======")
-                                || pat_upper.contains("PRIVATE KEY")
-                                || pat_upper.contains("BEGIN ")
-                                || pat_upper.contains("SECRET")
-                                || pat_upper.contains("AKIA")
-                                || pat_upper.starts_with("GHP_")
-                                || pat_upper.starts_with("SK-")
-                                || id_upper.contains("SECRET")
-                                || id_upper.contains("TOKEN")
-                                || id_upper.contains("KEY");
+                        RuleCondition::Forbidden(pat) => {
+                            let scan_raw = should_scan_raw_line(cr.rule, pat);
 
                             for (line_no, line_content) in added {
-                                let target_text = if is_comment_or_conflict_rule {
+                                let target_text = if scan_raw {
                                     line_content.clone()
                                 } else {
                                     let code_only = strip_code_comment(line_content, file_path);
@@ -736,29 +760,12 @@ impl GuardEngine {
                 }
 
                 match &cr.rule.condition {
-                    RuleCondition::Forbidden(_) => {
-                        let pat = match &cr.rule.condition {
-                            RuleCondition::MustContain(p) => p.as_str(),
-                            RuleCondition::Forbidden(p) => p.as_str(),
-                        };
-                        let pat_upper = pat.to_ascii_uppercase();
-                        let id_upper = cr.rule.id.to_ascii_uppercase();
-                        let is_comment_or_conflict_rule = pat.contains("//")
-                            || pat.contains("<<<<<<<")
-                            || pat.contains("=======")
-                            || pat_upper.contains("PRIVATE KEY")
-                            || pat_upper.contains("BEGIN ")
-                            || pat_upper.contains("SECRET")
-                            || pat_upper.contains("AKIA")
-                            || pat_upper.starts_with("GHP_")
-                            || pat_upper.starts_with("SK-")
-                            || id_upper.contains("SECRET")
-                            || id_upper.contains("TOKEN")
-                            || id_upper.contains("KEY");
+                    RuleCondition::Forbidden(pat) => {
+                        let scan_raw = should_scan_raw_line(cr.rule, pat);
 
                         for (idx, line) in content.lines().enumerate() {
                             let line_no = idx + 1;
-                            let target_text = if is_comment_or_conflict_rule {
+                            let target_text = if scan_raw {
                                 line.to_string()
                             } else {
                                 let code_only = strip_code_comment(line, path);

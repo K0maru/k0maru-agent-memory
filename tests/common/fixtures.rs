@@ -1,4 +1,7 @@
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "shared integration-test fixture helpers are selectively called across test binaries"
+)]
 
 use std::fs;
 use tempfile::TempDir;

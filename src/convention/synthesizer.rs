@@ -11,8 +11,8 @@ pub fn synthesize_markdown(request: &FlushRequest, convention: &VaultConvention)
 
     let today_str = Local::now().date_naive().format("%Y-%m-%d").to_string();
 
-    if let Some(ref tmpl) = convention.template {
-        // Substitute into existing template
+    if let Some(tmpl) = convention.template_for(&request.category) {
+        // Substitute into existing category-matched template
         substitute_template(tmpl, request, &today_str, convention.has_frontmatter)
     } else {
         // Standard structured format
@@ -64,6 +64,8 @@ fn substitute_template(
         ("{{Content}}", request.content.as_str()),
         ("{{date}}", date_str),
         ("{{Date}}", date_str),
+        ("<% tp.file.creation_date(\"YYYY-MM-DD\") %>", date_str),
+        ("<% tp.file.creation_date('YYYY-MM-DD') %>", date_str),
         ("<% tp.date.now(\"YYYY-MM-DD\") %>", date_str),
         ("<% tp.date.now('YYYY-MM-DD') %>", date_str),
         ("<% tp.date.now() %>", date_str),

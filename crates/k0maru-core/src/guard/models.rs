@@ -50,6 +50,8 @@ pub struct GuardRule {
     pub condition: RuleCondition,
     pub severity: RuleSeverity,
     pub remediation: String,
+    #[serde(default)]
+    pub include_comments: bool,
 }
 
 /// An observed violation of a guard invariant rule during diff or file audit.

@@ -485,7 +485,14 @@ pub fn resolve_guard_rules_with_repo(
     // to `status: superseded` while also introducing the violation must still
     // be audited against the ADR that was active at HEAD.
     if let Some(root) = repo_root {
-        collect_head_active_rules(root, vault_path, &scanned, &mut seen, &mut rules);
+        collect_head_active_rules(
+            root,
+            vault_path,
+            active_project_slug.as_deref(),
+            &scanned,
+            &mut seen,
+            &mut rules,
+        );
     }
 
     Ok(rules)
@@ -723,6 +730,7 @@ fn extract_rules_from_config_content(rel_path: &str, content: &str) -> Vec<Guard
 fn collect_head_active_rules(
     repo_root: &Path,
     vault_path: &Path,
+    active_project_slug: Option<&str>,
     scanned: &[(PathBuf, crate::Document, Vec<String>)],
     seen: &mut HashSet<(String, String)>,
     rules: &mut Vec<GuardRule>,
@@ -820,6 +828,18 @@ fn collect_head_active_rules(
         let head_doc = document_from_content(Path::new(&rel_path), &head_content);
         if !head_doc.is_active() {
             continue;
+        }
+
+        if let Some(target_slug) = active_project_slug {
+            let path_lower = vault_rel
+                .to_string_lossy()
+                .replace('\\', "/")
+                .to_lowercase();
+            let segments: Vec<&str> = path_lower.split('/').collect();
+            let head_projects = extract_doc_project_slugs(&head_doc, &segments, &vault_rel);
+            if !head_projects.is_empty() && !head_projects.iter().any(|p| p == target_slug) {
+                continue;
+            }
         }
 
         match find_working_doc(scanned, &vault_rel) {
@@ -1075,11 +1095,8 @@ pub fn run_guard_check_with_global(
         }
     }
 
-    if !vault_path.exists() && args.claude_stop_hook {
-        // An uninitialized repository must never trap the agent.
-        return Ok((GuardReport::new(0, 0, Vec::new(), 0), HashSet::new()));
-    }
-
+    // A repository with its own `.k0maru/guard.toml` / `.k0maru/rules` is fully
+    // functional without a `.k0maru/wiki/` vault.
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let root = resolve_repo_root(&cwd);
     let resolved_global = k0maru_core::storage::federated::resolve_global_vault(
@@ -1093,9 +1110,11 @@ pub fn run_guard_check_with_global(
         resolved_global.as_deref(),
     )?;
 
-    // A repository with its own `.k0maru/guard.toml` / `.k0maru/rules` is fully
-    // functional without a `.k0maru/wiki/` vault.
     if !vault_path.exists() && rules.is_empty() {
+        if args.claude_stop_hook {
+            // An uninitialized repository with no standalone rules must never trap the agent.
+            return Ok((GuardReport::new(0, 0, Vec::new(), 0), HashSet::new()));
+        }
         return Err(format!(
             "[FAIL] Vault path does not exist: '{}'. Run 'k0maru init --install' to initialize this repository.",
             vault_path.display()
