@@ -19,7 +19,10 @@ static INIT_SQLITE_VEC: Once = Once::new();
 /// Registers sqlite-vec as an auto-extension for all new SQLite connections in the current process.
 pub fn ensure_sqlite_vec_registered() {
     INIT_SQLITE_VEC.call_once(|| unsafe {
-        #[allow(clippy::missing_transmute_annotations)]
+        #[allow(
+            clippy::missing_transmute_annotations,
+            reason = "rusqlite FFI sqlite3_auto_extension requires transmuting sqlite_vec_init C function pointer"
+        )]
         rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
             sqlite_vec::sqlite3_vec_init as *const (),
         )));

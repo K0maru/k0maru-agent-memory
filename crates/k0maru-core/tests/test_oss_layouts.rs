@@ -473,6 +473,7 @@ fn guard_exempts_adr_and_wiki_markdown_on_wildcard_rules() {
         condition: RuleCondition::Forbidden("SECRET_PATTERN".to_string()),
         severity: RuleSeverity::Deny,
         remediation: "Use environment secrets.".to_string(),
+        include_comments: false,
     }];
 
     let diff = r#"

@@ -83,6 +83,12 @@ pub fn parse_rule_object(
         .unwrap_or("")
         .to_string();
 
+    let include_comments = obj
+        .get("include_comments")
+        .or_else(|| obj.get("scan_comments"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     // Collects one rule per declared value, suffixing the id when a single
     // declaration lists multiple patterns (arrays or nested condition maps).
     let push_values = |rules: &mut Vec<GuardRule>, values: Vec<String>, is_forbidden: bool| {
@@ -106,6 +112,7 @@ pub fn parse_rule_object(
                 condition,
                 severity,
                 remediation: remediation.clone(),
+                include_comments,
             });
         }
     };
@@ -346,12 +353,15 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
     }
 
     let mut id = String::new();
-    let mut title = String::new();
-    let mut file_pattern = None;
-    let mut severity = RuleSeverity::Deny;
-    let mut must_contain = None;
-    let mut forbidden = None;
-    let mut remediation = String::new();
+    let mut fields = ParsedRuleFields {
+        file_pattern: None,
+        severity: RuleSeverity::Deny,
+        must_contain: None,
+        forbidden: None,
+        remediation: String::new(),
+        title: String::new(),
+        include_comments: false,
+    };
 
     // Check if starts with `[ID]`
     if let Some((id_part, mut after_id)) = take_bracketed(trimmed) {
@@ -363,7 +373,7 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
             if let Some((sev_part, rest_sev)) = after_id[1..].split_once(')') {
                 let s = sev_part.trim().to_lowercase();
                 if s == "warn" || s == "warning" || s == "info" || s == "notice" {
-                    severity = RuleSeverity::Warn;
+                    fields.severity = RuleSeverity::Warn;
                 }
                 after_id = rest_sev.trim();
             }
@@ -372,28 +382,20 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
         // Check for optional `[file_pattern]`
         if after_id.starts_with('[') {
             if let Some((pat_part, rest_pat)) = take_bracketed(after_id) {
-                file_pattern = Some(pat_part.trim().to_string());
+                fields.file_pattern = Some(pat_part.trim().to_string());
                 after_id = rest_pat.trim();
             }
         }
 
         // Parse key-values in after_id (separated by `|` or `,`)
-        parse_key_value_tokens(
-            after_id,
-            &mut file_pattern,
-            &mut severity,
-            &mut must_contain,
-            &mut forbidden,
-            &mut remediation,
-            &mut title,
-        );
-        if must_contain.is_none() && forbidden.is_none() {
+        parse_key_value_tokens(after_id, &mut fields);
+        if fields.must_contain.is_none() && fields.forbidden.is_none() {
             parse_natural_language_tokens(
                 after_id,
-                &mut file_pattern,
-                &mut must_contain,
-                &mut forbidden,
-                &mut remediation,
+                &mut fields.file_pattern,
+                &mut fields.must_contain,
+                &mut fields.forbidden,
+                &mut fields.remediation,
             );
         }
     } else if let Some(rest) = trimmed.strip_prefix("**") {
@@ -410,7 +412,7 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
                 if let Some((sev_part, rest_sev)) = after_clean[1..].split_once(')') {
                     let s = sev_part.trim().to_lowercase();
                     if s == "warn" || s == "warning" || s == "info" || s == "notice" {
-                        severity = RuleSeverity::Warn;
+                        fields.severity = RuleSeverity::Warn;
                     }
                     after_clean = rest_sev.trim_start_matches(':').trim();
                 }
@@ -419,27 +421,19 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
             // Check for optional `[file_pattern]`
             if after_clean.starts_with('[') {
                 if let Some((pat_part, rest_pat)) = take_bracketed(after_clean) {
-                    file_pattern = Some(pat_part.trim().to_string());
+                    fields.file_pattern = Some(pat_part.trim().to_string());
                     after_clean = rest_pat.trim_start_matches(':').trim();
                 }
             }
 
-            parse_key_value_tokens(
-                after_clean,
-                &mut file_pattern,
-                &mut severity,
-                &mut must_contain,
-                &mut forbidden,
-                &mut remediation,
-                &mut title,
-            );
-            if must_contain.is_none() && forbidden.is_none() {
+            parse_key_value_tokens(after_clean, &mut fields);
+            if fields.must_contain.is_none() && fields.forbidden.is_none() {
                 parse_natural_language_tokens(
                     after_clean,
-                    &mut file_pattern,
-                    &mut must_contain,
-                    &mut forbidden,
-                    &mut remediation,
+                    &mut fields.file_pattern,
+                    &mut fields.must_contain,
+                    &mut fields.forbidden,
+                    &mut fields.remediation,
                 );
             }
         }
@@ -468,57 +462,51 @@ pub fn parse_markdown_list_rule(text: &str, source_note: &str) -> Option<Vec<Gua
                 .bytes()
                 .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
             id = format!("RULE-{}-{:04x}", stem, sum & 0xffff);
-            parse_key_value_tokens(
-                trimmed,
-                &mut file_pattern,
-                &mut severity,
-                &mut must_contain,
-                &mut forbidden,
-                &mut remediation,
-                &mut title,
-            );
-            if must_contain.is_none() && forbidden.is_none() {
+            parse_key_value_tokens(trimmed, &mut fields);
+            if fields.must_contain.is_none() && fields.forbidden.is_none() {
                 parse_natural_language_tokens(
                     trimmed,
-                    &mut file_pattern,
-                    &mut must_contain,
-                    &mut forbidden,
-                    &mut remediation,
+                    &mut fields.file_pattern,
+                    &mut fields.must_contain,
+                    &mut fields.forbidden,
+                    &mut fields.remediation,
                 );
             }
         }
     }
 
-    if id.is_empty() || (must_contain.is_none() && forbidden.is_none()) {
+    if id.is_empty() || (fields.must_contain.is_none() && fields.forbidden.is_none()) {
         return None;
     }
 
-    if title.is_empty() {
-        title = id.clone();
+    if fields.title.is_empty() {
+        fields.title = id.clone();
     }
 
     let mut rules = Vec::new();
-    if let Some(must) = must_contain {
+    if let Some(must) = fields.must_contain {
         rules.push(GuardRule {
             id: id.clone(),
-            title: title.clone(),
+            title: fields.title.clone(),
             source_note: source_note.to_string(),
-            file_pattern: file_pattern.clone(),
+            file_pattern: fields.file_pattern.clone(),
             condition: RuleCondition::MustContain(must),
-            severity,
-            remediation: remediation.clone(),
+            severity: fields.severity,
+            remediation: fields.remediation.clone(),
+            include_comments: fields.include_comments,
         });
     }
 
-    if let Some(forbid) = forbidden {
+    if let Some(forbid) = fields.forbidden {
         rules.push(GuardRule {
             id: id.clone(),
-            title: title.clone(),
+            title: fields.title.clone(),
             source_note: source_note.to_string(),
-            file_pattern: file_pattern.clone(),
+            file_pattern: fields.file_pattern.clone(),
             condition: RuleCondition::Forbidden(forbid),
-            severity,
-            remediation: remediation.clone(),
+            severity: fields.severity,
+            remediation: fields.remediation.clone(),
+            include_comments: fields.include_comments,
         });
     }
 
@@ -567,18 +555,22 @@ fn starts_with_rule_key(s: &str) -> bool {
             | "id"
             | "condition"
             | "pattern"
+            | "include_comments"
+            | "scan_comments"
     )
 }
 
-fn parse_key_value_tokens(
-    text: &str,
-    file_pattern: &mut Option<String>,
-    severity: &mut RuleSeverity,
-    must_contain: &mut Option<String>,
-    forbidden: &mut Option<String>,
-    remediation: &mut String,
-    title: &mut String,
-) {
+struct ParsedRuleFields {
+    file_pattern: Option<String>,
+    severity: RuleSeverity,
+    must_contain: Option<String>,
+    forbidden: Option<String>,
+    remediation: String,
+    title: String,
+    include_comments: bool,
+}
+
+fn parse_key_value_tokens(text: &str, fields: &mut ParsedRuleFields) {
     let mut parts: Vec<&str> = Vec::new();
     let mut cur_start = 0;
     let mut in_quote: Option<char> = None;
@@ -615,7 +607,7 @@ fn parse_key_value_tokens(
 
             match key.as_str() {
                 "files" | "file" | "file_pattern" | "scope" | "paths" => {
-                    *file_pattern = Some(val);
+                    fields.file_pattern = Some(val);
                 }
                 "severity" | "level" => {
                     let v_lower = val.to_lowercase();
@@ -624,22 +616,26 @@ fn parse_key_value_tokens(
                         || v_lower == "info"
                         || v_lower == "notice"
                     {
-                        *severity = RuleSeverity::Warn;
+                        fields.severity = RuleSeverity::Warn;
                     } else {
-                        *severity = RuleSeverity::Deny;
+                        fields.severity = RuleSeverity::Deny;
                     }
                 }
                 "must_contain" | "mustcontain" | "must-contain" | "must" | "require" => {
-                    *must_contain = Some(val);
+                    fields.must_contain = Some(val);
                 }
                 "forbidden" | "forbid" | "deny" => {
-                    *forbidden = Some(val);
+                    fields.forbidden = Some(val);
                 }
                 "remediation" | "fix" | "fix_hint" | "description" | "action" => {
-                    *remediation = val;
+                    fields.remediation = val;
                 }
                 "title" => {
-                    *title = val;
+                    fields.title = val;
+                }
+                "include_comments" | "scan_comments" => {
+                    fields.include_comments =
+                        matches!(val.to_lowercase().as_str(), "true" | "1" | "yes");
                 }
                 _ => {}
             }

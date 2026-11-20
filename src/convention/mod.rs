@@ -84,9 +84,38 @@ pub struct VaultConvention {
     pub has_frontmatter: bool,
     /// Discovered template content if available.
     pub template: Option<String>,
+    /// Per-category template contents discovered in template directories.
+    #[serde(default)]
+    pub category_templates: HashMap<String, String>,
 }
 
 impl VaultConvention {
+    /// Resolves the best template for a given category.
+    ///
+    /// When category-specific templates exist, returns only a matching template
+    /// (falling back to standard markdown instead of applying a wrong category's template).
+    /// When only a single generic template was detected, falls back to `self.template`.
+    pub fn template_for(&self, category: &str) -> Option<&str> {
+        let norm_cat = category.trim().to_lowercase();
+        if let Some(t) = self.category_templates.get(&norm_cat) {
+            return Some(t.as_str());
+        }
+        let canonical = NoteCategory::from_str_loose(&norm_cat).as_str();
+        if let Some(t) = self.category_templates.get(canonical) {
+            return Some(t.as_str());
+        }
+        if canonical == "decision" {
+            if let Some(t) = self.category_templates.get("concept") {
+                return Some(t.as_str());
+            }
+        }
+        if self.category_templates.is_empty() {
+            self.template.as_deref()
+        } else {
+            None
+        }
+    }
+
     /// Resolve the relative target subdirectory for a given category.
     /// Defaults to structured subdirectories (`decisions`, `logs`, `projects`, `skills`)
     /// rather than writing directly into the vault root.

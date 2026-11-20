@@ -1110,3 +1110,58 @@ fn test_guard_post_commit_hook_flushes_conventional_commit_log() {
         "the log note must record the commit subject, got: {captured}"
     );
 }
+
+#[test]
+fn test_head_active_rules_respect_project_slug_isolation() {
+    let dir = tempdir().unwrap();
+    let vault = dir.path().join("beta-vault");
+    fs::create_dir_all(vault.join("10_Projects")).unwrap();
+    fs::create_dir_all(vault.join("20_Cards")).unwrap();
+    init_git_repo(&vault);
+
+    let alpha_path = vault.join("10_Projects").join("alpha-project.md");
+    fs::write(
+        &alpha_path,
+        "---\ntitle: Alpha Project\ninvariants:\n  - id: ALPHA-HEAD-001\n    title: Alpha HEAD rule\n    file_pattern: \"*.rs\"\n    forbidden: \"alpha_forbidden_token\"\n    remediation: \"Alpha remedy\"\n---\n# Alpha Project\n",
+    )
+    .unwrap();
+    let global_path = vault.join("20_Cards").join("global-adr.md");
+    fs::write(
+        &global_path,
+        "---\ntitle: Global ADR\ninvariants:\n  - id: GLOBAL-HEAD-001\n    title: Global HEAD rule\n    file_pattern: \"*.rs\"\n    forbidden: \"global_forbidden_token\"\n    remediation: \"Global remedy\"\n---\n# Global ADR\n",
+    )
+    .unwrap();
+    commit_all(&vault, "chore: baseline rules", None);
+
+    // Dirty both files relative to HEAD so `collect_head_active_rules` inspects HEAD revisions.
+    fs::write(
+        &alpha_path,
+        "---\ntitle: Alpha Project\ninvariants:\n  - id: ALPHA-HEAD-001\n    title: Alpha HEAD rule\n    file_pattern: \"*.rs\"\n    forbidden: \"alpha_forbidden_token\"\n    remediation: \"Alpha remedy\"\n---\n# Alpha Project\nEdited locally.\n",
+    )
+    .unwrap();
+    fs::write(
+        &global_path,
+        "---\ntitle: Global ADR\nstatus: archived\n---\nRemoved rule.\n",
+    )
+    .unwrap();
+
+    let beta_rules = k0maru::guard::resolve_guard_rules_with_repo(&vault, None, Some(&vault))
+        .expect("resolve beta-vault guard rules");
+    let beta_ids: Vec<&str> = beta_rules.iter().map(|r| r.id.as_str()).collect();
+    assert!(
+        !beta_ids.contains(&"ALPHA-HEAD-001"),
+        "project-scoped rule from dirty 10_Projects/alpha-project.md must not leak via HEAD into beta-vault, got: {beta_ids:?}"
+    );
+    assert!(
+        beta_ids.contains(&"GLOBAL-HEAD-001"),
+        "global vault HEAD rule must still be enforced, got: {beta_ids:?}"
+    );
+
+    let alpha_rules =
+        k0maru::guard::resolve_guard_rules_with_repo(&vault, Some("alpha-project"), Some(&vault))
+            .expect("resolve alpha-project guard rules");
+    assert!(
+        alpha_rules.iter().any(|r| r.id == "ALPHA-HEAD-001"),
+        "explicit --project alpha-project must include ALPHA-HEAD-001"
+    );
+}

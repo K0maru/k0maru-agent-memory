@@ -27,6 +27,8 @@ pub const DEFAULT_L2_FLOOR: f32 = 0.70;
 pub const ACCESS_REINFORCEMENT_WEIGHT: f32 = 0.15;
 /// Half-life in days for `doc_access` recency attenuation.
 pub const ACCESS_RECENCY_HALF_LIFE_DAYS: f32 = 30.0;
+/// Multiplier applied to documents whose frontmatter `stale_after` date has passed.
+pub const STALE_AFTER_MULTIPLIER: f32 = 0.45;
 
 /// Configuration for tiered exponential temporal decay in [`crate::storage::HybridSearchEngine`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,13 +62,31 @@ pub fn current_unix_timestamp() -> i64 {
         .unwrap_or(0)
 }
 
-/// Computes the tiered temporal decay multiplier `d` in `[floor, 1.0]`.
+/// Returns the declared `stale_after` string if it parses to a valid ISO date
+/// strictly before `now` (i.e. `now >= stale_unix + 86_400`).
+pub fn expired_stale_after_label(frontmatter: &Value, now: i64) -> Option<String> {
+    let raw = frontmatter
+        .get("stale_after")
+        .and_then(|v| v.as_str())?
+        .trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let stale_unix = crate::core::dates::parse_first_iso_date_unix(raw)?;
+    if now >= stale_unix.saturating_add(SECONDS_PER_DAY as i64) {
+        Some(raw.to_string())
+    } else {
+        None
+    }
+}
+
+/// Computes the tiered temporal decay multiplier `d`.
 ///
-/// [`HierarchyLevel::L1Resource`] and [`HierarchyLevel::L3Evergreen`] never decay (`1.0`).
+/// [`HierarchyLevel::L1Resource`] and [`HierarchyLevel::L3Evergreen`] do not time-decay (`1.0`),
+/// unless an explicit `stale_after` deadline in frontmatter has expired (`STALE_AFTER_MULTIPLIER`).
 /// [`HierarchyLevel::L0Ephemeral`] and [`HierarchyLevel::L2Log`] decay toward their configured
 /// floor from the first plausible reference timestamp across frontmatter (`date`, `created`),
-/// file stem ISO date, `git_time`, and `mtime`. Missing or implausible timestamps and
-/// non-positive ages return `1.0`.
+/// file stem ISO date, `git_time`, and `mtime`, further scaled by [`STALE_AFTER_MULTIPLIER`] when expired.
 pub fn compute_decay(
     hierarchy: HierarchyLevel,
     frontmatter: &Value,
@@ -76,8 +96,14 @@ pub fn compute_decay(
     now: i64,
     config: DecayConfig,
 ) -> f32 {
+    let stale_mult = if expired_stale_after_label(frontmatter, now).is_some() {
+        STALE_AFTER_MULTIPLIER
+    } else {
+        1.0
+    };
+
     let (half_life_days, floor) = match hierarchy {
-        HierarchyLevel::L1Resource | HierarchyLevel::L3Evergreen => return 1.0,
+        HierarchyLevel::L1Resource | HierarchyLevel::L3Evergreen => return stale_mult,
         HierarchyLevel::L0Ephemeral => (config.l0_half_life_days, config.l0_floor),
         HierarchyLevel::L2Log => (config.l2_half_life_days, config.l2_floor),
     };
@@ -89,21 +115,21 @@ pub fn compute_decay(
 
     let Some(t_ref) = extract_reference_timestamp(frontmatter, file_stem, git_time, mtime, now)
     else {
-        return 1.0;
+        return stale_mult;
     };
 
     let age_secs = now.saturating_sub(t_ref);
     if age_secs <= 0 {
-        return 1.0;
+        return stale_mult;
     }
 
     let floor = floor.clamp(0.0, 1.0);
     if half_life_days <= 0.0 {
-        return floor;
+        return floor * stale_mult;
     }
 
     let age_days = age_secs as f32 / SECONDS_PER_DAY;
-    (floor + (1.0 - floor) * 2.0f32.powf(-age_days / half_life_days)).clamp(floor, 1.0)
+    (floor + (1.0 - floor) * 2.0f32.powf(-age_days / half_life_days)).clamp(floor, 1.0) * stale_mult
 }
 
 /// Computes the `doc_access` reinforcement multiplier `r` in `[1.0, 1.15]`.

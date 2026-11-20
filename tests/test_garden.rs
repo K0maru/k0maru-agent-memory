@@ -581,3 +581,46 @@ fn test_garden_weave_safety_skips_dirty_symlink_outside_and_stale() {
     assert!(json_val["weave"].get("applied").is_some());
     assert!(json_val["weave"].get("skipped").is_some());
 }
+
+#[test]
+fn test_garden_does_not_flag_k0maruignored_existing_archive_links_as_broken() {
+    let dir = tempdir().unwrap();
+    let vault = dir.path().join("vault");
+
+    write_file(&vault.join(".k0maruignore"), "90_Archive/\n");
+    write_file(
+        &vault.join("90_Archive/01_AI_Logs/2026-07/2026-07-10-archived-session.md"),
+        "---\ndate: 2026-07-10\n---\n# Archived Session\n## Summary\nArchived body.\n",
+    );
+    write_file(
+        &vault.join("01_AI_Logs/2026-07-monthly-rollup.md"),
+        "---\ndate: 2026-07-31\n---\n# July Rollup\n- [[90_Archive/01_AI_Logs/2026-07/2026-07-10-archived-session|July 10]]\n- [[90_Archive/01_AI_Logs/2026-07/2026-07-10-archived-session#Summary|Alias]]\n- [[90_Archive/01_AI_Logs/2026-07/does-not-exist]]\n",
+    );
+
+    let cache_path = vault.join(".k0maru/cache.sqlite");
+    let mut storage = SqliteStorage::open(&cache_path).unwrap();
+    let adapter = k0maru::adapters::ObsidianAdapter::new(&vault);
+    IncrementalScanner::new(&adapter, &mut storage)
+        .sync(false)
+        .unwrap();
+    storage.rebuild_link_edges_if_dirty().unwrap();
+
+    let report = run_garden(&vault, &mut storage, &GardenOptions::default()).unwrap();
+
+    assert!(
+        !report
+            .broken_links
+            .iter()
+            .any(|b| b.target.contains("2026-07-10-archived-session")),
+        "links pointing to existing .k0maruignored archive files on disk must not be flagged as broken: {:?}",
+        report.broken_links
+    );
+    assert!(
+        report
+            .broken_links
+            .iter()
+            .any(|b| b.target.contains("does-not-exist")),
+        "truly missing archive targets must still be flagged as broken: {:?}",
+        report.broken_links
+    );
+}

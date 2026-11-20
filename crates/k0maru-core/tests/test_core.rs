@@ -204,6 +204,7 @@ mod guard_core {
             condition: RuleCondition::Forbidden("unwrap\\(\\)".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Use ? instead of unwrap()".to_string(),
+            include_comments: false,
         };
 
         let serialized = serde_json::to_string(&rule).expect("serialize GuardRule");
@@ -307,6 +308,7 @@ diff --git a/src/payment/settle.go b/src/payment/settle.go
             condition: RuleCondition::Forbidden("execWithoutLock".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Acquire Redis lock before modifying ledger.".to_string(),
+            include_comments: false,
         }];
 
         let report = GuardEngine::check_diff(diff, &rules);
@@ -356,6 +358,7 @@ diff --git a/src/api.rs b/src/api.rs
             condition: RuleCondition::Forbidden("legacy_api()".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "use new api".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(diff, &rules);
         assert_eq!(
@@ -376,6 +379,7 @@ diff --git a/src/api.rs b/src/api.rs
             condition: RuleCondition::Forbidden("legacy_api()".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "use new api".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(diff, &rules);
         assert_eq!(report.violations.len(), 1);
@@ -400,6 +404,7 @@ diff --git a/src/lib.rs b/src/lib.rs
             condition: RuleCondition::MustContain("#![forbid(unsafe_code)]".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Add #![forbid(unsafe_code)]".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(diff, &rules);
         assert_eq!(report.violations.len(), 1);
@@ -423,9 +428,171 @@ diff --git a/.k0maru/wiki/ADR-001.md b/.k0maru/wiki/ADR-001.md
             condition: RuleCondition::Forbidden("legacy_api()".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "use new api".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(diff, &rules);
         assert_eq!(report.violations.len(), 0);
+    }
+
+    #[test]
+    fn test_guard_engine_catches_comment_suppressions_and_excuses() {
+        use std::path::PathBuf;
+
+        let rules = vec![
+            GuardRule {
+                id: "SLOP-TS".to_string(),
+                title: "No TS ignore".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*.{ts,tsx}".to_string()),
+                condition: RuleCondition::Forbidden("@ts-ignore".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Fix type".to_string(),
+                include_comments: false,
+            },
+            GuardRule {
+                id: "SLOP-TS-EXPECT".to_string(),
+                title: "No TS expect error".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*.{ts,tsx}".to_string()),
+                condition: RuleCondition::Forbidden("@ts-expect-error".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Fix contract".to_string(),
+                include_comments: false,
+            },
+            GuardRule {
+                id: "SLOP-ESLINT".to_string(),
+                title: "No eslint-disable".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*.{ts,tsx}".to_string()),
+                condition: RuleCondition::Forbidden("eslint-disable".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Fix lint".to_string(),
+                include_comments: false,
+            },
+            GuardRule {
+                id: "SLOP-PY".to_string(),
+                title: "No type ignore".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*.py".to_string()),
+                condition: RuleCondition::Forbidden("type: ignore".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Annotate type".to_string(),
+                include_comments: false,
+            },
+            GuardRule {
+                id: "SLOP-NOQA".to_string(),
+                title: "No noqa".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*.py".to_string()),
+                condition: RuleCondition::Forbidden("noqa".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Fix ruff lint".to_string(),
+                include_comments: false,
+            },
+            GuardRule {
+                id: "SLOP-WORKAROUND".to_string(),
+                title: "No workaround comment".to_string(),
+                source_note: "20_Cards/adr-044.md".to_string(),
+                file_pattern: Some("src/**/*".to_string()),
+                condition: RuleCondition::Forbidden("TODO(workaround)".to_string()),
+                severity: RuleSeverity::Deny,
+                remediation: "Fix root cause".to_string(),
+                include_comments: false,
+            },
+        ];
+
+        let diff = r#"
+diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1,0 +1,4 @@
++// @ts-ignore
++// @ts-expect-error
++// eslint-disable-next-line
++// TODO(workaround): temporary bypass
+diff --git a/src/worker.py b/src/worker.py
+--- a/src/worker.py
++++ b/src/worker.py
+@@ -1,0 +1,2 @@
++x = bad()  # type: ignore
++y = 1  # noqa
+"#;
+
+        let diff_report = GuardEngine::check_diff(diff, &rules);
+        assert!(!diff_report.is_passed);
+        assert_eq!(diff_report.violations.len(), 6);
+
+        let files = vec![
+            (
+                PathBuf::from("src/app.ts"),
+                "// @ts-ignore\n// @ts-expect-error\n// eslint-disable-next-line\n// TODO(workaround): temp\n".to_string(),
+            ),
+            (
+                PathBuf::from("src/worker.py"),
+                "x = bad()  # type: ignore\ny = 1  # noqa\n".to_string(),
+            ),
+        ];
+        let files_report = GuardEngine::check_files(&files, &rules);
+        assert!(!files_report.is_passed);
+        assert_eq!(files_report.violations.len(), 6);
+    }
+
+    #[test]
+    fn test_guard_engine_include_comments_flag_and_extractors() {
+        use k0maru_core::guard::extractor::parse_rule_object;
+        use serde_json::json;
+
+        let diff = r#"
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,0 +1,1 @@
++// INTERNAL_CODENAME
+"#;
+        let rule_ignored = GuardRule {
+            id: "RULE-CUSTOM".to_string(),
+            title: "No codename".to_string(),
+            source_note: "ADR-099.md".to_string(),
+            file_pattern: Some("src/**/*.rs".to_string()),
+            condition: RuleCondition::Forbidden("INTERNAL_CODENAME".to_string()),
+            severity: RuleSeverity::Deny,
+            remediation: "Remove codename".to_string(),
+            include_comments: false,
+        };
+        assert_eq!(
+            GuardEngine::check_diff(diff, &[rule_ignored])
+                .violations
+                .len(),
+            0
+        );
+
+        let md_rules = parse_markdown_list_rule(
+            r#"- [RULE-CUSTOM] (deny) [src/**/*.rs] forbidden: "INTERNAL_CODENAME" | include_comments: true | remediation: "Remove codename""#,
+            "20_Cards/ADR-099.md",
+        )
+        .expect("parsed markdown rule");
+        assert_eq!(md_rules.len(), 1);
+        assert!(md_rules[0].include_comments);
+        assert_eq!(GuardEngine::check_diff(diff, &md_rules).violations.len(), 1);
+
+        let obj = json!({
+            "id": "RULE-OBJ",
+            "file_pattern": "src/**/*.rs",
+            "forbidden": "INTERNAL_CODENAME",
+            "include_comments": true,
+            "remediation": "Remove codename"
+        });
+        let obj_rules = parse_rule_object(
+            obj.as_object().expect("json object"),
+            "DEFAULT".to_string(),
+            "guard.toml",
+        );
+        assert_eq!(obj_rules.len(), 1);
+        assert!(obj_rules[0].include_comments);
+        assert_eq!(
+            GuardEngine::check_diff(diff, &obj_rules).violations.len(),
+            1
+        );
     }
 }
 
@@ -493,6 +660,7 @@ mod round2_adversarial_tests {
             condition: RuleCondition::Forbidden("legacy_api()".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "use new api".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(&diff, &rules);
         assert_eq!(report.violations.len(), 1);
@@ -552,6 +720,7 @@ mod round2_adversarial_tests {
                 condition: RuleCondition::Forbidden("[DEBUG]".to_string()),
                 severity: RuleSeverity::Deny,
                 remediation: "remove debug".to_string(),
+                include_comments: false,
             },
             GuardRule {
                 id: "RX-UNSAFE".to_string(),
@@ -561,6 +730,7 @@ mod round2_adversarial_tests {
                 condition: RuleCondition::Forbidden("config.unsafe_mode".to_string()),
                 severity: RuleSeverity::Deny,
                 remediation: "fix config".to_string(),
+                include_comments: false,
             },
             GuardRule {
                 id: "RX-OLD-FN".to_string(),
@@ -570,6 +740,7 @@ mod round2_adversarial_tests {
                 condition: RuleCondition::Forbidden("old_fn".to_string()),
                 severity: RuleSeverity::Deny,
                 remediation: "use new_fn".to_string(),
+                include_comments: false,
             },
         ];
 
@@ -637,6 +808,7 @@ mod round2_adversarial_tests {
             condition: RuleCondition::Forbidden("eval(code)".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "do not use eval".to_string(),
+            include_comments: false,
         }];
         let report = GuardEngine::check_diff(&diff, &rules);
         assert_eq!(report.violations.len(), 1);
@@ -720,6 +892,7 @@ mod round3_prerelease_audit_tests {
             condition: RuleCondition::Forbidden(r"AKIA[0-9A-Z]{16}".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Remove hardcoded AWS key".to_string(),
+            include_comments: false,
         };
 
         let diff_hit = "diff --git a/config.rs b/config.rs\n--- a/config.rs\n+++ b/config.rs\n@@ -1,2 +1,2 @@\n-let x = 1;\n+let key = \"AKIAIOSFODNN7EXAMPLE\";\n";
@@ -742,6 +915,7 @@ mod round3_prerelease_audit_tests {
             condition: RuleCondition::Forbidden("legacy_call()".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Use new_call instead".to_string(),
+            include_comments: false,
         };
 
         let diff_with_args = "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n+legacy_call(42);\n";
@@ -767,6 +941,7 @@ mod round3_prerelease_audit_tests {
             condition: RuleCondition::Forbidden("DISALLOWED_FLAG".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Remove disallowed flag".to_string(),
+            include_comments: false,
         };
 
         // In Python, `//` is floor division, not a comment; code after `//` must NOT be stripped.
@@ -786,6 +961,7 @@ mod round3_prerelease_audit_tests {
             condition: RuleCondition::Forbidden("DISALLOWED_API".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Remove disallowed API".to_string(),
+            include_comments: false,
         };
 
         // Unified diff with an empty string line inside hunk context (without leading space)
@@ -805,6 +981,7 @@ mod round3_prerelease_audit_tests {
             condition: RuleCondition::MustContain("// HEADER".to_string()),
             severity: RuleSeverity::Deny,
             remediation: "Add header".to_string(),
+            include_comments: false,
         };
 
         let diff = "diff --git a/src/obsolete.rs b/src/obsolete.rs\ndeleted file mode 100644\n--- a/src/obsolete.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-// HEADER\n-let x = 1;\n";
